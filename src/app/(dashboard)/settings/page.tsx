@@ -4,37 +4,24 @@ import { useEffect, useMemo, useState, type ComponentType } from 'react'
 import * as Tabs from '@radix-ui/react-tabs'
 import {
   Building2,
-  CalendarClock,
+  CheckCircle2,
   CreditCard,
-  FileText,
   KeyRound,
   Loader2,
   Package,
+  Receipt,
   Shield,
-  Trash2,
-  UserPlus,
-  Users,
+  TrendingUp,
+  X,
+  Zap,
 } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
-import { resolveTenantId } from '@/hooks/useTenant'
-import { ZRECIPE_PRO } from '@/lib/stripe/plans'
-import {
-  getEffectiveSubscriptionStatus,
-  getTrialEndsAt,
-  type TenantSubscriptionStatus,
-} from '@/lib/tenant'
+import { clearTenantCache, resolveTenantContext } from '@/hooks/useTenant'
+import { TRIAL_PERIOD_DAYS, getEffectiveSubscriptionStatus } from '@/lib/tenant'
+import { FREE_LIMITS } from '@/lib/subscription/limits'
 import { cn } from '@/lib/utils'
-
-type TeamMember = {
-  id: string
-  userId: string
-  email: string | null
-  role: 'owner' | 'admin' | 'member' | 'viewer'
-  createdAt: string
-  isOwner: boolean
-}
 
 type TenantSettings = {
   id: string
@@ -49,232 +36,477 @@ type TenantSettings = {
   created_at: string
 }
 
-type UsageStats = {
-  recipes: number
-  ingredients: number
-  invoices: number
-}
+type UsageStats = { recipes: number; ingredients: number; invoices: number }
 
-const TABS = ['account', 'billing', 'team'] as const
+const TABS = ['account', 'billing'] as const
 type SettingsTab = (typeof TABS)[number]
 
-function statusTone(status: TenantSubscriptionStatus | string) {
-  switch (status) {
-    case 'active':
-      return 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-    case 'trialing':
-      return 'bg-blue-50 text-blue-700 ring-blue-200'
-    case 'past_due':
-      return 'bg-amber-50 text-amber-700 ring-amber-200'
-    case 'canceled':
-    case 'inactive':
-    default:
-      return 'bg-red-50 text-red-700 ring-red-200'
-  }
-}
-
-function roleTone(role: TeamMember['role']) {
-  switch (role) {
-    case 'owner':
-      return 'bg-slate-900 text-white'
-    case 'admin':
-      return 'bg-emerald-50 text-emerald-700'
-    case 'member':
-      return 'bg-blue-50 text-blue-700'
-    case 'viewer':
-    default:
-      return 'bg-slate-100 text-slate-600'
-  }
-}
-
-function formatDate(value?: string | null) {
+function fmt(value?: string | null) {
   if (!value) return '—'
   return new Intl.DateTimeFormat('en-IE', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
+    day: '2-digit', month: 'short', year: 'numeric',
   }).format(new Date(value))
 }
 
-function statCard({
-  label,
-  value,
-  icon: Icon,
+// ── Subscription status card ───────────────────────────────────────────────
+
+function TrialingCard({
+  tenant,
+  onSubscribe,
+  busy,
 }: {
-  label: string
-  value: number | string
-  icon: ComponentType<{ className?: string }>
+  tenant: TenantSettings
+  onSubscribe: () => void
+  busy: boolean
+}) {
+  const trialStart  = new Date(tenant.created_at).getTime()
+  const trialEnd    = trialStart + TRIAL_PERIOD_DAYS * 86_400_000
+  const now         = Date.now()
+  const daysUsed    = Math.min(TRIAL_PERIOD_DAYS, Math.floor((now - trialStart) / 86_400_000))
+  const daysLeft    = Math.max(0, TRIAL_PERIOD_DAYS - daysUsed)
+  const pct         = Math.round((daysUsed / TRIAL_PERIOD_DAYS) * 100)
+
+  return (
+    <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-600 p-6 text-white shadow-lg shadow-emerald-200">
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-3 py-1 text-xs font-semibold uppercase tracking-wider">
+            <Zap className="h-3.5 w-3.5" />
+            Free Trial
+          </div>
+          <h2 className="mt-3 text-2xl font-bold">You&apos;re on your free trial</h2>
+          <p className="mt-1 text-sm text-emerald-100">
+            Full Pro access until {fmt(new Date(trialEnd).toISOString())}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-3xl font-bold">{daysLeft}</p>
+          <p className="text-sm text-emerald-100">days left</p>
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="mt-5">
+        <div className="mb-1.5 flex justify-between text-xs text-emerald-100">
+          <span>Day {daysUsed}</span>
+          <span>Day {TRIAL_PERIOD_DAYS}</span>
+        </div>
+        <div className="h-2 rounded-full bg-white/25">
+          <div
+            className="h-2 rounded-full bg-white transition-all"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+
+      <button
+        onClick={onSubscribe}
+        disabled={busy}
+        className="mt-5 inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-60"
+      >
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+        Subscribe now to keep full access
+      </button>
+    </div>
+  )
+}
+
+function ActiveCard({
+  tenant,
+  onManage,
+  busy,
+}: {
+  tenant: TenantSettings
+  onManage: () => void
+  busy: boolean
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-900 shadow-sm ring-1 ring-slate-200">
-          <Icon className="h-4 w-4" />
-        </div>
+    <div className="overflow-hidden rounded-2xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
+      <div className="flex items-start justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-            {label}
+          <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Active
+          </div>
+          <h2 className="mt-3 text-2xl font-bold text-slate-900">ZRecipe Pro — Active</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            {tenant.subscription_current_period_end
+              ? `Next billing date: ${fmt(tenant.subscription_current_period_end)}`
+              : 'Your subscription is active and all features are unlocked.'}
           </p>
-          <p className="mt-1 text-xl font-semibold text-slate-900">{value}</p>
         </div>
+        <CheckCircle2 className="h-10 w-10 shrink-0 text-emerald-500" />
+      </div>
+      <button
+        onClick={onManage}
+        disabled={busy}
+        className="mt-5 inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-white px-5 py-2.5 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-60"
+      >
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+        Manage Subscription
+      </button>
+    </div>
+  )
+}
+
+function InactiveCard({
+  status,
+  onReactivate,
+  busy,
+}: {
+  status: string
+  onReactivate: () => void
+  busy: boolean
+}) {
+  const isPastDue = status === 'past_due'
+  return (
+    <div className={cn(
+      'overflow-hidden rounded-2xl border p-6 shadow-sm',
+      isPastDue
+        ? 'border-amber-200 bg-amber-50'
+        : 'border-red-200 bg-red-50'
+    )}>
+      <div className="flex items-start justify-between">
+        <div>
+          <div className={cn(
+            'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wider',
+            isPastDue ? 'bg-amber-600 text-white' : 'bg-red-600 text-white'
+          )}>
+            <X className="h-3.5 w-3.5" />
+            {isPastDue ? 'Payment Failed' : 'Subscription Ended'}
+          </div>
+          <h2 className="mt-3 text-2xl font-bold text-slate-900">
+            {isPastDue ? 'Your payment failed' : 'Your subscription has ended'}
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            {isPastDue
+              ? 'Update your payment method to restore full access.'
+              : 'Reactivate your plan to unlock all features again.'}
+          </p>
+        </div>
+      </div>
+      <button
+        onClick={onReactivate}
+        disabled={busy}
+        className={cn(
+          'mt-5 inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60',
+          isPastDue ? 'bg-amber-600 hover:bg-amber-500' : 'bg-emerald-600 hover:bg-emerald-500'
+        )}
+      >
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+        {isPastDue ? 'Update Payment Method' : 'Reactivate Subscription'}
+      </button>
+    </div>
+  )
+}
+
+// ── Plan comparison ───────────────────────────────────────────────────────
+
+const FREE_FEATURES = [
+  { text: `${FREE_LIMITS.maxRecipes} recipes max`,    included: false },
+  { text: 'Invoice import',                           included: false },
+  { text: 'Delete recipes',                           included: false },
+  { text: 'Basic recipe costing',                     included: true  },
+]
+
+const PRO_FEATURES = [
+  { text: 'Unlimited recipes',          included: true },
+  { text: 'Invoice import (PDF, CSV)',  included: true },
+  { text: 'Full recipe management',     included: true },
+  { text: 'PDF export with costs',      included: true },
+  { text: 'Price history tracking',     included: true },
+  { text: 'Priority support',           included: true },
+]
+
+function FeatureRow({ text, included }: { text: string; included: boolean }) {
+  return (
+    <li className="flex items-center gap-2.5 py-2 text-sm">
+      {included ? (
+        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+      ) : (
+        <X className="h-4 w-4 shrink-0 text-slate-300" />
+      )}
+      <span className={included ? 'text-slate-700' : 'text-slate-400 line-through'}>
+        {text}
+      </span>
+    </li>
+  )
+}
+
+function PlanComparison({ onUpgrade, busy }: { onUpgrade: () => void; busy: boolean }) {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      {/* Free */}
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+        <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Free</p>
+        <p className="mt-1 text-2xl font-bold text-slate-400">€0</p>
+        <p className="text-sm text-slate-400">/month</p>
+        <ul className="mt-4 divide-y divide-slate-200">
+          {FREE_FEATURES.map((f) => <FeatureRow key={f.text} {...f} />)}
+        </ul>
+      </div>
+
+      {/* Pro */}
+      <div className="rounded-2xl border-2 border-emerald-500 bg-white p-5 shadow-md shadow-emerald-100">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-widest text-emerald-600">Pro</p>
+          <span className="rounded-full bg-emerald-600 px-2.5 py-0.5 text-xs font-semibold text-white">
+            Recommended
+          </span>
+        </div>
+        <p className="mt-1 text-2xl font-bold text-slate-900">€25</p>
+        <p className="text-sm text-slate-500">/month</p>
+        <ul className="mt-4 divide-y divide-slate-100">
+          {PRO_FEATURES.map((f) => <FeatureRow key={f.text} {...f} />)}
+        </ul>
+        <button
+          onClick={onUpgrade}
+          disabled={busy}
+          className="mt-5 w-full rounded-full bg-emerald-600 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-60"
+        >
+          {busy ? 'Redirecting…' : 'Get Pro'}
+        </button>
       </div>
     </div>
   )
 }
 
+// ── Usage stat card ───────────────────────────────────────────────────────
+
+function UsageStat({
+  label, value, max, icon: Icon,
+}: {
+  label: string
+  value: number
+  max?: number
+  icon: ComponentType<{ className?: string }>
+}) {
+  const showBar = max !== undefined && max !== Infinity
+  const pct     = showBar ? Math.min(100, Math.round((value / max) * 100)) : 0
+  const atLimit = showBar && value >= max
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+          <Icon className="h-5 w-5" />
+        </div>
+        <div className="flex-1">
+          <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">{label}</p>
+          <p className="mt-0.5 text-2xl font-bold text-slate-900">
+            {value}
+            {max !== undefined && max !== Infinity && (
+              <span className="text-base font-normal text-slate-400"> / {max}</span>
+            )}
+          </p>
+        </div>
+      </div>
+      {showBar && (
+        <div className="mt-3">
+          <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+            <div
+              className={cn('h-1.5 rounded-full transition-all', atLimit ? 'bg-red-500' : 'bg-emerald-500')}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          {atLimit && (
+            <p className="mt-1 text-xs text-red-600 font-medium">Limit reached — upgrade to add more</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────
+
 export default function SettingsPage() {
   const router = useRouter()
-  const [tenant, setTenant] = useState<TenantSettings | null>(null)
-  const [usage, setUsage] = useState<UsageStats>({ recipes: 0, ingredients: 0, invoices: 0 })
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
-  const [currentUserEmail, setCurrentUserEmail] = useState<string>('')
-  const [currentUserRole, setCurrentUserRole] = useState<TeamMember['role']>('member')
-  const [loading, setLoading] = useState(true)
+  const searchParams = useSearchParams()
+  const [tenant, setTenant]           = useState<TenantSettings | null>(null)
+  const [usage, setUsage]             = useState<UsageStats>({ recipes: 0, ingredients: 0, invoices: 0 })
+  const [loading, setLoading]         = useState(true)
   const [savingAccount, setSavingAccount] = useState(false)
   const [savingPassword, setSavingPassword] = useState(false)
   const [billingBusy, setBillingBusy] = useState(false)
-  const [inviteBusy, setInviteBusy] = useState(false)
+  const [checkoutState, setCheckoutState] = useState<'idle' | 'polling' | 'confirmed' | 'timeout'>('idle')
   const [accountName, setAccountName] = useState('')
   const [businessType, setBusinessType] = useState('')
+  const [currentUserEmail, setCurrentUserEmail] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState<TeamMember['role']>('member')
-  const [tab, setTab] = useState<SettingsTab>('account')
+  const [tab, setTab]                 = useState<SettingsTab>('account')
 
-  const tenantTrialStatus = useMemo(() => {
+  const isCheckoutSuccess =
+    searchParams.get('tab') === 'billing' && searchParams.get('success') === 'true'
+
+  const subStatus = useMemo(() => {
     if (!tenant) return 'inactive'
     return getEffectiveSubscriptionStatus(tenant.subscription_status, tenant.created_at)
   }, [tenant])
 
-  const nextBillingDate = useMemo(() => {
-    if (tenant?.subscription_current_period_end) {
-      return tenant.subscription_current_period_end
-    }
+  const hasFullAccess = subStatus === 'active' || subStatus === 'trialing'
 
-    if (tenant?.subscription_status === 'trialing') {
-      return getTrialEndsAt(tenant.created_at).toISOString()
-    }
-
-    return null
-  }, [tenant])
-
+  // ── URL params: tab + notice toasts ─────────────────────────────────────
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const queryTab = params.get('tab')
     if (queryTab && TABS.includes(queryTab as SettingsTab)) {
       setTab(queryTab as SettingsTab)
     }
-
     const notice = params.get('notice')
-    if (!notice) return
-
-    if (notice === 'checkout_success') {
-      toast.success('Subscription checkout completed')
-    } else if (notice === 'checkout_canceled') {
-      toast('Subscription checkout canceled')
-    } else if (notice === 'subscription_locked') {
-      toast.error('Your subscription needs attention to continue.')
+    if (notice === 'checkout_canceled') toast('Checkout canceled')
+    if (notice)  {
+      params.delete('notice')
+      router.replace(`/settings?${params.toString()}`)
     }
-
-    params.delete('notice')
-    params.set('tab', queryTab && TABS.includes(queryTab as SettingsTab) ? queryTab : tab)
-    router.replace(`/settings?${params.toString()}`)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    if (!isCheckoutSuccess) return
+
+    let cancelled = false
+    let timeoutId: number | undefined
+    const startedAt = Date.now()
+
+    const pollTenantStatus = async () => {
+      if (cancelled) return
+
+      try {
+        const response = await fetch('/api/auth/tenant', { cache: 'no-store' })
+        if (!response.ok) {
+          throw new Error('Tenant lookup failed')
+        }
+
+        const payload = (await response.json()) as {
+          tenant?: {
+            subscriptionStatus?: string | null
+            stripeCustomerId?: string | null
+            subscriptionCurrentPeriodEnd?: string | null
+            subscriptionTrialEnd?: string | null
+            plan?: string | null
+          }
+        }
+
+        if (payload.tenant?.subscriptionStatus === 'active') {
+          clearTenantCache()
+          setTenant((current) =>
+            current
+              ? {
+                  ...current,
+                  subscription_status: 'active',
+                  stripe_customer_id:
+                    payload.tenant?.stripeCustomerId ?? current.stripe_customer_id,
+                  subscription_current_period_end:
+                    payload.tenant?.subscriptionCurrentPeriodEnd ??
+                    current.subscription_current_period_end,
+                  subscription_trial_end:
+                    payload.tenant?.subscriptionTrialEnd ?? current.subscription_trial_end,
+                  plan: payload.tenant?.plan ?? current.plan,
+                }
+              : current
+          )
+          setCheckoutState('confirmed')
+          router.replace('/settings?tab=billing')
+          return
+        }
+      } catch {
+        // Keep polling until the webhook lands or the timeout is reached.
+      }
+
+      if (cancelled) return
+
+      if (Date.now() - startedAt >= 30_000) {
+        setCheckoutState('timeout')
+        router.replace('/settings?tab=billing')
+        return
+      }
+
+      timeoutId = window.setTimeout(pollTenantStatus, 2000)
+    }
+
+    setCheckoutState('polling')
+    pollTenantStatus()
+
+    return () => {
+      cancelled = true
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId)
+      }
+    }
+  }, [isCheckoutSuccess, router])
+
+  // ── Data load ────────────────────────────────────────────────────────────
   useEffect(() => {
     const load = async () => {
       try {
         setLoading(true)
         const supabase = createClient()
-        const [{ data: userData }, tenantId] = await Promise.all([
+
+        // Use resolveTenantContext() — calls /api/auth/tenant which uses the
+        // service-role client, bypassing any RLS that blocks direct queries.
+        // This avoids the anon-client tenants query that may fail due to RLS.
+        const [{ data: authData }, ctx] = await Promise.all([
           supabase.auth.getUser(),
-          resolveTenantId(),
+          resolveTenantContext(),
         ])
 
-        const user = userData.user
-        setCurrentUserEmail(user?.email ?? '')
+        setCurrentUserEmail(authData.user?.email ?? '')
 
-        const { data: tenantRow, error: tenantError } = await supabase
-          .from('tenants')
-          .select(
-            'id, name, business_type, owner_email, plan, subscription_status, stripe_customer_id, subscription_current_period_end, subscription_trial_end, created_at'
-          )
-          .eq('id', tenantId)
-          .maybeSingle()
-
-        if (tenantError || !tenantRow) {
-          throw tenantError ?? new Error('Unable to load tenant settings')
+        // Map camelCase TenantContext to the snake_case TenantSettings shape
+        const tenantRow: TenantSettings = {
+          id:                             ctx.tenantId,
+          name:                           ctx.tenant.name,
+          business_type:                  ctx.tenant.businessType ?? null,
+          owner_email:                    ctx.tenant.ownerEmail ?? null,
+          plan:                           ctx.tenant.plan ?? null,
+          subscription_status:            ctx.tenant.subscriptionStatus ?? null,
+          stripe_customer_id:             ctx.tenant.stripeCustomerId ?? null,
+          subscription_current_period_end: ctx.tenant.subscriptionCurrentPeriodEnd ?? null,
+          subscription_trial_end:         ctx.tenant.subscriptionTrialEnd ?? null,
+          created_at:                     ctx.tenant.createdAt,
         }
 
-        const { count: recipeCount } = await supabase
-          .from('recipes')
-          .select('id', { count: 'exact', head: true })
-          .eq('tenant_id', tenantId)
-
-        const { count: ingredientCount } = await supabase
-          .from('ingredients')
-          .select('id', { count: 'exact', head: true })
-          .eq('tenant_id', tenantId)
-
-        const { count: invoiceCount } = await supabase
-          .from('invoices')
-          .select('id', { count: 'exact', head: true })
-          .eq('tenant_id', tenantId)
-
-        setTenant(tenantRow as TenantSettings)
+        setTenant(tenantRow)
         setAccountName(tenantRow.name)
         setBusinessType(tenantRow.business_type ?? '')
-        setUsage({
-          recipes: recipeCount ?? 0,
-          ingredients: ingredientCount ?? 0,
-          invoices: invoiceCount ?? 0,
-        })
 
-        const teamResponse = await fetch('/api/team')
-        if (teamResponse.ok) {
-          const payload = (await teamResponse.json()) as {
-            members: TeamMember[]
-            currentUserRole: TeamMember['role']
-          }
-          setTeamMembers(payload.members)
-          setCurrentUserRole(payload.currentUserRole)
-        }
+        // Usage counts — these are simple row counts on other tables.
+        // Errors here are non-fatal; we just show 0.
+        const [{ count: rc }, { count: ic }, { count: inv }] = await Promise.all([
+          supabase.from('recipes').select('id', { count: 'exact', head: true }).eq('tenant_id', ctx.tenantId),
+          supabase.from('ingredients').select('id', { count: 'exact', head: true }).eq('tenant_id', ctx.tenantId),
+          supabase.from('invoices').select('id', { count: 'exact', head: true }).eq('tenant_id', ctx.tenantId),
+        ])
+
+        setUsage({ recipes: rc ?? 0, ingredients: ic ?? 0, invoices: inv ?? 0 })
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Unable to load settings')
       } finally {
         setLoading(false)
       }
     }
-
     load()
   }, [])
 
+  // ── Handlers ─────────────────────────────────────────────────────────────
   const handleAccountSave = async () => {
     if (!tenant) return
     try {
       setSavingAccount(true)
-      const supabase = createClient()
-      const { error } = await supabase
-        .from('tenants')
-        .update({
-          name: accountName,
-          business_type: businessType || null,
-        })
-        .eq('id', tenant.id)
-
-      if (error) throw error
-
-      setTenant((current) =>
-        current
-          ? {
-              ...current,
-              name: accountName,
-              business_type: businessType || null,
-            }
-          : current
-      )
+      // Use the server-side API so the update runs with the service-role
+      // client and isn't blocked by RLS.
+      const res = await fetch('/api/auth/tenant', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: accountName, businessType: businessType || null }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error((body as { error?: string }).error ?? 'Unable to update account')
+      }
+      setTenant((t) => t ? { ...t, name: accountName, business_type: businessType || null } : t)
       toast.success('Account updated')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Unable to update account')
@@ -284,23 +516,14 @@ export default function SettingsPage() {
   }
 
   const handlePasswordChange = async () => {
-    if (newPassword.length < 8) {
-      toast.error('Password must be at least 8 characters')
-      return
-    }
-
-    if (newPassword !== confirmPassword) {
-      toast.error('Passwords do not match')
-      return
-    }
-
+    if (newPassword.length < 8) { toast.error('Password must be at least 8 characters'); return }
+    if (newPassword !== confirmPassword) { toast.error('Passwords do not match'); return }
     try {
       setSavingPassword(true)
       const supabase = createClient()
       const { error } = await supabase.auth.updateUser({ password: newPassword })
       if (error) throw error
-      setNewPassword('')
-      setConfirmPassword('')
+      setNewPassword(''); setConfirmPassword('')
       toast.success('Password updated')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Unable to change password')
@@ -309,117 +532,63 @@ export default function SettingsPage() {
     }
   }
 
-  const handleSubscriptionAction = async () => {
+  const handleBillingAction = async (forceCheckout = false) => {
     try {
       setBillingBusy(true)
-      const endpoint = tenant?.stripe_customer_id ? '/api/billing/portal' : '/api/billing/checkout'
-      const response = await fetch(endpoint, { method: 'POST' })
-      const payload = await response.json()
+      const isManage = !forceCheckout && !!tenant?.stripe_customer_id && subStatus === 'active'
+      const endpoint = isManage ? '/api/billing/portal' : '/api/billing/checkout'
 
-      if (!response.ok) {
-        throw new Error(payload.message ?? 'Unable to open billing portal')
+      const res = await fetch(endpoint, { method: 'POST' })
+      let payload: { url?: string; message?: string }
+      try {
+        payload = await res.json()
+      } catch {
+        throw new Error('Server returned an invalid response. Check the terminal logs.')
       }
 
-      if (payload.url) {
-        window.location.assign(payload.url as string)
-      } else {
-        throw new Error('Missing billing portal URL')
-      }
+      if (!res.ok) throw new Error(payload.message ?? 'Unable to open billing page')
+      if (!payload.url) throw new Error('No redirect URL returned')
+
+      window.location.assign(payload.url)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Unable to open billing portal')
+      toast.error(err instanceof Error ? err.message : 'Unable to open billing page')
     } finally {
       setBillingBusy(false)
     }
   }
 
-  const refreshTeam = async () => {
-    const response = await fetch('/api/team')
-    if (!response.ok) return
-    const payload = (await response.json()) as {
-      members: TeamMember[]
-      currentUserRole: TeamMember['role']
-    }
-    setTeamMembers(payload.members)
-    setCurrentUserRole(payload.currentUserRole)
-  }
-
-  const handleInvite = async () => {
-    try {
-      setInviteBusy(true)
-      const response = await fetch('/api/team', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: inviteEmail, role: inviteRole }),
-      })
-      const payload = await response.json()
-
-      if (!response.ok) {
-        throw new Error(payload.message ?? 'Unable to invite member')
-      }
-
-      setInviteEmail('')
-      setInviteRole('member')
-      await refreshTeam()
-      toast.success('Invitation sent')
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Unable to invite member')
-    } finally {
-      setInviteBusy(false)
-    }
-  }
-
-  const handleRemoveMember = async (member: TeamMember) => {
-    const confirmed = window.confirm(`Remove ${member.email ?? 'this member'}?`)
-    if (!confirmed) return
-
-    try {
-      const response = await fetch(`/api/team/${member.id}`, { method: 'DELETE' })
-      const payload = await response.json()
-      if (!response.ok) {
-        throw new Error(payload.message ?? 'Unable to remove member')
-      }
-
-      await refreshTeam()
-      toast.success('Member removed')
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Unable to remove member')
-    }
-  }
-
-  const planLabel = `${tenant?.plan === 'free' ? 'ZRecipe Pro' : 'ZRecipe Pro'} — €${(
-    ZRECIPE_PRO.amount / 100
-  ).toFixed(0)}/month`
-
+  // ── Loading skeleton ──────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="h-10 w-64 animate-pulse rounded-full bg-slate-100" />
-        <div className="h-[34rem] animate-pulse rounded-3xl bg-slate-100" />
+        <div className="h-10 w-56 animate-pulse rounded-full bg-slate-100" />
+        <div className="h-12 w-48 animate-pulse rounded-full bg-slate-100" />
+        <div className="h-64 animate-pulse rounded-2xl bg-slate-100" />
+        <div className="h-48 animate-pulse rounded-2xl bg-slate-100" />
       </div>
     )
   }
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div>
         <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
           <Shield className="h-3.5 w-3.5" />
           Settings
         </div>
         <h1 className="mt-3 font-display text-3xl font-semibold text-slate-900">Settings</h1>
-        <p className="mt-2 max-w-2xl text-sm text-slate-500">
-          Manage your account, billing, and team from one place.
-        </p>
+        <p className="mt-2 text-sm text-slate-500">Manage your account and subscription.</p>
       </div>
 
-        <Tabs.Root
-          value={tab}
-          onValueChange={(value) => {
-            const next = value as SettingsTab
-            setTab(next)
-            router.replace(`/settings?tab=${next}`)
-          }}
-        >
+      <Tabs.Root
+        value={tab}
+        onValueChange={(v) => {
+          const next = v as SettingsTab
+          setTab(next)
+          router.replace(`/settings?tab=${next}`)
+        }}
+      >
         <Tabs.List className="inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm">
           <Tabs.Trigger
             value="account"
@@ -433,17 +602,12 @@ export default function SettingsPage() {
           >
             Billing
           </Tabs.Trigger>
-          <Tabs.Trigger
-            value="team"
-            className="rounded-full px-4 py-2 text-sm font-medium text-slate-500 transition data-[state=active]:bg-emerald-600 data-[state=active]:text-white"
-          >
-            Team
-          </Tabs.Trigger>
         </Tabs.List>
 
+        {/* ── Account tab ──────────────────────────────────────────────── */}
         <Tabs.Content value="account" className="mt-6 space-y-6">
           <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-            <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
                   <Building2 className="h-5 w-5" />
@@ -453,55 +617,44 @@ export default function SettingsPage() {
                   <p className="text-sm text-slate-500">Update your workspace information.</p>
                 </div>
               </div>
-
               <div className="mt-5 space-y-4">
                 <label className="block">
-                  <span className="mb-1.5 block text-sm font-medium text-slate-700">
-                    Business name
-                  </span>
+                  <span className="mb-1.5 block text-sm font-medium text-slate-700">Business name</span>
                   <input
                     value={accountName}
-                    onChange={(event) => setAccountName(event.target.value)}
+                    onChange={(e) => setAccountName(e.target.value)}
                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500"
                   />
                 </label>
-
                 <label className="block">
-                  <span className="mb-1.5 block text-sm font-medium text-slate-700">
-                    Business type
-                  </span>
+                  <span className="mb-1.5 block text-sm font-medium text-slate-700">Business type</span>
                   <input
                     value={businessType}
-                    onChange={(event) => setBusinessType(event.target.value)}
-                    placeholder="restaurant, cafe, bakery..."
+                    onChange={(e) => setBusinessType(e.target.value)}
+                    placeholder="restaurant, cafe, bakery…"
                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500"
                   />
                 </label>
-
                 <label className="block">
-                  <span className="mb-1.5 block text-sm font-medium text-slate-700">
-                    Owner email
-                  </span>
+                  <span className="mb-1.5 block text-sm font-medium text-slate-700">Owner email</span>
                   <input
                     value={currentUserEmail || tenant?.owner_email || ''}
                     readOnly
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600 outline-none"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-500 outline-none"
                   />
                 </label>
-
                 <button
-                  type="button"
                   onClick={handleAccountSave}
                   disabled={savingAccount}
-                  className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-60"
                 >
-                  {savingAccount ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {savingAccount && <Loader2 className="h-4 w-4 animate-spin" />}
                   Save Changes
                 </button>
               </div>
             </section>
 
-            <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
                   <KeyRound className="h-5 w-5" />
@@ -511,39 +664,31 @@ export default function SettingsPage() {
                   <p className="text-sm text-slate-500">Set a new password for your account.</p>
                 </div>
               </div>
-
               <div className="mt-5 space-y-4">
                 <label className="block">
-                  <span className="mb-1.5 block text-sm font-medium text-slate-700">
-                    New password
-                  </span>
+                  <span className="mb-1.5 block text-sm font-medium text-slate-700">New password</span>
                   <input
                     type="password"
                     value={newPassword}
-                    onChange={(event) => setNewPassword(event.target.value)}
+                    onChange={(e) => setNewPassword(e.target.value)}
                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500"
                   />
                 </label>
-
                 <label className="block">
-                  <span className="mb-1.5 block text-sm font-medium text-slate-700">
-                    Confirm password
-                  </span>
+                  <span className="mb-1.5 block text-sm font-medium text-slate-700">Confirm password</span>
                   <input
                     type="password"
                     value={confirmPassword}
-                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500"
                   />
                 </label>
-
                 <button
-                  type="button"
                   onClick={handlePasswordChange}
                   disabled={savingPassword}
-                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
                 >
-                  {savingPassword ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {savingPassword && <Loader2 className="h-4 w-4 animate-spin" />}
                   Update Password
                 </button>
               </div>
@@ -551,187 +696,84 @@ export default function SettingsPage() {
           </div>
         </Tabs.Content>
 
-        <Tabs.Content value="billing" className="mt-6 space-y-6">
-          <section className="grid gap-4 xl:grid-cols-3">
-            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
-                    <CreditCard className="h-3.5 w-3.5" />
-                    Current Plan
-                  </div>
-                  <h2 className="mt-3 text-2xl font-semibold text-slate-900">{planLabel}</h2>
-                  <p className="mt-2 text-sm text-slate-500">
-                    {tenant?.stripe_customer_id
-                      ? 'Your subscription is linked to Stripe and ready to manage.'
-                      : 'Start your Pro subscription when you are ready.'}
-                  </p>
-                </div>
-                <span
-                  className={cn(
-                    'inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1',
-                    statusTone(tenantTrialStatus)
-                  )}
-                >
-                  {tenantTrialStatus}
-                </span>
-              </div>
-
-              <div className="mt-5 flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={handleSubscriptionAction}
-                  disabled={billingBusy}
-                  className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {billingBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  {tenant?.stripe_customer_id ? 'Manage Subscription' : 'Start Subscription'}
-                </button>
-                <span className="text-sm text-slate-500">
-                  Next billing date: {formatDate(nextBillingDate)}
-                </span>
-              </div>
+        {/* ── Billing tab ───────────────────────────────────────────────── */}
+      <Tabs.Content value="billing" className="mt-6">
+        <div className="mx-auto max-w-3xl space-y-6">
+          {checkoutState !== 'idle' && (
+            <div
+              className={cn(
+                'rounded-2xl border px-4 py-3 text-sm',
+                checkoutState === 'confirmed'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  : checkoutState === 'timeout'
+                    ? 'border-amber-200 bg-amber-50 text-amber-700'
+                    : 'border-slate-200 bg-slate-50 text-slate-600'
+              )}
+            >
+              {checkoutState === 'polling'
+                ? 'Processing your subscription...'
+                : checkoutState === 'confirmed'
+                  ? 'Subscription active!'
+                  : 'Processing is taking longer than expected. Please refresh in a moment.'}
             </div>
+          )}
 
-            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-                  <CalendarClock className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900">Trial Window</h3>
-                  <p className="text-sm text-slate-500">Free trial length is 14 days.</p>
-                </div>
+            {/* Section 1 — Subscription status */}
+            {tenant && (
+              <>
+                {subStatus === 'trialing' && (
+                  <TrialingCard tenant={tenant} onSubscribe={() => handleBillingAction(true)} busy={billingBusy} />
+                )}
+                {subStatus === 'active' && (
+                  <ActiveCard tenant={tenant} onManage={() => handleBillingAction()} busy={billingBusy} />
+                )}
+                {(subStatus === 'canceled' || subStatus === 'past_due' || subStatus === 'inactive') && (
+                  <InactiveCard status={subStatus} onReactivate={() => handleBillingAction(true)} busy={billingBusy} />
+                )}
+              </>
+            )}
+
+            {/* Section 2 — Plan comparison (only for non-active) */}
+            {subStatus !== 'active' && (
+              <section>
+                <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-slate-400">
+                  Compare Plans
+                </h3>
+                <PlanComparison onUpgrade={() => handleBillingAction(true)} busy={billingBusy} />
+              </section>
+            )}
+
+            {/* Section 3 — Usage stats */}
+            <section>
+              <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-slate-400">
+                Your Usage
+              </h3>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <UsageStat
+                  label="Recipes"
+                  value={usage.recipes}
+                  max={hasFullAccess ? undefined : FREE_LIMITS.maxRecipes}
+                  icon={TrendingUp}
+                />
+                <UsageStat label="Ingredients" value={usage.ingredients} icon={Package} />
+                <UsageStat label="Invoices" value={usage.invoices} icon={Receipt} />
               </div>
-              <p className="mt-4 text-sm text-slate-600">
-                Trial ends on {formatDate(getTrialEndsAt(tenant?.created_at ?? new Date().toISOString()).toISOString())}
-              </p>
-            </div>
-          </section>
+            </section>
 
-          <section className="grid gap-4 md:grid-cols-3">
-            {statCard({ label: 'Recipes created', value: usage.recipes, icon: FileText })}
-            {statCard({ label: 'Ingredients', value: usage.ingredients, icon: Package })}
-            {statCard({ label: 'Invoices', value: usage.invoices, icon: CreditCard })}
-          </section>
-        </Tabs.Content>
-
-        <Tabs.Content value="team" className="mt-6 space-y-6">
-          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
-                  <Users className="h-3.5 w-3.5" />
-                  Team Members
-                </div>
-                <h2 className="mt-3 text-2xl font-semibold text-slate-900">Manage your team</h2>
-                <p className="mt-2 text-sm text-slate-500">
-                  Invite colleagues, review roles, and remove access when needed.
+            {/* Section 4 — Billing history placeholder */}
+            <section>
+              <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-slate-400">
+                Billing History
+              </h3>
+              <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 py-12 text-center">
+                <CreditCard className="h-8 w-8 text-slate-300" />
+                <p className="text-sm font-medium text-slate-500">
+                  Billing history will appear here once you subscribe
                 </p>
               </div>
-            </div>
+            </section>
 
-            <div className="mt-5 grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
-              <div className="overflow-hidden rounded-2xl border border-slate-200">
-                <table className="min-w-full divide-y divide-slate-200">
-                  <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                    <tr>
-                      <th className="px-4 py-3 font-semibold">Member</th>
-                      <th className="px-4 py-3 font-semibold">Role</th>
-                      <th className="px-4 py-3 font-semibold">Added</th>
-                      <th className="px-4 py-3 font-semibold text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 bg-white">
-                    {teamMembers.map((member) => (
-                      <tr key={member.id}>
-                        <td className="px-4 py-4">
-                          <div>
-                            <p className="font-medium text-slate-900">
-                              {member.email ?? 'Unknown user'}
-                            </p>
-                            <p className="text-xs text-slate-500">{member.userId}</p>
-                          </div>
-                        </td>
-                        <td className="px-4 py-4">
-                          <span
-                            className={cn(
-                              'inline-flex rounded-full px-3 py-1 text-xs font-semibold',
-                              roleTone(member.role)
-                            )}
-                          >
-                            {member.role}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4 text-sm text-slate-500">
-                          {formatDate(member.createdAt)}
-                        </td>
-                        <td className="px-4 py-4 text-right">
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveMember(member)}
-                            disabled={currentUserRole !== 'owner' || member.isOwner}
-                            className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            Remove
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-emerald-600 shadow-sm ring-1 ring-slate-200">
-                    <UserPlus className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-slate-900">Invite Member</h3>
-                    <p className="text-sm text-slate-500">Add someone to the workspace.</p>
-                  </div>
-                </div>
-
-                <div className="mt-5 space-y-4">
-                  <label className="block">
-                    <span className="mb-1.5 block text-sm font-medium text-slate-700">Email</span>
-                    <input
-                      type="email"
-                      value={inviteEmail}
-                      onChange={(event) => setInviteEmail(event.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500"
-                      placeholder="teammate@example.com"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <span className="mb-1.5 block text-sm font-medium text-slate-700">Role</span>
-                    <select
-                      value={inviteRole}
-                      onChange={(event) => setInviteRole(event.target.value as TeamMember['role'])}
-                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500"
-                    >
-                      <option value="admin">Admin</option>
-                      <option value="member">Member</option>
-                      <option value="viewer">Viewer</option>
-                    </select>
-                  </label>
-
-                  <button
-                    type="button"
-                    onClick={handleInvite}
-                    disabled={inviteBusy || currentUserRole === 'viewer'}
-                    className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {inviteBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                    Invite Member
-                  </button>
-                </div>
-              </div>
-            </div>
-          </section>
+          </div>
         </Tabs.Content>
       </Tabs.Root>
     </div>

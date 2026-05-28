@@ -72,7 +72,7 @@ type DBIngredientRow = {
   id: string
   name: string
   current_price?: number | null
-  base_unit?: string | null
+  price_unit?: string | null
 }
 
 type DBRecipeIngredientRow = {
@@ -140,12 +140,12 @@ function newId() {
 
 function normalizeIngredientRelation(ingredient: DBRecipeIngredientRow['ingredient']) {
   const row = Array.isArray(ingredient) ? ingredient[0] : ingredient
-  return row
+      return row
     ? {
         id: row.id,
         name: row.name,
         currentPrice: row.current_price ?? null,
-        priceUnit: row.base_unit ?? null,
+        priceUnit: row.price_unit ?? null,
       } satisfies IngredientLookup
     : null
 }
@@ -348,7 +348,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
                 id,
                 name,
                 current_price,
-                base_unit
+                price_unit
               )
             ),
             created_at,
@@ -409,13 +409,13 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
             unit,
             notes,
             sort_order,
-            ingredient:ingredients (
-              id,
-              name,
-              current_price,
-              base_unit
-            )
-          ),
+              ingredient:ingredients (
+                id,
+                name,
+                current_price,
+                price_unit
+              )
+            ),
           created_at,
           updated_at
         `

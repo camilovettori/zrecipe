@@ -1,25 +1,10 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import {
-  Search,
-  UploadCloud,
-  FileText,
-  ArrowUpDown,
-  Sparkles,
-} from 'lucide-react'
-import InvoiceUploader from '@/components/invoices/InvoiceUploader'
-import {
-  type IngredientLookup,
-  type InvoiceRecord,
-  type SupplierLookup,
-  useInvoices,
-} from '@/hooks/useInvoices'
-import { resolveTenantId } from '@/hooks/useTenant'
-import { useSubscription } from '@/hooks/useSubscription'
-import { createClient } from '@/lib/supabase/client'
+import { ArrowUpDown, FileText, Plus, Search, UploadCloud } from 'lucide-react'
+import { useInvoices, type InvoiceRecord } from '@/hooks/useInvoices'
 import { cn } from '@/lib/utils'
 
 function formatDate(value: string) {
@@ -39,129 +24,32 @@ function formatCurrency(value: number, currency = 'EUR') {
 }
 
 function statusStyles(status: InvoiceRecord['ocrStatus']) {
-  if (status === 'completed') {
-    return 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-  }
-  if (status === 'failed') {
-    return 'bg-red-50 text-red-700 ring-red-200'
-  }
+  if (status === 'completed') return 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+  if (status === 'failed') return 'bg-red-50 text-red-700 ring-red-200'
   return 'bg-amber-50 text-amber-700 ring-amber-200'
 }
 
-function UploadEmptyState({ onImport }: { onImport: () => void }) {
+function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-20 text-center shadow-sm">
-      <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-emerald-50 text-emerald-600">
-        <UploadCloud className="h-10 w-10" />
+      <div className="rounded-3xl bg-emerald-50 p-5 text-emerald-600">
+        <FileText className="h-12 w-12" />
       </div>
       <h3 className="mt-6 font-display text-2xl font-semibold text-slate-900">
-        Bring invoices into one clean workflow
+        No invoices yet
       </h3>
       <p className="mt-3 max-w-xl text-sm text-slate-500">
-        Upload PDFs, CSVs, or images to extract invoice lines, review the OCR draft, and
-        attach each invoice to ingredients in a single pass.
+        Start by importing a PDF or CSV, or create a manual invoice entry when you already have
+        the details ready.
       </p>
-      <button
-        type="button"
-        onClick={onImport}
-        className="mt-6 inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500"
-      >
-        <UploadCloud className="h-4 w-4" />
-        Import Invoice
-      </button>
-    </div>
-  )
-}
-
-function InvoicesSkeleton() {
-  return (
-    <div className="space-y-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-      {Array.from({ length: 5 }).map((_, index) => (
-        <div key={index} className="grid grid-cols-6 gap-3">
-          {Array.from({ length: 6 }).map((__, cell) => (
-            <div
-              key={cell}
-              className="h-10 animate-pulse rounded-xl bg-slate-100"
-            />
-          ))}
-        </div>
-      ))}
     </div>
   )
 }
 
 export default function InvoicesPage() {
   const router = useRouter()
-  const { invoices, loading, refreshInvoices, error } = useInvoices()
-  const { limits } = useSubscription()
-  const [uploaderOpen, setUploaderOpen] = useState(false)
+  const { invoices, loading, error } = useInvoices()
   const [search, setSearch] = useState('')
-  const [suppliers, setSuppliers] = useState<SupplierLookup[]>([])
-  const [ingredients, setIngredients] = useState<IngredientLookup[]>([])
-  const [loadingLookups, setLoadingLookups] = useState(true)
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const params = new URLSearchParams(window.location.search)
-    if (params.get('import') === '1') {
-      setUploaderOpen(true)
-      params.delete('import')
-      router.replace(`/invoices${params.toString() ? `?${params.toString()}` : ''}`)
-    }
-  }, [router])
-
-  useEffect(() => {
-    const loadLookups = async () => {
-      try {
-        const supabase = createClient()
-        const tenantId = await resolveTenantId()
-
-        const [supplierResult, ingredientResult] = await Promise.all([
-          supabase
-            .from('suppliers')
-            .select('id, name, contact_email, contact_phone, address')
-            .eq('tenant_id', tenantId)
-            .order('name', { ascending: true }),
-          supabase
-            .from('ingredients')
-            .select('id, name, current_price, price_unit')
-            .eq('tenant_id', tenantId)
-            .order('name', { ascending: true }),
-        ])
-
-        if (supplierResult.data) {
-          setSuppliers(
-            supplierResult.data.map((item) => ({
-              id: item.id,
-              name: item.name,
-              contactEmail: item.contact_email ?? null,
-              contactPhone: item.contact_phone ?? null,
-              address: item.address ?? null,
-            }))
-          )
-        }
-
-        if (ingredientResult.data) {
-          setIngredients(
-            ingredientResult.data.map((item) => ({
-              id: item.id,
-              name: item.name,
-              currentPrice: item.current_price ?? null,
-              priceUnit: item.price_unit ?? null,
-            }))
-          )
-        }
-      } catch (error) {
-        if (!(error instanceof Error)) {
-          console.error('Invoice lookup load error:', error)
-        }
-      } finally {
-        setLoadingLookups(false)
-      }
-    }
-
-    loadLookups()
-  }, [])
 
   const filteredInvoices = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -169,9 +57,7 @@ export default function InvoicesPage() {
       (a, b) => new Date(b.invoiceDate).getTime() - new Date(a.invoiceDate).getTime()
     )
 
-    if (!query) {
-      return sorted
-    }
+    if (!query) return sorted
 
     return sorted.filter((invoice) => {
       const invoiceNumber = invoice.invoiceNumber?.toLowerCase() ?? ''
@@ -180,46 +66,39 @@ export default function InvoicesPage() {
     })
   }, [invoices, search])
 
-  const handleSaved = async () => {
-    await refreshInvoices()
-  }
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
-            <Sparkles className="h-3.5 w-3.5" />
+          <p className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
             Invoices
-          </div>
+          </p>
           <h1 className="mt-3 font-display text-3xl font-semibold text-slate-900">
             Invoices
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-500">
-            Track every supplier bill, review OCR extraction, and link line items back to your
-            ingredient catalogue.
+            Track every supplier bill, import PDFs or CSVs, and manage invoices in one place.
           </p>
         </div>
 
-        {limits.canUploadInvoices ? (
+        <div className="flex flex-col gap-2 sm:flex-row">
           <button
             type="button"
-            onClick={() => setUploaderOpen(true)}
+            onClick={() => router.push('/invoices/import')}
             className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500"
           >
             <UploadCloud className="h-4 w-4" />
             Import Invoice
           </button>
-        ) : (
-          <a
-            href="/settings?tab=billing"
-            className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-500 transition hover:border-emerald-400 hover:text-emerald-600"
-            title="Invoice import is a Pro feature"
+          <button
+            type="button"
+            onClick={() => router.push('/invoices/new')}
+            className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
-            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" /></svg>
-            Import Invoice — Pro
-          </a>
-        )}
+            <Plus className="h-4 w-4" />
+            Manual Entry
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center">
@@ -250,10 +129,20 @@ export default function InvoicesPage() {
         </div>
       )}
 
-      {loading || loadingLookups ? (
-        <InvoicesSkeleton />
+      {loading ? (
+        <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="divide-y divide-slate-100">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div key={index} className="grid grid-cols-6 gap-4 p-4">
+                {Array.from({ length: 6 }).map((__, cell) => (
+                  <div key={cell} className="h-10 animate-pulse rounded-xl bg-slate-100" />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
       ) : filteredInvoices.length === 0 ? (
-        <UploadEmptyState onImport={() => setUploaderOpen(true)} />
+        <EmptyState />
       ) : (
         <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
@@ -263,8 +152,8 @@ export default function InvoicesPage() {
                   <th className="px-5 py-4 font-semibold">Date</th>
                   <th className="px-5 py-4 font-semibold">Invoice #</th>
                   <th className="px-5 py-4 font-semibold">Supplier</th>
-                  <th className="px-5 py-4 font-semibold">Items</th>
-                  <th className="px-5 py-4 font-semibold">Total</th>
+                  <th className="px-5 py-4 font-semibold">Items Count</th>
+                  <th className="px-5 py-4 font-semibold">Total (€)</th>
                   <th className="px-5 py-4 font-semibold">Status</th>
                 </tr>
               </thead>
@@ -299,7 +188,7 @@ export default function InvoicesPage() {
                       {invoice.items.length}
                     </td>
                     <td className="px-5 py-4 text-sm font-semibold text-slate-900">
-                      {formatCurrency(invoice.totalAmount ?? 0)}
+                      {formatCurrency(invoice.totalAmount ?? 0, invoice.currency ?? 'EUR')}
                     </td>
                     <td className="px-5 py-4">
                       <span
@@ -318,14 +207,6 @@ export default function InvoicesPage() {
           </div>
         </div>
       )}
-
-      <InvoiceUploader
-        open={uploaderOpen}
-        onOpenChange={setUploaderOpen}
-        ingredients={ingredients}
-        suppliers={suppliers}
-        onSaved={handleSaved}
-      />
     </div>
   )
 }

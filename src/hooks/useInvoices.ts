@@ -29,6 +29,8 @@ export interface InvoiceItemRecord {
   description: string
   quantity: number
   unit: string
+  packageSize?: number | null
+  packageUnit?: string | null
   unitPrice: number
   totalPrice: number
   ingredient?: IngredientLookup | null
@@ -56,6 +58,8 @@ export interface InvoiceDraftItem {
   description: string
   quantity: number
   unit: string
+  packageSize?: number | null
+  packageUnit?: string | null
   unitPrice: number
   total: number
   ingredientId?: string | null
@@ -111,6 +115,8 @@ type DatabaseInvoiceRow = {
     description: string
     quantity: number
     unit: string
+    package_size?: number | null
+    package_unit?: string | null
     unit_price: number
     total_price: number
     ingredient?:
@@ -169,6 +175,8 @@ function mapInvoiceRow(row: DatabaseInvoiceRow): InvoiceRecord {
           description: item.description,
           quantity: Number(item.quantity),
           unit: item.unit,
+          packageSize: item.package_size ?? null,
+          packageUnit: item.package_unit ?? null,
           unitPrice: Number(item.unit_price),
           totalPrice: Number(item.total_price),
           ingredient: ingredientRow
@@ -228,6 +236,8 @@ export function useInvoices(options?: { autoLoad?: boolean }) {
               description,
               quantity,
               unit,
+              package_size,
+              package_unit,
               unit_price,
               total_price,
               ingredient:ingredients (
@@ -348,6 +358,8 @@ export function useInvoices(options?: { autoLoad?: boolean }) {
         description: item.description,
         quantity: item.quantity,
         unit: item.unit,
+        package_size: item.packageSize ?? null,
+        package_unit: item.packageUnit ?? null,
         unit_price: item.unitPrice,
         total_price: item.total,
       }))
@@ -405,6 +417,8 @@ export function useInvoices(options?: { autoLoad?: boolean }) {
               description,
               quantity,
               unit,
+              package_size,
+              package_unit,
               unit_price,
               total_price,
               ingredient:ingredients (

@@ -43,6 +43,10 @@ export default function IngredientDetailPage() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
+  type IngredientDbRow = IngredientRow & {
+    price_unit?: string | null
+  }
+
   useEffect(() => {
     if (isNew) return
 
@@ -50,7 +54,7 @@ export default function IngredientDetailPage() {
     Promise.all([
       supabase
         .from('ingredients')
-        .select('*, supplier:suppliers(name)')
+        .select('*, supplier:suppliers!last_supplier_id(name)')
         .eq('id', id)
         .single(),
       supabase
@@ -64,7 +68,10 @@ export default function IngredientDetailPage() {
         router.replace('/ingredients')
         return
       }
-      setIngredient(ingRes.data as IngredientRow)
+      setIngredient({
+        ...(ingRes.data as IngredientDbRow),
+        base_unit: (ingRes.data as IngredientDbRow).price_unit ?? 'unit',
+      } as IngredientRow)
       setPriceHistory((histRes.data ?? []) as PricePoint[])
       setLoading(false)
     })

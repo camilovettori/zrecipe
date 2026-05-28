@@ -362,9 +362,9 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
           tenant_id: tenantId,
           name,
           current_price: 0,
-          base_unit: unit,
+          price_unit: unit,
         })
-        .select('id, name, current_price, base_unit')
+        .select('id, name, current_price, price_unit')
         .single()
 
       if (error || !data) {
@@ -376,7 +376,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
           id: data.id,
           name: data.name,
           currentPrice: data.current_price ?? 0,
-          priceUnit: data.base_unit ?? unit,
+          priceUnit: data.price_unit ?? unit,
         },
         quantity,
         unit

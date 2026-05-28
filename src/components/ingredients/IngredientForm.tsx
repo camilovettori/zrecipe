@@ -41,6 +41,22 @@ interface IngredientFormProps {
   onSaved?: (ingredient: IngredientRow) => void
 }
 
+type IngredientDbRow = {
+  id: string
+  name: string
+  category: string | null
+  current_price: number | null
+  price_unit?: string | null
+  package_size: number | null
+  package_unit: string | null
+  notes: string | null
+  image_url: string | null
+  supplier_id: string | null
+  supplier: { name: string } | null
+  created_at: string
+  updated_at: string
+}
+
 export default function IngredientForm({
   ingredient,
   onSubmittingChange,
@@ -89,7 +105,16 @@ export default function IngredientForm({
   const onSubmit = async (data: FormData) => {
     onSubmittingChange?.(true)
     const supabase = createClient()
-    const payload = { ...data, image_url: imageUrl ?? null }
+    const payload = {
+      name: data.name,
+      category: data.category,
+      current_price: data.current_price ?? null,
+      price_unit: data.base_unit,
+      package_size: data.package_size ?? null,
+      package_unit: data.package_unit ?? null,
+      notes: data.notes ?? null,
+      image_url: imageUrl ?? null,
+    }
 
     try {
       if (ingredient) {
@@ -101,7 +126,11 @@ export default function IngredientForm({
           .single()
         if (error) throw error
         toast.success('Ingredient updated')
-        onSaved?.(row as IngredientRow)
+        const savedRow = row as IngredientDbRow
+        onSaved?.({
+          ...savedRow,
+          base_unit: savedRow.price_unit ?? data.base_unit,
+        } as IngredientRow)
       } else {
         const { data: row, error } = await supabase
           .from('ingredients')
@@ -110,7 +139,7 @@ export default function IngredientForm({
           .single()
         if (error) throw error
         toast.success('Ingredient created')
-        router.push(`/ingredients/${(row as IngredientRow).id}`)
+        router.push(`/ingredients/${(row as IngredientDbRow).id}`)
       }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Unable to save ingredient')

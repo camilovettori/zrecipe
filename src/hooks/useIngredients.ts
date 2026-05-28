@@ -21,6 +21,41 @@ export interface IngredientRow {
 
 export type SortKey = 'name' | 'price' | 'updated'
 
+type IngredientDbRow = {
+  id: string
+  name: string
+  category: string | null
+  current_price: number | null
+  price_unit: string | null
+  package_size: number | null
+  package_unit: string | null
+  notes: string | null
+  image_url: string | null
+  supplier_id: string | null
+  supplier: { name: string } | { name: string }[] | null
+  created_at: string
+  updated_at: string
+}
+
+function normalizeIngredientRow(row: IngredientDbRow): IngredientRow {
+  const supplier = Array.isArray(row.supplier) ? row.supplier[0] ?? null : row.supplier
+  return {
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    current_price: row.current_price,
+    base_unit: row.price_unit ?? '',
+    package_size: row.package_size,
+    package_unit: row.package_unit,
+    notes: row.notes,
+    image_url: row.image_url,
+    supplier_id: row.supplier_id,
+    supplier: supplier ? { name: supplier.name } : null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
+}
+
 function applySort(items: IngredientRow[], sort: SortKey): IngredientRow[] {
   return [...items].sort((a, b) => {
     switch (sort) {
@@ -48,10 +83,15 @@ export function useIngredients() {
     const supabase = createClient()
     const { data, error } = await supabase
       .from('ingredients')
-      .select('*, supplier:suppliers(name)')
+      .select(
+        'id, name, category, current_price, price_unit, package_size, package_unit, notes, image_url, supplier_id, supplier:suppliers!last_supplier_id(name), created_at, updated_at'
+      )
       .order('name')
     if (error) setError(error.message)
-    else setAll(data ?? [])
+    else {
+      const rows = (data as IngredientDbRow[] | null) ?? []
+      setAll(rows.map(normalizeIngredientRow))
+    }
     setLoading(false)
   }, [])
 
@@ -71,27 +111,35 @@ export function useIngredients() {
     data: Omit<IngredientRow, 'id' | 'supplier' | 'created_at' | 'updated_at'>
   ) => {
     const supabase = createClient()
+    const { base_unit, ...rest } = data
     const { data: row, error } = await supabase
       .from('ingredients')
-      .insert(data)
+      .insert({
+        ...rest,
+        price_unit: base_unit,
+      })
       .select()
       .single()
     if (error) throw error
     await fetch()
-    return row as IngredientRow
+    return normalizeIngredientRow(row as IngredientDbRow)
   }
 
   const updateIngredient = async (id: string, data: Partial<IngredientRow>) => {
     const supabase = createClient()
+    const { base_unit, ...rest } = data
     const { data: row, error } = await supabase
       .from('ingredients')
-      .update(data)
+      .update({
+        ...rest,
+        ...(base_unit !== undefined ? { price_unit: base_unit } : {}),
+      })
       .eq('id', id)
       .select()
       .single()
     if (error) throw error
     await fetch()
-    return row as IngredientRow
+    return normalizeIngredientRow(row as IngredientDbRow)
   }
 
   const deleteIngredient = async (id: string) => {

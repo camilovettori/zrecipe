@@ -39,6 +39,7 @@ async function handleSubscriptionEvent(
 
   await updateTenantByCustomerId(customerId, {
     subscription_status: status,
+    stripe_subscription_id: subscription.id,
     subscription_current_period_end: currentPeriodEnd
       ? new Date(currentPeriodEnd * 1000).toISOString()
       : null,
@@ -68,30 +69,20 @@ export async function POST(request: NextRequest) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
         const customerId = typeof session.customer === 'string' ? session.customer : null
-        const tenantId = session.metadata?.tenantId ?? session.client_reference_id
+        const metadata = session.metadata as Record<string, string | undefined> | undefined
+        const tenantId =
+          metadata?.tenantId ?? metadata?.tenant_id ?? session.client_reference_id ?? null
+        const subscriptionId =
+          typeof session.subscription === 'string' ? session.subscription : null
 
         if (customerId && tenantId) {
-          const subscriptionId =
-            typeof session.subscription === 'string' ? session.subscription : null
-          const subscription = subscriptionId
-            ? await stripe.subscriptions.retrieve(subscriptionId)
-            : null
-          const currentPeriodEnd = subscription
-            ? (subscription as Stripe.Subscription & { current_period_end?: number }).current_period_end
-            : null
-
           const admin = createAdminClient()
           const tenants = admin.from('tenants') as unknown as TenantsTable
           await tenants
             .update({
               stripe_customer_id: customerId,
-              subscription_status: subscription?.status ?? 'active',
-              subscription_current_period_end: currentPeriodEnd
-                ? new Date(currentPeriodEnd * 1000).toISOString()
-                : null,
-              subscription_trial_end: subscription?.trial_end
-                ? new Date(subscription.trial_end * 1000).toISOString()
-                : null,
+              stripe_subscription_id: subscriptionId,
+              subscription_status: 'active',
               plan: 'pro',
             })
             .eq('id', tenantId)

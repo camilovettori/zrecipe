@@ -60,7 +60,7 @@ export default function IngredientSearch({
       const supabase = createClient()
       const { data, error } = await supabase
         .from('ingredients')
-        .select('id, name, current_price, base_unit')
+        .select('id, name, current_price, price_unit')
         .ilike('name', `%${debouncedQuery}%`)
         .order('name', { ascending: true })
         .limit(8)
@@ -75,7 +75,7 @@ export default function IngredientSearch({
             id: item.id,
             name: item.name,
             currentPrice: item.current_price ?? null,
-            priceUnit: item.base_unit ?? null,
+            priceUnit: item.price_unit ?? null,
           }))
         )
       }
