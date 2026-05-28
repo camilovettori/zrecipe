@@ -32,6 +32,15 @@ function applyCookies(
   })
 }
 
+function setHasTenantCookie(response: NextResponse) {
+  response.cookies.set('has-tenant', 'true', {
+    httpOnly: true,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 60 * 60 * 24, // 24 hours — matches middleware cache TTL
+  })
+}
+
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
@@ -121,6 +130,7 @@ export async function GET(request: NextRequest) {
   if (existingMember) {
     const response = NextResponse.redirect(new URL(destination, request.url))
     applyCookies(response, cookiesToSet)
+    setHasTenantCookie(response)
     return response
   }
 
@@ -196,5 +206,6 @@ export async function GET(request: NextRequest) {
 
   const response = NextResponse.redirect(new URL(destination, request.url))
   applyCookies(response, cookiesToSet)
+  setHasTenantCookie(response)
   return response
 }
