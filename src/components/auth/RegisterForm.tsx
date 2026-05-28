@@ -33,7 +33,9 @@ export default function RegisterForm() {
     const supabase = createClient()
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent('/dashboard')}`,
+      },
     })
   }
 
@@ -91,7 +93,7 @@ export default function RegisterForm() {
 
     if (authData.session) {
       // Email confirmation is disabled — user is already authenticated
-      router.push('/')
+      router.push('/dashboard')
     } else {
       setSuccessMessage('Check your email to confirm your account.')
     }

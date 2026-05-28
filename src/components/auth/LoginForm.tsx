@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -21,7 +21,11 @@ const inputClass =
 
 export default function LoginForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [serverError, setServerError] = useState<string | null>(null)
+  const redirectTo = searchParams.get('redirectTo')
+  const destination =
+    redirectTo && redirectTo.startsWith('/') && redirectTo !== '/' ? redirectTo : '/dashboard'
 
   const {
     register,
@@ -40,7 +44,7 @@ export default function LoginForm() {
       setServerError(error.message)
       return
     }
-    router.push('/')
+    router.push(destination)
     router.refresh()
   }
 
@@ -48,7 +52,9 @@ export default function LoginForm() {
     const supabase = createClient()
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(destination)}`,
+      },
     })
   }
 

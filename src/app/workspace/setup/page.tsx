@@ -28,6 +28,13 @@ const inputClass =
 
 export default function WorkspaceSetupPage() {
   const router = useRouter()
+  const nextPath = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('next')
+    : null
+  const destination =
+    nextPath && nextPath.startsWith('/') && nextPath !== '/login' && nextPath !== '/auth/callback'
+      ? nextPath
+      : '/dashboard'
   const [serverError, setServerError] = useState<string | null>(null)
 
   const {
@@ -64,7 +71,7 @@ export default function WorkspaceSetupPage() {
       return
     }
 
-    router.push('/')
+    router.push(destination)
     router.refresh()
   }
 

@@ -25,7 +25,7 @@ MODELS.forEach(({ path }) => useGLTF.preload(path))
 const ITEM_COUNT  = 16
 const FLOAT_FREQ  = 0.4
 const FLOAT_AMP   = 0.6
-const MIN_DIST    = 3.0   // fixed minimum separation between any two model centres
+const MIN_DIST    = 3.0   // minimum visual separation between any two model centres
 const CENTER_EXCL = 4.0   // login-card exclusion radius
 const DRAG        = 0.96
 const MAX_VEL     = 0.06
@@ -43,16 +43,16 @@ function randomPosition(): [number, number, number] {
   return [x, y, z]
 }
 
-// ─── Per-item physics state ───────────────────────────────────────────────────
+// ─── Per-item simulation state ────────────────────────────────────────────────
 
 interface ItemSim {
-  pos:         THREE.Vector3
+  basePos:     THREE.Vector3  // XYZ without the float-Y sine — used for velocity integration
   vel:         THREE.Vector3
   rotSpeed:    THREE.Vector3
   floatOffset: number
 }
 
-// ─── FoodItem — pure renderer, driven by parent refs ─────────────────────────
+// ─── FoodItem — pure renderer ─────────────────────────────────────────────────
 
 interface FoodItemProps {
   modelPath:       string
@@ -81,7 +81,7 @@ const FoodItem = forwardRef<THREE.Group, FoodItemProps>(function FoodItem(
   )
 })
 
-// ─── Scene — owns all physics state and runs the simulation ──────────────────
+// ─── Scene — all physics state lives here, single useFrame ───────────────────
 
 function Scene() {
   const items = useMemo(
@@ -108,7 +108,7 @@ function Scene() {
     []
   )
 
-  // One THREE.Group ref per item — all owned here, not per-child
+  // One THREE.Group ref per item — all owned here
   const groupRefs = useMemo(
     () => Array.from({ length: ITEM_COUNT }, () => createRef<THREE.Group>()),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -119,7 +119,7 @@ function Scene() {
   const simRef = useRef<ItemSim[] | null>(null)
   if (simRef.current === null) {
     simRef.current = items.map(item => ({
-      pos:         new THREE.Vector3(...item.position),
+      basePos:     new THREE.Vector3(...item.position),
       vel:         new THREE.Vector3(
                      (Math.random() - 0.5) * 0.004,
                      (Math.random() - 0.5) * 0.002,
@@ -130,7 +130,6 @@ function Scene() {
     }))
   }
 
-  // Scratch vector — avoids heap allocation in the hot loop
   const scratch = useRef(new THREE.Vector3())
 
   useFrame(({ clock }) => {
@@ -138,24 +137,45 @@ function Scene() {
     const sim = simRef.current!
     const N   = sim.length
 
-    // ── 1. Advance positions ───────────────────────────────────────────────
+    // ── 1. Advance base positions by velocity ─────────────────────────────
     for (let i = 0; i < N; i++) {
-      sim[i].pos.addScaledVector(sim[i].vel, 1)
+      sim[i].basePos.addScaledVector(sim[i].vel, 1)
+      sim[i].vel.multiplyScalar(DRAG)
+      if (sim[i].vel.lengthSq() > MAX_VEL * MAX_VEL) {
+        sim[i].vel.normalize().multiplyScalar(MAX_VEL)
+      }
     }
 
-    // ── 2. Pairwise collision — 50% correction per frame ──────────────────
-    // Direct positional push resolves overlap in ~2 frames.
+    // ── 2. Write visual positions (basePos + floatY) to group refs ────────
+    // Collision runs on these visual positions in steps 3–4.
     for (let i = 0; i < N; i++) {
+      const group = groupRefs[i].current
+      if (!group) continue
+      const floatY = Math.sin(t * FLOAT_FREQ + sim[i].floatOffset) * FLOAT_AMP
+      group.position.set(sim[i].basePos.x, sim[i].basePos.y + floatY, sim[i].basePos.z)
+      group.rotation.x += sim[i].rotSpeed.x
+      group.rotation.y += sim[i].rotSpeed.y
+      group.rotation.z += sim[i].rotSpeed.z
+    }
+
+    // ── 3. Pairwise collision on actual visual positions ───────────────────
+    // Checking group.position catches overlaps caused by the float Y offset
+    // that sim.basePos comparisons would miss.
+    for (let i = 0; i < N; i++) {
+      const gi = groupRefs[i].current
+      if (!gi) continue
       for (let j = i + 1; j < N; j++) {
-        scratch.current.subVectors(sim[j].pos, sim[i].pos)
-        const dist = scratch.current.length()
+        const gj = groupRefs[j].current
+        if (!gj) continue
+        const dist = gi.position.distanceTo(gj.position)
         if (dist < MIN_DIST && dist > 0.001) {
           const overlap = MIN_DIST - dist
-          scratch.current.normalize()
+          // Direction from i → j
+          scratch.current.subVectors(gj.position, gi.position).normalize()
           const push = overlap * 0.5
-          sim[i].pos.addScaledVector(scratch.current, -push)
-          sim[j].pos.addScaledVector(scratch.current,  push)
-          // Velocity nudge prevents models drifting back into contact
+          gi.position.addScaledVector(scratch.current, -push)
+          gj.position.addScaledVector(scratch.current,  push)
+          // Velocity nudge prevents models drifting back together
           const velPush = overlap * 0.012
           sim[i].vel.addScaledVector(scratch.current, -velPush)
           sim[j].vel.addScaledVector(scratch.current,  velPush)
@@ -163,29 +183,28 @@ function Scene() {
       }
     }
 
-    // ── 3. Centre exclusion — snap instantly to exclusion boundary ─────────
+    // ── 4. Centre exclusion + boundary clamping on visual positions ────────
     for (let i = 0; i < N; i++) {
-      const px = sim[i].pos.x
-      const py = sim[i].pos.y
-      const distFromCenter = Math.sqrt(px * px + py * py)
-      if (distFromCenter < CENTER_EXCL && distFromCenter > 0.001) {
-        // Scale position directly to the boundary (full correction, one frame)
-        const scale = CENTER_EXCL / distFromCenter
-        sim[i].pos.x = px * scale
-        sim[i].pos.y = py * scale
-        // Reflect any inward velocity component outward
-        scratch.current.set(px, py, 0).normalize()
-        const dot = sim[i].vel.dot(scratch.current)
-        if (dot < 0) {
-          sim[i].vel.addScaledVector(scratch.current, -dot * 1.6)
-        }
-      }
-    }
-
-    // ── 4. Boundary clamping ───────────────────────────────────────────────
-    for (let i = 0; i < N; i++) {
-      const p = sim[i].pos
+      const group = groupRefs[i].current
+      if (!group) continue
+      const p = group.position
       const v = sim[i].vel
+
+      // Snap model to exclusion boundary in one frame
+      const ox = p.x
+      const oy = p.y
+      const distFromCenter = Math.sqrt(ox * ox + oy * oy)
+      if (distFromCenter < CENTER_EXCL && distFromCenter > 0.001) {
+        const scale = CENTER_EXCL / distFromCenter
+        p.x = ox * scale
+        p.y = oy * scale
+        // Reflect any inward velocity component
+        scratch.current.set(ox, oy, 0).normalize()
+        const dot = v.dot(scratch.current)
+        if (dot < 0) v.addScaledVector(scratch.current, -dot * 1.6)
+      }
+
+      // World boundary
       if (p.x >  BND.x)    { p.x =  BND.x;    if (v.x > 0) v.x *= -0.6 }
       if (p.x < -BND.x)    { p.x = -BND.x;    if (v.x < 0) v.x *= -0.6 }
       if (p.y >  BND.y)    { p.y =  BND.y;     if (v.y > 0) v.y *= -0.6 }
@@ -194,24 +213,13 @@ function Scene() {
       if (p.z <  BND.zMin) { p.z =  BND.zMin;  if (v.z < 0) v.z *= -0.6 }
     }
 
-    // ── 5. Drag + velocity cap ─────────────────────────────────────────────
-    for (let i = 0; i < N; i++) {
-      sim[i].vel.multiplyScalar(DRAG)
-      if (sim[i].vel.lengthSq() > MAX_VEL * MAX_VEL) {
-        sim[i].vel.normalize().multiplyScalar(MAX_VEL)
-      }
-    }
-
-    // ── 6. Write positions + rotations to THREE.Group refs ────────────────
+    // ── 5. Sync corrected visual positions back to basePos ────────────────
+    // Strips the float-Y offset so velocity integration next frame is correct.
     for (let i = 0; i < N; i++) {
       const group = groupRefs[i].current
       if (!group) continue
-      const s      = sim[i]
-      const floatY = Math.sin(t * FLOAT_FREQ + s.floatOffset) * FLOAT_AMP
-      group.position.set(s.pos.x, s.pos.y + floatY, s.pos.z)
-      group.rotation.x += s.rotSpeed.x
-      group.rotation.y += s.rotSpeed.y
-      group.rotation.z += s.rotSpeed.z
+      const floatY = Math.sin(t * FLOAT_FREQ + sim[i].floatOffset) * FLOAT_AMP
+      sim[i].basePos.set(group.position.x, group.position.y - floatY, group.position.z)
     }
   })
 

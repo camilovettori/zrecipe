@@ -35,6 +35,11 @@ function applyCookies(
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
+  const nextPath = requestUrl.searchParams.get('next')
+  const destination =
+    nextPath && nextPath.startsWith('/') && nextPath !== '/' && nextPath !== '/login' && nextPath !== '/auth/callback'
+      ? nextPath
+      : '/dashboard'
   const admin = createAdminClient()
   const cookiesToSet: Array<{
     name: string
@@ -114,7 +119,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (existingMember) {
-    const response = NextResponse.redirect(new URL('/', request.url))
+    const response = NextResponse.redirect(new URL(destination, request.url))
     applyCookies(response, cookiesToSet)
     return response
   }
@@ -122,7 +127,9 @@ export async function GET(request: NextRequest) {
   // OAuth users (e.g. Google) arrive here without business metadata.
   // Send them to the workspace setup form to collect it.
   if (!isString(metadata.business_name)) {
-    const response = NextResponse.redirect(new URL('/workspace/setup', request.url))
+    const setupUrl = new URL('/workspace/setup', request.url)
+    setupUrl.searchParams.set('next', destination)
+    const response = NextResponse.redirect(setupUrl)
     applyCookies(response, cookiesToSet)
     return response
   }
@@ -187,7 +194,7 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const response = NextResponse.redirect(new URL('/', request.url))
+  const response = NextResponse.redirect(new URL(destination, request.url))
   applyCookies(response, cookiesToSet)
   return response
 }
