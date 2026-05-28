@@ -22,13 +22,13 @@ MODELS.forEach(({ path }) => useGLTF.preload(path))
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const ITEM_COUNT   = 16
-const FLOAT_FREQ   = 0.4   // sine float angular frequency
-const FLOAT_AMP    = 0.6   // sine float amplitude (world units)
-const CENTER_RAD   = 3.5   // radius of invisible card exclusion zone
-const DRAG         = 0.96  // per-frame velocity damping
-const MAX_VEL      = 0.06  // per-frame velocity cap
-// World-space boundaries — models stay inside this box
+const ITEM_COUNT  = 16
+const FLOAT_FREQ  = 0.4
+const FLOAT_AMP   = 0.6
+const MIN_DIST    = 3.0   // fixed minimum separation between any two model centres
+const CENTER_EXCL = 4.0   // login-card exclusion radius
+const DRAG        = 0.96
+const MAX_VEL     = 0.06
 const BND = { x: 12, y: 8, zMin: -6, zMax: 3 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -36,21 +36,20 @@ const BND = { x: 12, y: 8, zMin: -6, zMax: 3 }
 function randomPosition(): [number, number, number] {
   let x: number, y: number
   do {
-    x = (Math.random() - 0.5) * 20   // –10 → 10
-    y = (Math.random() - 0.5) * 12   // –6  → 6
-  } while (Math.abs(x) < 3.5 && Math.abs(y) < 3.5)
-  const z = Math.random() * 4 - 3    // –3  → 1
+    x = (Math.random() - 0.5) * 20
+    y = (Math.random() - 0.5) * 12
+  } while (Math.sqrt(x * x + y * y) < CENTER_EXCL + 1)
+  const z = Math.random() * 4 - 3
   return [x, y, z]
 }
 
-// ─── Per-item physics state (lives in useRef, never triggers re-render) ───────
+// ─── Per-item physics state ───────────────────────────────────────────────────
 
 interface ItemSim {
-  pos:         THREE.Vector3  // drift position (float Y offset is applied at render time)
-  vel:         THREE.Vector3  // drift velocity (world units / frame)
-  rotSpeed:    THREE.Vector3  // rotation increment per frame (radians)
-  floatOffset: number         // phase offset for the sine float
-  radius:      number         // bounding-sphere radius used for collision
+  pos:         THREE.Vector3
+  vel:         THREE.Vector3
+  rotSpeed:    THREE.Vector3
+  floatOffset: number
 }
 
 // ─── FoodItem — pure renderer, driven by parent refs ─────────────────────────
@@ -61,7 +60,6 @@ interface FoodItemProps {
   initialRotation: [number, number, number]
 }
 
-// forwardRef exposes the THREE.Group so Scene can drive position / rotation.
 const FoodItem = forwardRef<THREE.Group, FoodItemProps>(function FoodItem(
   { modelPath, displaySize, initialRotation },
   ref
@@ -69,15 +67,13 @@ const FoodItem = forwardRef<THREE.Group, FoodItemProps>(function FoodItem(
   const { scene } = useGLTF(modelPath)
 
   const [cloned, normalizedScale] = useMemo(() => {
-    const clone = scene.clone(true)
-    const box   = new THREE.Box3().setFromObject(clone)
-    const size  = box.getSize(new THREE.Vector3())
+    const clone  = scene.clone(true)
+    const box    = new THREE.Box3().setFromObject(clone)
+    const size   = box.getSize(new THREE.Vector3())
     const maxDim = Math.max(size.x, size.y, size.z)
     return [clone, maxDim > 0 ? displaySize / maxDim : displaySize]
   }, [scene, displaySize])
 
-  // No useFrame here — position/rotation are written directly to the group
-  // from the parent Scene's single useFrame to enable collision detection.
   return (
     <group ref={ref} rotation={initialRotation} scale={normalizedScale}>
       <primitive object={cloned} />
@@ -88,7 +84,6 @@ const FoodItem = forwardRef<THREE.Group, FoodItemProps>(function FoodItem(
 // ─── Scene — owns all physics state and runs the simulation ──────────────────
 
 function Scene() {
-  // Item descriptors (stable for component lifetime)
   const items = useMemo(
     () =>
       Array.from({ length: ITEM_COUNT }, (_, i) => {
@@ -113,15 +108,14 @@ function Scene() {
     []
   )
 
-  // One THREE.Group ref per item
+  // One THREE.Group ref per item — all owned here, not per-child
   const groupRefs = useMemo(
     () => Array.from({ length: ITEM_COUNT }, () => createRef<THREE.Group>()),
-    // ITEM_COUNT matches items.length — safe to omit items from deps
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   )
 
-  // Mutable simulation state — initialised lazily so Math.random() only runs once
+  // Mutable simulation state — lazily initialised once
   const simRef = useRef<ItemSim[] | null>(null)
   if (simRef.current === null) {
     simRef.current = items.map(item => ({
@@ -133,12 +127,10 @@ function Scene() {
                    ),
       rotSpeed:    new THREE.Vector3(item.rotX, item.rotY, item.rotZ),
       floatOffset: item.floatOffset,
-      // Bounding-sphere radius ≈ half of longest model axis, slightly enlarged
-      radius:      item.displaySize * 0.55,
     }))
   }
 
-  // Reusable scratch vector — avoids per-frame heap allocation in the hot loop
+  // Scratch vector — avoids heap allocation in the hot loop
   const scratch = useRef(new THREE.Vector3())
 
   useFrame(({ clock }) => {
@@ -146,43 +138,47 @@ function Scene() {
     const sim = simRef.current!
     const N   = sim.length
 
-    // ── 1. Advance positions by velocity ──────────────────────────────────
+    // ── 1. Advance positions ───────────────────────────────────────────────
     for (let i = 0; i < N; i++) {
       sim[i].pos.addScaledVector(sim[i].vel, 1)
     }
 
-    // ── 2. Pairwise soft collision ─────────────────────────────────────────
-    // Uses position-based correction (direct push) + a tiny velocity nudge.
-    // No elastic bouncing — models gently drift away from each other.
+    // ── 2. Pairwise collision — 50% correction per frame ──────────────────
+    // Direct positional push resolves overlap in ~2 frames.
     for (let i = 0; i < N; i++) {
       for (let j = i + 1; j < N; j++) {
-        const diff    = scratch.current.subVectors(sim[i].pos, sim[j].pos)
-        const dist    = diff.length()
-        const minDist = sim[i].radius + sim[j].radius
-        if (dist < minDist && dist > 0.001) {
-          const overlap = minDist - dist
-          diff.normalize()
-          // Directly separate positions (half overlap each)
-          const posFix = overlap * 0.15
-          sim[i].pos.addScaledVector(diff,  posFix)
-          sim[j].pos.addScaledVector(diff, -posFix)
-          // Small velocity impulse so they keep separating after correction
-          const velFix = overlap * 0.008
-          sim[i].vel.addScaledVector(diff,  velFix)
-          sim[j].vel.addScaledVector(diff, -velFix)
+        scratch.current.subVectors(sim[j].pos, sim[i].pos)
+        const dist = scratch.current.length()
+        if (dist < MIN_DIST && dist > 0.001) {
+          const overlap = MIN_DIST - dist
+          scratch.current.normalize()
+          const push = overlap * 0.5
+          sim[i].pos.addScaledVector(scratch.current, -push)
+          sim[j].pos.addScaledVector(scratch.current,  push)
+          // Velocity nudge prevents models drifting back into contact
+          const velPush = overlap * 0.012
+          sim[i].vel.addScaledVector(scratch.current, -velPush)
+          sim[j].vel.addScaledVector(scratch.current,  velPush)
         }
       }
     }
 
-    // ── 3. Centre-zone exclusion (login card area) ─────────────────────────
+    // ── 3. Centre exclusion — snap instantly to exclusion boundary ─────────
     for (let i = 0; i < N; i++) {
-      const distFromCenter = sim[i].pos.length()
-      const minDist        = CENTER_RAD + sim[i].radius
-      if (distFromCenter < minDist && distFromCenter > 0.001) {
-        const overlap = minDist - distFromCenter
-        scratch.current.copy(sim[i].pos).normalize()
-        sim[i].pos.addScaledVector(scratch.current,  overlap * 0.15)
-        sim[i].vel.addScaledVector(scratch.current,  overlap * 0.008)
+      const px = sim[i].pos.x
+      const py = sim[i].pos.y
+      const distFromCenter = Math.sqrt(px * px + py * py)
+      if (distFromCenter < CENTER_EXCL && distFromCenter > 0.001) {
+        // Scale position directly to the boundary (full correction, one frame)
+        const scale = CENTER_EXCL / distFromCenter
+        sim[i].pos.x = px * scale
+        sim[i].pos.y = py * scale
+        // Reflect any inward velocity component outward
+        scratch.current.set(px, py, 0).normalize()
+        const dot = sim[i].vel.dot(scratch.current)
+        if (dot < 0) {
+          sim[i].vel.addScaledVector(scratch.current, -dot * 1.6)
+        }
       }
     }
 
@@ -206,7 +202,7 @@ function Scene() {
       }
     }
 
-    // ── 6. Write results to Three.js groups ───────────────────────────────
+    // ── 6. Write positions + rotations to THREE.Group refs ────────────────
     for (let i = 0; i < N; i++) {
       const group = groupRefs[i].current
       if (!group) continue
