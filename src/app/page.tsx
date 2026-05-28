@@ -1,5 +1,5 @@
 import DashboardLayout from './(dashboard)/layout'
-import DashboardPage from './(dashboard)/page'
+import DashboardPage from './(dashboard)/DashboardPage'
 
 export default function Home() {
   return (
