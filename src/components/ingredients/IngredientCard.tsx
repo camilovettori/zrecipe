@@ -95,7 +95,7 @@ export default function IngredientCard({ ingredient, onDeleteRequest }: Ingredie
       <p className="mt-1">
         <span className="text-xl font-bold text-emerald-600">
           {ingredient.current_price != null
-            ? `$${ingredient.current_price.toFixed(2)}`
+            ? `€${ingredient.current_price.toFixed(2)}`
             : '—'}
         </span>
         {ingredient.current_price != null && (

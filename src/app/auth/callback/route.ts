@@ -34,10 +34,10 @@ function applyCookies(
 
 function setHasTenantCookie(response: NextResponse) {
   response.cookies.set('has-tenant', 'true', {
-    httpOnly: true,
+    httpOnly: false, // false so document.cookie can also write it as a fallback
     sameSite: 'lax',
     path: '/',
-    maxAge: 60 * 60 * 24, // 24 hours — matches middleware cache TTL
+    maxAge: 60 * 60 * 24 * 365, // 1 year
   })
 }
 

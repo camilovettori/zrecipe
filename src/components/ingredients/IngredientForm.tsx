@@ -147,7 +147,7 @@ export default function IngredientForm({
         <div>
           <label className={label}>Price per unit</label>
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">$</span>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">€</span>
             <input
               {...register('current_price', {
                 setValueAs: (v: string) => (v === '' ? undefined : parseFloat(v)),

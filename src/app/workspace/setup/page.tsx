@@ -71,6 +71,10 @@ export default function WorkspaceSetupPage() {
       return
     }
 
+    // Belt-and-suspenders: set the cookie client-side too so middleware
+    // sees it even if the server Set-Cookie header was dropped.
+    document.cookie = 'has-tenant=true; path=/; max-age=31536000; samesite=lax'
+
     router.push(destination)
     router.refresh()
   }

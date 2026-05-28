@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
 
+const HAS_TENANT_COOKIE_OPTIONS = {
+  httpOnly: false, // false so document.cookie can also set/read it
+  sameSite: 'lax' as const,
+  path: '/',
+  maxAge: 60 * 60 * 24 * 365, // 1 year
+}
+
 function slugify(value: string) {
   return value
     .toLowerCase()
@@ -66,7 +73,9 @@ export async function POST(request: NextRequest) {
     .maybeSingle()
 
   if (existing) {
-    return NextResponse.json({ success: true })
+    const response = NextResponse.json({ success: true })
+    response.cookies.set('has-tenant', 'true', HAS_TENANT_COOKIE_OPTIONS)
+    return response
   }
 
   const tenantSlug = `${slugify(businessName) || 'workspace'}-${userId.slice(0, 8)}`
@@ -100,5 +109,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to create workspace' }, { status: 500 })
   }
 
-  return NextResponse.json({ success: true })
+  const response = NextResponse.json({ success: true })
+  response.cookies.set('has-tenant', 'true', HAS_TENANT_COOKIE_OPTIONS)
+  return response
 }

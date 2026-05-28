@@ -4,13 +4,14 @@ import { useAppStore } from '@/stores/app'
 import Sidebar from '@/components/dashboard/Sidebar'
 import TopBar from '@/components/dashboard/TopBar'
 import CommandSearch from '@/components/shared/CommandSearch'
+import UpgradePopup, { UpgradeBanner } from '@/components/shared/UpgradePopup'
 import { cn } from '@/lib/utils'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed)
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-emerald-50/20 dark:from-slate-950 dark:via-slate-900 dark:to-emerald-950/10">
       <Sidebar />
 
       {/*
@@ -25,11 +26,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
       >
         <TopBar />
+        <UpgradeBanner />
         <main className="flex-1 p-5 sm:p-8">
           <div className="mx-auto max-w-7xl">{children}</div>
         </main>
       </div>
+
       <CommandSearch />
+      <UpgradePopup />
     </div>
   )
 }

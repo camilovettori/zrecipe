@@ -7,19 +7,17 @@ import { Search, Bell, Plus, FileText, Apple, ChefHat, Menu, ChevronRight, Home 
 import { useAppStore } from '@/stores/app'
 
 const QUICK_ADD_ITEMS = [
-  { label: 'New Invoice', href: '/invoices', icon: FileText },
+  { label: 'New Invoice',    href: '/invoices',       icon: FileText },
   { label: 'New Ingredient', href: '/ingredients/new', icon: Apple },
-  { label: 'New Recipe', href: '/recipes/new', icon: ChefHat },
+  { label: 'New Recipe',     href: '/recipes/new',     icon: ChefHat },
 ]
 
 function useBreadcrumbs(pathname: string) {
   const segments = pathname.split('/').filter(Boolean)
-
   const crumbs = segments.map((seg, i) => ({
     label: seg.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
     href: '/' + segments.slice(0, i + 1).join('/'),
   }))
-
   return [{ label: 'Home', href: '/' }, ...crumbs]
 }
 
@@ -29,20 +27,19 @@ export default function TopBar() {
   const { setMobileSidebarOpen, setCommandSearchOpen } = useAppStore()
 
   const [quickAddOpen, setQuickAddOpen] = useState(false)
-  const searchRef = useRef<HTMLInputElement>(null)
   const quickAddRef = useRef<HTMLDivElement>(null)
 
-  // Cmd+K / Ctrl+K → focus search
+  // ⌘K / Ctrl+K → open command palette
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
-        searchRef.current?.focus()
+        setCommandSearchOpen(true)
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [])
+  }, [setCommandSearchOpen])
 
   // Close quick-add on outside click
   useEffect(() => {
@@ -56,7 +53,7 @@ export default function TopBar() {
   }, [])
 
   return (
-    <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-4 border-b border-slate-200 bg-white px-4 sm:px-6 dark:border-slate-700 dark:bg-slate-900">
+    <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-3 border-b border-slate-200 bg-white/80 backdrop-blur-sm px-4 sm:px-6 dark:border-slate-700 dark:bg-slate-900/80">
       {/* Mobile hamburger */}
       <button
         onClick={() => setMobileSidebarOpen(true)}
@@ -89,37 +86,21 @@ export default function TopBar() {
 
       <div className="flex-1" />
 
-      {/* Search */}
-      <div className="relative hidden md:block">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        <input
-          readOnly
-          onClick={() => setCommandSearchOpen(true)}
-          onFocus={() => setCommandSearchOpen(true)}
-          ref={searchRef}
-          type="text"
-          placeholder="Search…"
-          className="h-9 w-64 rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-14 text-sm text-slate-900 placeholder-slate-400 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder-slate-500"
-        />
-        <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 hidden items-center gap-0.5 rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-400 sm:flex dark:border-slate-700 dark:bg-slate-800">
-          ⌘K
-        </kbd>
-      </div>
-
-      {/* Quick-add */}
+      {/* ⌘K search button */}
       <button
         type="button"
         onClick={() => setCommandSearchOpen(true)}
-        className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-50 md:flex"
+        className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500 transition-colors hover:border-slate-300 hover:bg-white hover:text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-400"
         aria-label="Open search"
       >
         <Search className="h-4 w-4" />
-        <span className="hidden xl:inline">Search</span>
-        <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
+        <span className="hidden sm:inline">Search</span>
+        <kbd className="rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-400 dark:border-slate-600 dark:bg-slate-700">
           ⌘K
         </kbd>
       </button>
 
+      {/* + New dropdown */}
       <div ref={quickAddRef} className="relative">
         <button
           onClick={() => setQuickAddOpen((o) => !o)}

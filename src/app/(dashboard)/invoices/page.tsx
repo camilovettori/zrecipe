@@ -18,6 +18,7 @@ import {
   useInvoices,
 } from '@/hooks/useInvoices'
 import { resolveTenantId } from '@/hooks/useTenant'
+import { useSubscription } from '@/hooks/useSubscription'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 
@@ -92,6 +93,7 @@ function InvoicesSkeleton() {
 export default function InvoicesPage() {
   const router = useRouter()
   const { invoices, loading, refreshInvoices, error } = useInvoices()
+  const { limits } = useSubscription()
   const [uploaderOpen, setUploaderOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [suppliers, setSuppliers] = useState<SupplierLookup[]>([])
@@ -199,14 +201,25 @@ export default function InvoicesPage() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setUploaderOpen(true)}
-          className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500"
-        >
-          <UploadCloud className="h-4 w-4" />
-          Import Invoice
-        </button>
+        {limits.canUploadInvoices ? (
+          <button
+            type="button"
+            onClick={() => setUploaderOpen(true)}
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500"
+          >
+            <UploadCloud className="h-4 w-4" />
+            Import Invoice
+          </button>
+        ) : (
+          <a
+            href="/settings?tab=billing"
+            className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-500 transition hover:border-emerald-400 hover:text-emerald-600"
+            title="Invoice import is a Pro feature"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" /></svg>
+            Import Invoice — Pro
+          </a>
+        )}
       </div>
 
       <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center">

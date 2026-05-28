@@ -3,11 +3,12 @@
 import { useMemo, useState } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { Grid2X2, List, Plus, Search, ChefHat } from 'lucide-react'
+import { Grid2X2, List, Plus, Search, ChefHat, Lock } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import EmptyState from '@/components/shared/EmptyState'
 import RecipeCard from '@/components/recipes/RecipeCard'
 import { RECIPE_CATEGORIES, useRecipes } from '@/hooks/useRecipes'
+import { useSubscription } from '@/hooks/useSubscription'
 import { cn } from '@/lib/utils'
 
 type ViewMode = 'grid' | 'list'
@@ -37,9 +38,12 @@ function SkeletonCard() {
 export default function RecipesPage() {
   const router = useRouter()
   const { recipes, loading, error } = useRecipes()
+  const { limits, hasFullAccess } = useSubscription()
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('all')
   const [view, setView] = useState<ViewMode>('grid')
+
+  const atRecipeLimit = !hasFullAccess && recipes.length >= limits.maxRecipes
 
   const filteredRecipes = useMemo(() => {
     const search = query.trim().toLowerCase()
@@ -72,14 +76,31 @@ export default function RecipesPage() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => router.push('/recipes/new')}
-          className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500"
-        >
-          <Plus className="h-4 w-4" />
-          Create Recipe
-        </button>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            type="button"
+            onClick={() => !atRecipeLimit && router.push('/recipes/new')}
+            disabled={atRecipeLimit}
+            title={atRecipeLimit ? `Free plan limit: ${limits.maxRecipes} recipes` : undefined}
+            className={cn(
+              'inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-white transition',
+              atRecipeLimit
+                ? 'cursor-not-allowed bg-slate-400'
+                : 'bg-emerald-600 hover:bg-emerald-500'
+            )}
+          >
+            {atRecipeLimit ? <Lock className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            Create Recipe
+          </button>
+          {atRecipeLimit && (
+            <p className="text-right text-xs text-slate-500">
+              Free plan limit of {limits.maxRecipes} recipes reached.{' '}
+              <a href="/settings?tab=billing" className="font-medium text-emerald-600 hover:underline">
+                Upgrade to Pro
+              </a>
+            </p>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm lg:flex-row lg:items-center">

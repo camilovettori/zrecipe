@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { clearTenantCache } from '@/hooks/useTenant'
 import { useAppStore } from '@/stores/app'
 import { cn } from '@/lib/utils'
 
@@ -95,8 +96,9 @@ function UserSection({
   const initial = (user?.name?.[0] ?? user?.email?.[0] ?? 'U').toUpperCase()
 
   const handleLogout = async () => {
-    const supabase = createClient()
-    await supabase.auth.signOut()
+    await fetch('/api/auth/signout', { method: 'POST' })
+    document.cookie = 'has-tenant=; path=/; max-age=0'
+    clearTenantCache()
     router.push('/login')
   }
 
@@ -158,10 +160,12 @@ function UserSection({
 function SidebarContent({
   collapsed,
   onNavClick,
+  onToggle,
   user,
 }: {
   collapsed: boolean
   onNavClick?: () => void
+  onToggle?: () => void
   user: UserInfo | null
 }) {
   return (
@@ -183,6 +187,33 @@ function SidebarContent({
       </div>
 
       <NavItems collapsed={collapsed} onNavClick={onNavClick} />
+
+      {/* Collapse toggle — inside the sidebar at the bottom of nav */}
+      {onToggle && (
+        <div className="px-3 pb-2">
+          <button
+            onClick={onToggle}
+            className={cn(
+              'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-300',
+              collapsed && 'justify-center'
+            )}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? (
+              <ChevronRight className="h-4 w-4" />
+            ) : (
+              <>
+                <ChevronLeft className="h-4 w-4" />
+                <span>Collapse</span>
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* Separator */}
+      <div className="mx-3 border-t border-slate-700" />
+
       <UserSection collapsed={collapsed} user={user} />
     </div>
   )
@@ -215,20 +246,11 @@ export default function Sidebar() {
         transition={{ duration: 0.25, ease: 'easeInOut' }}
         className="fixed inset-y-0 left-0 z-50 hidden flex-col overflow-hidden bg-slate-900 lg:flex"
       >
-        <SidebarContent collapsed={sidebarCollapsed} user={user} />
-
-        {/* Collapse toggle */}
-        <button
-          onClick={toggleSidebar}
-          className="absolute -right-3 top-[4.5rem] z-10 flex h-6 w-6 items-center justify-center rounded-full border border-slate-700 bg-slate-800 text-slate-400 shadow-md transition-colors hover:text-white"
-          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {sidebarCollapsed ? (
-            <ChevronRight className="h-3 w-3" />
-          ) : (
-            <ChevronLeft className="h-3 w-3" />
-          )}
-        </button>
+        <SidebarContent
+          collapsed={sidebarCollapsed}
+          onToggle={toggleSidebar}
+          user={user}
+        />
       </motion.aside>
 
       {/* ── Mobile overlay ── */}

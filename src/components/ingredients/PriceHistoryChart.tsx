@@ -40,7 +40,7 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: Toolti
         {format(new Date(point.effective_date), 'MMM d, yyyy')}
       </p>
       <p className="mt-0.5 text-sm font-bold text-slate-900 dark:text-white">
-        ${point.price.toFixed(2)} / {point.unit}
+        €{point.price.toFixed(2)} / {point.unit}
       </p>
       {point.invoice_id && (
         <p className="mt-0.5 font-mono text-xs text-slate-400">
