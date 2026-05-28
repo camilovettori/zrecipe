@@ -1,0 +1,104 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { createRequestSupabaseClient } from '@/lib/supabase/request'
+
+function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+export async function POST(request: NextRequest) {
+  let body: unknown
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+  }
+
+  const { businessName, businessType, userId: bodyUserId } = body as Record<string, string>
+
+  if (!businessName?.trim() || !businessType?.trim()) {
+    return NextResponse.json({ error: 'Business name and type are required' }, { status: 400 })
+  }
+
+  const admin = createAdminClient()
+
+  // Prefer session user (OAuth / authenticated flows); fall back to explicit userId
+  // passed from the email signup form (user exists in auth but has no session yet).
+  let userId: string
+  let ownerEmail: string
+
+  const supabase = createRequestSupabaseClient(request)
+  const {
+    data: { user: sessionUser },
+  } = await supabase.auth.getUser()
+
+  if (sessionUser) {
+    userId = sessionUser.id
+    ownerEmail = sessionUser.email?.toLowerCase() ?? ''
+  } else if (bodyUserId) {
+    // Email signup — verify the user actually exists before trusting the id
+    const {
+      data: { user: authUser },
+      error: userErr,
+    } = await admin.auth.admin.getUserById(bodyUserId)
+    if (userErr || !authUser) {
+      return NextResponse.json({ error: 'User not found' }, { status: 400 })
+    }
+    userId = authUser.id
+    ownerEmail = authUser.email?.toLowerCase() ?? ''
+  } else {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tenantUsersTable = admin.from('tenant_users') as any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tenantsTable = admin.from('tenants') as any
+
+  // Idempotent: workspace already set up for this user
+  const { data: existing } = await tenantUsersTable
+    .select('id')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (existing) {
+    return NextResponse.json({ success: true })
+  }
+
+  const tenantSlug = `${slugify(businessName) || 'workspace'}-${userId.slice(0, 8)}`
+
+  const { data: tenant, error: tenantError } = await tenantsTable
+    .insert({
+      name: businessName.trim(),
+      slug: tenantSlug,
+      owner_email: ownerEmail,
+      business_type: businessType.toLowerCase(),
+      plan: 'pro',
+      subscription_status: 'trialing',
+    })
+    .select('id')
+    .single()
+
+  if (tenantError || !tenant) {
+    console.error('Tenant insert error:', tenantError)
+    return NextResponse.json({ error: 'Failed to create workspace' }, { status: 500 })
+  }
+
+  const { error: tenantUserError } = await tenantUsersTable.insert({
+    tenant_id: tenant.id,
+    user_id: userId,
+    role: 'owner',
+  })
+
+  if (tenantUserError) {
+    console.error('Tenant user insert error:', tenantUserError)
+    await tenantsTable.delete().eq('id', tenant.id)
+    return NextResponse.json({ error: 'Failed to create workspace' }, { status: 500 })
+  }
+
+  return NextResponse.json({ success: true })
+}

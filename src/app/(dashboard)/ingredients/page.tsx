@@ -1,0 +1,193 @@
+'use client'
+
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { Plus, Search, SlidersHorizontal, Apple } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { useIngredients, type SortKey } from '@/hooks/useIngredients'
+import IngredientCard from '@/components/ingredients/IngredientCard'
+import EmptyState from '@/components/shared/EmptyState'
+import ConfirmDelete from '@/components/shared/ConfirmDelete'
+import { toast } from '@/lib/toast'
+
+const CATEGORIES = [
+  'all', 'Dairy', 'Flour', 'Sugar', 'Spice', 'Meat', 'Vegetable', 'Fruit', 'Other',
+]
+
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: 'name', label: 'Name' },
+  { value: 'price', label: 'Price' },
+  { value: 'updated', label: 'Last Updated' },
+]
+
+function SkeletonCard() {
+  return (
+    <div className="animate-pulse rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-800">
+      <div className="h-5 w-16 rounded-full bg-slate-200 dark:bg-slate-700" />
+      <div className="mt-3 h-5 w-3/4 rounded bg-slate-200 dark:bg-slate-700" />
+      <div className="mt-2 h-7 w-1/2 rounded bg-slate-200 dark:bg-slate-700" />
+      <div className="mt-4 flex justify-between border-t border-slate-100 pt-3 dark:border-slate-700">
+        <div className="h-3 w-20 rounded bg-slate-200 dark:bg-slate-700" />
+        <div className="h-3 w-20 rounded bg-slate-200 dark:bg-slate-700" />
+      </div>
+    </div>
+  )
+}
+
+export default function IngredientsPage() {
+  const router = useRouter()
+  const {
+    ingredients,
+    loading,
+    error,
+    deleteIngredient,
+    search,
+    searchIngredients,
+    category,
+    filterByCategory,
+    sortBy,
+    setSortBy,
+  } = useIngredients()
+
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      await deleteIngredient(deleteTarget.id)
+      toast.success(`"${deleteTarget.name}" deleted`)
+      setDeleteTarget(null)
+    } catch {
+      toast.error('Failed to delete ingredient')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const hasFilters = search !== '' || category !== 'all'
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-slate-900 dark:text-white">
+            Ingredients
+          </h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            {loading
+              ? 'Loading…'
+              : `${ingredients.length} ingredient${ingredients.length !== 1 ? 's' : ''}${hasFilters ? ' found' : ''}`}
+          </p>
+        </div>
+        <button
+          onClick={() => router.push('/ingredients/new')}
+          className="flex shrink-0 items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500"
+        >
+          <Plus className="h-4 w-4" />
+          Add Ingredient
+        </button>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search ingredients…"
+            value={search}
+            onChange={(e) => searchIngredients(e.target.value)}
+            className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 text-sm text-slate-900 placeholder-slate-400 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder-slate-500"
+          />
+        </div>
+
+        <select
+          value={category}
+          onChange={(e) => filterByCategory(e.target.value)}
+          className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 focus:border-emerald-400 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white [&>option]:bg-white dark:[&>option]:bg-slate-800"
+        >
+          {CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {c === 'all' ? 'All Categories' : c}
+            </option>
+          ))}
+        </select>
+
+        <div className="flex items-center gap-2">
+          <SlidersHorizontal className="h-4 w-4 shrink-0 text-slate-400" />
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as SortKey)}
+            className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 focus:border-emerald-400 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white [&>option]:bg-white dark:[&>option]:bg-slate-800"
+          >
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                Sort: {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
+          {error}
+        </div>
+      )}
+
+      {/* Content */}
+      {loading ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+      ) : ingredients.length === 0 ? (
+        <EmptyState
+          icon={Apple}
+          title={hasFilters ? 'No results found' : 'No ingredients yet'}
+          description={
+            hasFilters
+              ? 'Try adjusting your search or filter to find what you\'re looking for.'
+              : 'Add your first ingredient to start tracking costs and price history.'
+          }
+          action={
+            !hasFilters
+              ? { label: 'Add your first ingredient', onClick: () => router.push('/ingredients/new') }
+              : undefined
+          }
+        />
+      ) : (
+        <motion.div layout className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <AnimatePresence mode="popLayout">
+            {ingredients.map((ingredient) => (
+              <motion.div
+                key={ingredient.id}
+                layout
+                initial={{ opacity: 0, scale: 0.97 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.97 }}
+                transition={{ duration: 0.18 }}
+              >
+                <IngredientCard
+                  ingredient={ingredient}
+                  onDeleteRequest={(id, name) => setDeleteTarget({ id, name })}
+                />
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </motion.div>
+      )}
+
+      <ConfirmDelete
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        itemName={deleteTarget?.name ?? ''}
+        loading={deleting}
+      />
+    </div>
+  )
+}

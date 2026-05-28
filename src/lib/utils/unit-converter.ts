@@ -1,0 +1,85 @@
+export const COMMON_UNITS = [
+  'g',
+  'kg',
+  'oz',
+  'lb',
+  'ml',
+  'L',
+  'unit',
+  'dozen',
+  'portion',
+  'serving',
+  'tbsp',
+  'tsp',
+  'cup',
+] as const
+
+type Unit = (typeof COMMON_UNITS)[number] | string
+
+const WEIGHT_TO_GRAMS: Record<string, number> = {
+  g: 1,
+  kg: 1000,
+  oz: 28.349523125,
+  lb: 453.59237,
+}
+
+const VOLUME_TO_ML: Record<string, number> = {
+  ml: 1,
+  l: 1000,
+}
+
+function normalizeUnit(unit: Unit) {
+  return unit.trim().toLowerCase()
+}
+
+function getFamily(unit: string) {
+  if (unit in WEIGHT_TO_GRAMS) return 'weight'
+  if (unit in VOLUME_TO_ML) return 'volume'
+  return 'count'
+}
+
+export function getConversionFactor(fromUnit: Unit, toUnit: Unit) {
+  const from = normalizeUnit(fromUnit)
+  const to = normalizeUnit(toUnit)
+
+  if (from === to) {
+    return 1
+  }
+
+  const fromFamily = getFamily(from)
+  const toFamily = getFamily(to)
+
+  if (fromFamily !== toFamily) {
+    return null
+  }
+
+  if (fromFamily === 'weight') {
+    return WEIGHT_TO_GRAMS[from] / WEIGHT_TO_GRAMS[to]
+  }
+
+  if (fromFamily === 'volume') {
+    return VOLUME_TO_ML[from] / VOLUME_TO_ML[to]
+  }
+
+  return null
+}
+
+export function convertUnit(value: number, fromUnit: Unit, toUnit: Unit) {
+  const factor = getConversionFactor(fromUnit, toUnit)
+  if (factor == null) {
+    return value
+  }
+  return value * factor
+}
+
+export function normalizeToBaseUnit(value: number, unit: Unit) {
+  const normalized = normalizeUnit(unit)
+  if (normalized in WEIGHT_TO_GRAMS) {
+    return { value: value * WEIGHT_TO_GRAMS[normalized], unit: 'g' }
+  }
+  if (normalized in VOLUME_TO_ML) {
+    return { value: value * VOLUME_TO_ML[normalized], unit: 'ml' }
+  }
+  return { value, unit: normalized }
+}
+
