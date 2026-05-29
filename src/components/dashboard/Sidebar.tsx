@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
   LogOut,
+  Sparkles,
   User,
   X,
 } from 'lucide-react'
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { href: '/invoices', label: 'Invoices', icon: FileText },
   { href: '/ingredients', label: 'Ingredients', icon: Apple },
   { href: '/recipes', label: 'Recipes', icon: ChefHat },
+  { href: '/ai-ideas', label: 'AI Ideas', icon: Sparkles },
   { href: '/suppliers', label: 'Suppliers', icon: Truck },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]

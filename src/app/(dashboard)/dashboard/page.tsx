@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import StatsCards from '@/components/dashboard/StatsCards'
+import AIUsageCard from '@/components/dashboard/AIUsageCard'
 import Link from 'next/link'
 import { FileText, ChefHat, Upload, Plus, ArrowRight } from 'lucide-react'
 
@@ -148,6 +149,7 @@ export default async function DashboardPage() {
 
       {/* Stats */}
       <StatsCards />
+      <AIUsageCard />
 
       {/* Recent activity */}
       <section>

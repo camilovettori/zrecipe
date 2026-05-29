@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useMemo, useState, type ComponentType } from 'react'
 import * as Tabs from '@radix-ui/react-tabs'
@@ -6,11 +6,13 @@ import {
   Building2,
   CheckCircle2,
   CreditCard,
+  AlertTriangle,
   KeyRound,
   Loader2,
   Package,
   Receipt,
   Shield,
+  Sparkles,
   TrendingUp,
   X,
   Zap,
@@ -20,7 +22,7 @@ import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
 import { clearTenantCache, resolveTenantContext } from '@/hooks/useTenant'
 import { TRIAL_PERIOD_DAYS, getEffectiveSubscriptionStatus } from '@/lib/tenant'
-import { FREE_LIMITS } from '@/lib/subscription/limits'
+import { FREE_LIMITS, PRO_LIMITS } from '@/lib/subscription/limits'
 import { cn } from '@/lib/utils'
 
 type TenantSettings = {
@@ -38,17 +40,22 @@ type TenantSettings = {
 
 type UsageStats = { recipes: number; ingredients: number; invoices: number }
 
+type AIUsageStats = {
+  recipe_ideas:    { used: number; limit: number | null }
+  invoice_extracts: { used: number; limit: number | null }
+} | null
+
 const TABS = ['account', 'billing'] as const
 type SettingsTab = (typeof TABS)[number]
 
 function fmt(value?: string | null) {
-  if (!value) return '—'
+  if (!value) return 'â€”'
   return new Intl.DateTimeFormat('en-IE', {
     day: '2-digit', month: 'short', year: 'numeric',
   }).format(new Date(value))
 }
 
-// ── Subscription status card ───────────────────────────────────────────────
+// â”€â”€ Subscription status card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function TrialingCard({
   tenant,
@@ -128,7 +135,7 @@ function ActiveCard({
             <CheckCircle2 className="h-3.5 w-3.5" />
             Active
           </div>
-          <h2 className="mt-3 text-2xl font-bold text-slate-900">ZRecipe Pro — Active</h2>
+          <h2 className="mt-3 text-2xl font-bold text-slate-900">ZRecipe Pro â€” Active</h2>
           <p className="mt-1 text-sm text-slate-500">
             {tenant.subscription_current_period_end
               ? `Next billing date: ${fmt(tenant.subscription_current_period_end)}`
@@ -200,78 +207,147 @@ function InactiveCard({
   )
 }
 
-// ── Plan comparison ───────────────────────────────────────────────────────
+// â”€â”€ Plan comparison â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const FREE_FEATURES = [
-  { text: `${FREE_LIMITS.maxRecipes} recipes max`,    included: false },
-  { text: 'Invoice import',                           included: false },
-  { text: 'Delete recipes',                           included: false },
-  { text: 'Basic recipe costing',                     included: true  },
+  { text: `${FREE_LIMITS.maxRecipes} recipes maximum`, included: false },
+  { text: 'No invoice import', included: false },
+  { text: 'Cannot delete recipes', included: false },
+  { text: `${FREE_LIMITS.aiRecipeIdeasPerMonth} AI recipe ideas / month`, included: false },
+  { text: `${FREE_LIMITS.aiInvoiceExtractsPerMonth} AI invoice extractions / month`, included: false },
+  { text: 'No PDF export with costs', included: false },
+  { text: 'Basic recipe costing', included: true },
+  { text: 'Ingredient management', included: true },
+  { text: 'Supplier tracking', included: true },
 ]
 
 const PRO_FEATURES = [
-  { text: 'Unlimited recipes',          included: true },
-  { text: 'Invoice import (PDF, CSV)',  included: true },
-  { text: 'Full recipe management',     included: true },
-  { text: 'PDF export with costs',      included: true },
-  { text: 'Price history tracking',     included: true },
-  { text: 'Priority support',           included: true },
+  { text: 'Unlimited recipes', included: true },
+  { text: 'Invoice import (PDF, CSV) with AI extraction', included: true },
+  { text: 'Full recipe management (create, edit, delete)', included: true },
+  { text: `${PRO_LIMITS.aiRecipeIdeasPerMonth} AI recipe ideas / month`, included: true },
+  { text: 'Unlimited AI invoice extractions', included: true },
+  { text: 'PDF export (full report & kitchen card)', included: true },
+  { text: 'Price history tracking', included: true },
+  { text: 'Sub-recipe support', included: true },
+  { text: 'Priority support', included: true },
 ]
 
-function FeatureRow({ text, included }: { text: string; included: boolean }) {
+function FeatureRow({
+  text,
+  included,
+  variant,
+}: {
+  text: string
+  included: boolean
+  variant: 'current-free' | 'trial-free' | 'pro'
+}) {
+  const warningOnly = variant === 'trial-free' && !included
+
   return (
     <li className="flex items-center gap-2.5 py-2 text-sm">
       {included ? (
         <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+      ) : warningOnly ? (
+        <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
       ) : (
         <X className="h-4 w-4 shrink-0 text-slate-300" />
       )}
-      <span className={included ? 'text-slate-700' : 'text-slate-400 line-through'}>
+      <span
+        className={
+          included
+            ? 'text-slate-700'
+            : warningOnly
+              ? 'text-slate-600'
+              : 'text-slate-400 line-through'
+        }
+      >
         {text}
       </span>
     </li>
   )
 }
 
-function PlanComparison({ onUpgrade, busy }: { onUpgrade: () => void; busy: boolean }) {
+function PlanComparison({
+  onUpgrade,
+  busy,
+  isTrial,
+}: {
+  onUpgrade: () => void
+  busy: boolean
+  isTrial: boolean
+}) {
+  const freeTitle = isTrial ? 'After trial ends' : 'Your current plan'
+  const freeLabel = isTrial ? "What you'll lose when trial ends" : 'Free plan'
+  const freeCardClass = isTrial
+    ? 'border-amber-200 bg-amber-50/70'
+    : 'border-emerald-200 bg-emerald-50'
+  const proCardClass = isTrial
+    ? 'border-emerald-500 bg-white shadow-md shadow-emerald-100'
+    : 'border-slate-200 bg-slate-50'
+  const proBadge = isTrial ? 'Your current plan' : 'Recommended'
+  const ctaLabel = isTrial ? 'Subscribe to keep Pro access' : 'Upgrade to Pro'
+
   return (
     <div className="grid gap-4 sm:grid-cols-2">
-      {/* Free */}
-      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-        <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Free</p>
-        <p className="mt-1 text-2xl font-bold text-slate-400">€0</p>
-        <p className="text-sm text-slate-400">/month</p>
+      <div className={cn('rounded-2xl p-5 shadow-sm', freeCardClass)}>
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">
+          {freeLabel}
+        </p>
+        <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-slate-600 shadow-sm">
+          {isTrial ? (
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+          ) : (
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+          )}
+          {freeTitle}
+        </div>
+        <p className={cn('mt-2 text-2xl font-bold', isTrial ? 'text-slate-700' : 'text-emerald-700')}>
+          €0
+        </p>
+        <p className="text-sm text-slate-500">/month</p>
+        {isTrial && (
+          <p className="mt-3 text-xs font-medium uppercase tracking-widest text-amber-700">
+            What you&apos;ll lose when trial ends
+          </p>
+        )}
         <ul className="mt-4 divide-y divide-slate-200">
-          {FREE_FEATURES.map((f) => <FeatureRow key={f.text} {...f} />)}
+          {FREE_FEATURES.map((f) => (
+            <FeatureRow
+              key={f.text}
+              {...f}
+              variant={isTrial ? 'trial-free' : 'current-free'}
+            />
+          ))}
         </ul>
       </div>
 
-      {/* Pro */}
-      <div className="rounded-2xl border-2 border-emerald-500 bg-white p-5 shadow-md shadow-emerald-100">
+      <div className={cn('rounded-2xl border-2 p-5', proCardClass)}>
         <div className="flex items-center justify-between">
           <p className="text-xs font-semibold uppercase tracking-widest text-emerald-600">Pro</p>
           <span className="rounded-full bg-emerald-600 px-2.5 py-0.5 text-xs font-semibold text-white">
-            Recommended
+            {proBadge}
           </span>
         </div>
         <p className="mt-1 text-2xl font-bold text-slate-900">€25</p>
         <p className="text-sm text-slate-500">/month</p>
         <ul className="mt-4 divide-y divide-slate-100">
-          {PRO_FEATURES.map((f) => <FeatureRow key={f.text} {...f} />)}
+          {PRO_FEATURES.map((f) => (
+            <FeatureRow key={f.text} {...f} variant="pro" />
+          ))}
         </ul>
         <button
           onClick={onUpgrade}
           disabled={busy}
           className="mt-5 w-full rounded-full bg-emerald-600 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-60"
         >
-          {busy ? 'Redirecting…' : 'Get Pro'}
+          {busy ? 'Redirecting…' : ctaLabel}
         </button>
       </div>
     </div>
   )
 }
-
-// ── Usage stat card ───────────────────────────────────────────────────────
+// â”€â”€ Usage stat card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function UsageStat({
   label, value, max, icon: Icon,
@@ -310,7 +386,7 @@ function UsageStat({
             />
           </div>
           {atLimit && (
-            <p className="mt-1 text-xs text-red-600 font-medium">Limit reached — upgrade to add more</p>
+            <p className="mt-1 text-xs text-red-600 font-medium">Limit reached â€” upgrade to add more</p>
           )}
         </div>
       )}
@@ -318,13 +394,14 @@ function UsageStat({
   )
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────
+// â”€â”€ Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function SettingsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [tenant, setTenant]           = useState<TenantSettings | null>(null)
   const [usage, setUsage]             = useState<UsageStats>({ recipes: 0, ingredients: 0, invoices: 0 })
+  const [aiUsage, setAiUsage]         = useState<AIUsageStats>(null)
   const [loading, setLoading]         = useState(true)
   const [savingAccount, setSavingAccount] = useState(false)
   const [savingPassword, setSavingPassword] = useState(false)
@@ -345,9 +422,10 @@ export default function SettingsPage() {
     return getEffectiveSubscriptionStatus(tenant.subscription_status, tenant.created_at)
   }, [tenant])
 
+  const isTrial = subStatus === 'trialing'
   const hasFullAccess = subStatus === 'active' || subStatus === 'trialing'
 
-  // ── URL params: tab + notice toasts ─────────────────────────────────────
+  // â”€â”€ URL params: tab + notice toasts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const queryTab = params.get('tab')
@@ -437,14 +515,14 @@ export default function SettingsPage() {
     }
   }, [isCheckoutSuccess, router])
 
-  // ── Data load ────────────────────────────────────────────────────────────
+  // â”€â”€ Data load â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     const load = async () => {
       try {
         setLoading(true)
         const supabase = createClient()
 
-        // Use resolveTenantContext() — calls /api/auth/tenant which uses the
+        // Use resolveTenantContext() â€” calls /api/auth/tenant which uses the
         // service-role client, bypassing any RLS that blocks direct queries.
         // This avoids the anon-client tenants query that may fail due to RLS.
         const [{ data: authData }, ctx] = await Promise.all([
@@ -472,15 +550,17 @@ export default function SettingsPage() {
         setAccountName(tenantRow.name)
         setBusinessType(tenantRow.business_type ?? '')
 
-        // Usage counts — these are simple row counts on other tables.
+        // Usage counts â€” these are simple row counts on other tables.
         // Errors here are non-fatal; we just show 0.
-        const [{ count: rc }, { count: ic }, { count: inv }] = await Promise.all([
+        const [{ count: rc }, { count: ic }, { count: inv }, aiUsageRes] = await Promise.all([
           supabase.from('recipes').select('id', { count: 'exact', head: true }).eq('tenant_id', ctx.tenantId),
           supabase.from('ingredients').select('id', { count: 'exact', head: true }).eq('tenant_id', ctx.tenantId),
           supabase.from('invoices').select('id', { count: 'exact', head: true }).eq('tenant_id', ctx.tenantId),
+          fetch('/api/ai/usage').then((r) => r.json()).catch(() => null) as Promise<AIUsageStats | null>,
         ])
 
         setUsage({ recipes: rc ?? 0, ingredients: ic ?? 0, invoices: inv ?? 0 })
+        if (aiUsageRes?.recipe_ideas) setAiUsage(aiUsageRes)
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Unable to load settings')
       } finally {
@@ -490,7 +570,7 @@ export default function SettingsPage() {
     load()
   }, [])
 
-  // ── Handlers ─────────────────────────────────────────────────────────────
+  // â”€â”€ Handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleAccountSave = async () => {
     if (!tenant) return
     try {
@@ -557,7 +637,7 @@ export default function SettingsPage() {
     }
   }
 
-  // ── Loading skeleton ──────────────────────────────────────────────────────
+  // â”€â”€ Loading skeleton â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (loading) {
     return (
       <div className="space-y-6">
@@ -604,7 +684,7 @@ export default function SettingsPage() {
           </Tabs.Trigger>
         </Tabs.List>
 
-        {/* ── Account tab ──────────────────────────────────────────────── */}
+        {/* â”€â”€ Account tab â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <Tabs.Content value="account" className="mt-6 space-y-6">
           <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
             <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -631,7 +711,7 @@ export default function SettingsPage() {
                   <input
                     value={businessType}
                     onChange={(e) => setBusinessType(e.target.value)}
-                    placeholder="restaurant, cafe, bakery…"
+                    placeholder="restaurant, cafe, bakeryâ€¦"
                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500"
                   />
                 </label>
@@ -696,7 +776,7 @@ export default function SettingsPage() {
           </div>
         </Tabs.Content>
 
-        {/* ── Billing tab ───────────────────────────────────────────────── */}
+        {/* â”€â”€ Billing tab â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <Tabs.Content value="billing" className="mt-6">
         <div className="mx-auto max-w-3xl space-y-6">
           {checkoutState !== 'idle' && (
@@ -718,7 +798,7 @@ export default function SettingsPage() {
             </div>
           )}
 
-            {/* Section 1 — Subscription status */}
+            {/* Section 1 â€” Subscription status */}
             {tenant && (
               <>
                 {subStatus === 'trialing' && (
@@ -733,17 +813,21 @@ export default function SettingsPage() {
               </>
             )}
 
-            {/* Section 2 — Plan comparison (only for non-active) */}
+            {/* Section 2 â€” Plan comparison (only for non-active) */}
             {subStatus !== 'active' && (
               <section>
                 <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-slate-400">
                   Compare Plans
                 </h3>
-                <PlanComparison onUpgrade={() => handleBillingAction(true)} busy={billingBusy} />
+                <PlanComparison
+                  onUpgrade={() => handleBillingAction(true)}
+                  busy={billingBusy}
+                  isTrial={isTrial}
+                />
               </section>
             )}
 
-            {/* Section 3 — Usage stats */}
+            {/* Section 3 â€” Usage stats */}
             <section>
               <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-slate-400">
                 Your Usage
@@ -758,9 +842,25 @@ export default function SettingsPage() {
                 <UsageStat label="Ingredients" value={usage.ingredients} icon={Package} />
                 <UsageStat label="Invoices" value={usage.invoices} icon={Receipt} />
               </div>
+              {aiUsage && (
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <UsageStat
+                    label="AI Recipe Ideas (this month)"
+                    value={aiUsage.recipe_ideas.used}
+                    max={aiUsage.recipe_ideas.limit ?? undefined}
+                    icon={Sparkles}
+                  />
+                  <UsageStat
+                    label="AI Invoice Extractions (this month)"
+                    value={aiUsage.invoice_extracts.used}
+                    max={aiUsage.invoice_extracts.limit ?? undefined}
+                    icon={Receipt}
+                  />
+                </div>
+              )}
             </section>
 
-            {/* Section 4 — Billing history placeholder */}
+            {/* Section 4 â€” Billing history placeholder */}
             <section>
               <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-slate-400">
                 Billing History
@@ -779,3 +879,4 @@ export default function SettingsPage() {
     </div>
   )
 }
+

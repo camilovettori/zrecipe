@@ -6,14 +6,10 @@ import { ChefHat } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { RecipeSummary } from '@/hooks/useRecipes'
 
-function marginClass(marginPercent: number) {
-  if (marginPercent >= 30) return 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-  if (marginPercent >= 15) return 'bg-amber-50 text-amber-700 ring-amber-200'
+function marginClass(pct: number) {
+  if (pct >= 60) return 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+  if (pct >= 30) return 'bg-amber-50 text-amber-700 ring-amber-200'
   return 'bg-red-50 text-red-700 ring-red-200'
-}
-
-function costClass(value: number) {
-  return value > 0 ? 'text-slate-900' : 'text-slate-400'
 }
 
 export default function RecipeCard({
@@ -51,7 +47,14 @@ export default function RecipeCard({
         <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/10 to-transparent" />
 
         <div className="absolute bottom-0 left-0 right-0 p-4 text-white">
-          <p className="line-clamp-1 text-lg font-semibold">{recipe.name}</p>
+          <p className="line-clamp-1 text-lg font-semibold">
+            {recipe.name}
+            {recipe.isSubIngredient && (
+              <span className="ml-1 align-middle text-xs font-semibold text-emerald-300">
+                (Sub)
+              </span>
+            )}
+          </p>
           <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/70">
             {recipe.category}
           </p>
@@ -59,9 +62,11 @@ export default function RecipeCard({
       </div>
 
       <div className="flex items-center justify-between gap-3 p-4">
-        <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-          {recipe.category}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+            {recipe.category}
+          </span>
+        </div>
 
         <div className="flex items-center gap-2">
           <span
@@ -72,9 +77,11 @@ export default function RecipeCard({
           >
             {recipe.cost.marginPercent.toFixed(1)}% margin
           </span>
-          <span className={cn('text-sm font-semibold', costClass(recipe.cost.totalCost))}>
-            €{recipe.cost.totalCost.toFixed(2)}
-          </span>
+          {recipe.cost.totalCost > 0 && (
+            <span className="text-sm font-semibold text-slate-700">
+              €{recipe.cost.totalCost.toFixed(2)}
+            </span>
+          )}
         </div>
       </div>
     </motion.button>

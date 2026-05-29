@@ -11,8 +11,10 @@ const POPUP_INTERVAL  = 15 * 60 * 1000 // 15 minutes in ms
 
 const FEATURES = [
   'Unlimited recipes',
-  'Invoice import with OCR',
-  'Full recipe management',
+  'Invoice import (PDF, CSV) with AI',
+  'Full recipe management (create, edit, delete)',
+  '50 AI recipe ideas / month',
+  'Unlimited AI invoice extractions',
   'PDF export with costs',
 ]
 

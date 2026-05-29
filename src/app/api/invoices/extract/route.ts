@@ -2,11 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import Papa from 'papaparse'
 import { autoDetectCsvColumns } from '@/lib/invoices'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { createRequestSupabaseClient } from '@/lib/supabase/request'
+import { getEffectiveSubscriptionStatus } from '@/lib/tenant'
+import { FREE_LIMITS, PRO_LIMITS } from '@/lib/subscription/limits'
 
 export const runtime = 'nodejs'
-export const maxDuration = 60 // allow up to 60 s on Vercel
+export const maxDuration = 60
 
-// ── Env diagnostic (visible in terminal + Vercel function logs) ────────────
+// ── Env diagnostic ─────────────────────────────────────────────────────────
 console.log(
   '[extract] ANTHROPIC_API_KEY:',
   process.env.ANTHROPIC_API_KEY
@@ -18,31 +22,25 @@ console.log(
 
 function getAnthropic() {
   const key = process.env.ANTHROPIC_API_KEY
-  console.log('[extract] getAnthropic() - key present:', !!key)
-  if (!key) {
-    throw new Error('ANTHROPIC_API_KEY is not configured')
-  }
+  if (!key) throw new Error('ANTHROPIC_API_KEY is not configured')
   return new Anthropic({ apiKey: key })
 }
 
-// ── Date normalisation: Claude returns DD/MM/YYYY, inputs want YYYY-MM-DD ──
+// ── Date normalisation ──────────────────────────────────────────────────────
 
 function normaliseDateForInput(date: string | null | undefined): string {
   if (!date) return new Date().toISOString().slice(0, 10)
-
   const ddmmyyyy = date.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
   if (ddmmyyyy) {
     const [, d, m, y] = ddmmyyyy
     return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
   }
-
   const parsed = new Date(date)
   if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10)
-
   return new Date().toISOString().slice(0, 10)
 }
 
-// ── Claude extraction for PDF / text ──────────────────────────────────────
+// ── Claude extraction ──────────────────────────────────────────────────────
 
 const EXTRACTION_PROMPT = `You are an invoice data extraction system. Extract structured data from this invoice text.
 
@@ -87,30 +85,15 @@ Invoice text:
 async function extractWithClaude(text: string) {
   const anthropic = getAnthropic()
 
-  // Race against a 30-second timeout
-  const extractionPromise = anthropic.messages.create({
+  const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 4000,
-    messages: [
-      {
-        role: 'user',
-        content: EXTRACTION_PROMPT + text,
-      },
-    ],
+    messages: [{ role: 'user', content: EXTRACTION_PROMPT + text }],
   })
 
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('Extraction timed out after 30 seconds')), 30_000)
-  )
-
-  const response = await Promise.race([extractionPromise, timeoutPromise])
-
   const content = response.content[0]
-  if (content.type !== 'text') {
-    throw new Error('Claude returned no text content')
-  }
+  if (content.type !== 'text') throw new Error('Claude returned no text content')
 
-  // Strip accidental markdown fences
   const cleaned = content.text
     .replace(/^```(?:json)?\n?/i, '')
     .replace(/\n?```$/i, '')
@@ -135,16 +118,15 @@ async function extractWithClaude(text: string) {
     }>
   }
 
-  // Normalise to the shape the import page expects
   return {
-    supplier_name:    parsed.supplier_name ?? 'Unknown Supplier',
-    invoice_number:   parsed.invoice_number ?? null,
-    invoice_date:     normaliseDateForInput(parsed.invoice_date),
-    vat_rate:         parsed.vat_rate ?? null,
-    vat_amount:       parsed.vat_amount ?? null,
-    subtotal_amount:  parsed.subtotal ?? null,
-    total_amount:     parsed.total ?? null,
-    items:            (parsed.items ?? []).map((item) => ({
+    supplier_name:   parsed.supplier_name ?? 'Unknown Supplier',
+    invoice_number:  parsed.invoice_number ?? null,
+    invoice_date:    normaliseDateForInput(parsed.invoice_date),
+    vat_rate:        parsed.vat_rate ?? null,
+    vat_amount:      parsed.vat_amount ?? null,
+    subtotal_amount: parsed.subtotal ?? null,
+    total_amount:    parsed.total ?? null,
+    items: (parsed.items ?? []).map((item) => ({
       description:  item.description ?? '',
       quantity:     Number(item.quantity ?? 1) || 1,
       unit:         item.unit ?? 'unit',
@@ -156,6 +138,20 @@ async function extractWithClaude(text: string) {
   }
 }
 
+// ── Shared empty-form response (manual entry fallback) ─────────────────────
+
+function emptyForm(error?: string, extra?: Record<string, unknown>) {
+  return {
+    ...(error ? { error } : {}),
+    ...extra,
+    supplier_name:  '',
+    invoice_number: null,
+    invoice_date:   new Date().toISOString().slice(0, 10),
+    total_amount:   null,
+    items:          [],
+  }
+}
+
 // ── Route handler ──────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
@@ -163,7 +159,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}))
     const kind = typeof body?.kind === 'string' ? body.kind : ''
 
-    // ── CSV path (kept as-is — no AI needed) ──────────────────────────────
+    // ── CSV path — no AI, no auth required ───────────────────────────────────
     if (kind === 'csv') {
       const csv = typeof body?.csv === 'string' ? body.csv : ''
       if (!csv.trim()) {
@@ -185,7 +181,6 @@ export async function POST(request: NextRequest) {
         const unit        = row[columnMap.unit] ?? row.Unit ?? 'unit'
         const unitPrice   = Number.parseFloat(row[columnMap.unitPrice] ?? row['Unit Price'] ?? '0') || 0
         const total       = Number.parseFloat(row[columnMap.total] ?? row.Total ?? `${quantity * unitPrice}`) || quantity * unitPrice
-
         return { description, quantity, unit, unit_price: unitPrice, total }
       })
 
@@ -201,31 +196,94 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // ── PDF / text path — Claude AI extraction ─────────────────────────────
+    // ── PDF / text path — requires auth + AI usage limit ─────────────────────
     const text = typeof body?.text === 'string' ? body.text : ''
     if (!text.trim()) {
       return NextResponse.json({ error: 'Missing text content' }, { status: 400 })
     }
 
-    console.log('[extract] Sending to Claude, text length:', text.length)
+    // Auth
+    const supabase = createRequestSupabaseClient(request)
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
+    const admin = createAdminClient()
+
+    // Tenant
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: member } = await (admin.from('tenant_users') as any)
+      .select('tenant_id')
+      .eq('user_id', user.id)
+      .limit(1)
+      .maybeSingle()
+
+    const tenantId = member?.tenant_id as string | undefined
+
+    // Subscription + usage limit (only enforce if we have a tenant)
+    if (tenantId) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: tenantInfo } = await (admin.from('tenants') as any)
+        .select('subscription_status, created_at')
+        .eq('id', tenantId)
+        .single()
+
+      const subStatus = getEffectiveSubscriptionStatus(
+        tenantInfo?.subscription_status,
+        tenantInfo?.created_at ?? new Date().toISOString()
+      )
+      const isPro = subStatus === 'active' || subStatus === 'trialing'
+      const monthlyLimit = isPro
+        ? PRO_LIMITS.aiInvoiceExtractsPerMonth
+        : FREE_LIMITS.aiInvoiceExtractsPerMonth
+
+      if (monthlyLimit !== Infinity) {
+        const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { count: usedCount } = await (admin.from('ai_usage') as any)
+          .select('*', { count: 'exact', head: true })
+          .eq('tenant_id', tenantId)
+          .eq('feature', 'invoice_extract')
+          .gte('used_at', startOfMonth)
+
+        const used = usedCount ?? 0
+        if (used >= monthlyLimit) {
+          return NextResponse.json(
+            emptyForm(
+              'AI extraction limit reached. You can still enter invoices manually.',
+              { limitReached: true }
+            )
+          )
+        }
+      }
+
+      console.log('[extract] Sending to Claude, text length:', text.length)
+
+      try {
+        const result = await extractWithClaude(text)
+        // Record usage after successful extraction
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (admin.from('ai_usage') as any).insert({ tenant_id: tenantId, feature: 'invoice_extract' })
+        console.log('[extract] Claude succeeded, items:', result.items.length)
+        return NextResponse.json(result)
+      } catch (claudeErr) {
+        const message = claudeErr instanceof Error ? claudeErr.message : 'AI extraction failed'
+        console.error('[extract] Claude error:', message)
+        return NextResponse.json(emptyForm(message))
+      }
+    }
+
+    // No tenant found — still allow extraction but don't track usage
+    console.log('[extract] No tenant, sending to Claude, text length:', text.length)
     try {
       const result = await extractWithClaude(text)
       console.log('[extract] Claude succeeded, items:', result.items.length)
       return NextResponse.json(result)
     } catch (claudeErr) {
-      // Fail gracefully — return empty draft so the user can fill in manually
       const message = claudeErr instanceof Error ? claudeErr.message : 'AI extraction failed'
       console.error('[extract] Claude error:', message)
-
-      return NextResponse.json({
-        error:          message,
-        supplier_name:  '',
-        invoice_number: null,
-        invoice_date:   new Date().toISOString().slice(0, 10),
-        total_amount:   null,
-        items:          [],
-      }, { status: 200 }) // 200 so the client shows the empty editable form rather than an error
+      return NextResponse.json(emptyForm(message))
     }
   } catch (error) {
     console.error('[extract] Unhandled error:', error)

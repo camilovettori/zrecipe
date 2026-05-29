@@ -14,6 +14,7 @@ export interface RecipeStepDraft {
 export interface RecipeIngredientDraft {
   id: string
   ingredientId?: string | null
+  subRecipeId?: string | null
   ingredientName: string
   quantity: number
   unit: string
@@ -35,6 +36,8 @@ export interface RecipeEditorData {
   overheadCost: number
   sellingPrice: number
   imageUrl: string | null
+  isSubIngredient: boolean
+  subIngredientUnit: string
   instructions: RecipeStepDraft[]
   ingredients: RecipeIngredientDraft[]
 }
@@ -57,6 +60,7 @@ export interface RecipeSummary {
   imageUrl: string | null
   ingredientCount: number
   updatedAt: string
+  isSubIngredient: boolean
   cost: RecipeCostSummary
 }
 
@@ -79,6 +83,7 @@ type DBRecipeIngredientRow = {
   id: string
   recipe_id: string
   ingredient_id?: string | null
+  sub_recipe_id?: string | null
   quantity: number
   unit: string
   notes?: string | null
@@ -102,6 +107,9 @@ type DBRecipeRow = {
   selling_price?: number | null
   image_url?: string | null
   is_active?: boolean | null
+  is_sub_ingredient?: boolean | null
+  sub_ingredient_unit?: string | null
+  sub_ingredient_cost_per_unit?: number | null
   recipe_ingredients?: DBRecipeIngredientRow[] | DBRecipeIngredientRow | null
   created_at: string
   updated_at: string
@@ -229,6 +237,43 @@ export function calculateLineCost(item: RecipeIngredientDraft) {
   return ingredientLineCost(item)
 }
 
+function buildRecipeRecordFromInput(
+  input: RecipeEditorData,
+  id: string,
+  tenantId: string,
+  createdAt: string,
+  updatedAt: string
+): RecipeRecord {
+  const ingredients = input.ingredients.map((item) => ({
+    ...item,
+    lineCost: calculateLineCost(item),
+  }))
+  const cost = calculateRecipeCost(ingredients, input.laborCost, input.overheadCost, input.sellingPrice)
+
+  return {
+    id,
+    tenantId,
+    name: input.name,
+    description: input.description,
+    category: input.category,
+    yieldQuantity: input.yieldQuantity,
+    yieldUnit: input.yieldUnit,
+    prepTimeMinutes: input.prepTimeMinutes,
+    cookTimeMinutes: input.cookTimeMinutes,
+    laborCost: input.laborCost,
+    overheadCost: input.overheadCost,
+    sellingPrice: input.sellingPrice,
+    imageUrl: input.imageUrl,
+    isSubIngredient: input.isSubIngredient,
+    subIngredientUnit: input.subIngredientUnit,
+    instructions: input.instructions,
+    ingredients,
+    createdAt,
+    updatedAt,
+    cost,
+  }
+}
+
 function mapRecipeRow(row: DBRecipeRow): RecipeRecord {
   const recipeIngredients = Array.isArray(row.recipe_ingredients)
     ? row.recipe_ingredients
@@ -248,6 +293,7 @@ function mapRecipeRow(row: DBRecipeRow): RecipeRecord {
       const line: RecipeIngredientDraft = {
         id: item.id,
         ingredientId: item.ingredient_id ?? ingredient?.id ?? null,
+        subRecipeId: item.sub_recipe_id ?? null,
         ingredientName,
         quantity: Number(item.quantity),
         unit: item.unit,
@@ -282,6 +328,8 @@ function mapRecipeRow(row: DBRecipeRow): RecipeRecord {
     overheadCost: Number(row.overhead_cost ?? 0),
     sellingPrice: Number(row.selling_price ?? 0),
     imageUrl: row.image_url ?? null,
+    isSubIngredient: row.is_sub_ingredient ?? false,
+    subIngredientUnit: row.sub_ingredient_unit ?? 'g',
     instructions,
     ingredients,
     createdAt: row.created_at,
@@ -300,6 +348,7 @@ function mapSummary(row: DBRecipeRow): RecipeSummary {
     imageUrl: recipe.imageUrl,
     ingredientCount: recipe.ingredients.length,
     updatedAt: recipe.updatedAt,
+    isSubIngredient: recipe.isSubIngredient,
     cost: recipe.cost,
   }
 }
@@ -336,10 +385,14 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
             selling_price,
             image_url,
             is_active,
-            recipe_ingredients (
+            is_sub_ingredient,
+            sub_ingredient_unit,
+            sub_ingredient_cost_per_unit,
+            recipe_ingredients!recipe_ingredients_recipe_id_fkey (
               id,
               recipe_id,
               ingredient_id,
+              sub_recipe_id,
               quantity,
               unit,
               notes,
@@ -401,10 +454,14 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           selling_price,
           image_url,
           is_active,
-          recipe_ingredients (
+          is_sub_ingredient,
+          sub_ingredient_unit,
+          sub_ingredient_cost_per_unit,
+          recipe_ingredients!recipe_ingredients_recipe_id_fkey (
             id,
             recipe_id,
             ingredient_id,
+            sub_recipe_id,
             quantity,
             unit,
             notes,
@@ -430,100 +487,75 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
     return data ? mapRecipeRow(data as unknown as DBRecipeRow) : null
   }, [])
 
-  const persistRecipeIngredients = useCallback(
-    async (recipeId: string, ingredients: RecipeIngredientDraft[]) => {
-      const supabase = createClient()
-      const { error: deleteError } = await supabase
-        .from('recipe_ingredients')
-        .delete()
-        .eq('recipe_id', recipeId)
-
-      if (deleteError) {
-        throw deleteError
-      }
-
-      if (ingredients.length === 0) {
-        return
-      }
-
-      const tenantId = await resolveTenantId()
-      const { error: insertError } = await supabase.from('recipe_ingredients').insert(
-        ingredients.map((item, index) => ({
-          recipe_id: recipeId,
-          ingredient_id: item.ingredientId ?? null,
-          quantity: item.quantity,
-          unit: item.unit,
-          notes: item.notes ?? item.ingredientName ?? null,
-          sort_order: index,
-          tenant_id: tenantId,
-        }))
-      )
-
-      if (insertError) {
-        throw insertError
-      }
-    },
-    []
-  )
-
   const saveRecipe = useCallback(
     async (recipeId: string | null, input: RecipeEditorData) => {
-      const supabase = createClient()
-      const tenantId = await resolveTenantId()
-      const payload = {
-        tenant_id: tenantId,
-        name: input.name,
-        description: input.description || null,
-        category: input.category || 'Other',
-        instructions: serializeInstructions(input.instructions),
-        yield_quantity: input.yieldQuantity,
-        yield_unit: input.yieldUnit,
-        prep_time_minutes: input.prepTimeMinutes,
-        cook_time_minutes: input.cookTimeMinutes,
-        labor_cost: input.laborCost,
-        overhead_cost: input.overheadCost,
-        selling_price: input.sellingPrice,
-        image_url: input.imageUrl,
-        is_active: true,
+      let tenantId = 'draft'
+      try {
+        tenantId = await resolveTenantId()
+      } catch {
+        // If tenant resolution fails, we can still return a usable local record.
       }
 
-      let savedId = recipeId
+      const recipeCost = calculateRecipeCost(
+        input.ingredients.map((item) => ({ ...item, lineCost: calculateLineCost(item) })),
+        input.laborCost,
+        input.overheadCost,
+        input.sellingPrice
+      )
+      const subIngredientCostPerUnit =
+        input.isSubIngredient && input.yieldQuantity > 0
+          ? recipeCost.totalCost / input.yieldQuantity
+          : null
 
-      if (savedId) {
-        const { error: updateError } = await supabase
-          .from('recipes')
-          .update(payload)
-          .eq('id', savedId)
+      const res = await fetch('/api/recipes/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: recipeId,
+          name: input.name,
+          description: input.description || null,
+          category: input.category || 'Other',
+          instructions: serializeInstructions(input.instructions),
+          yieldQuantity: input.yieldQuantity,
+          yieldUnit: input.yieldUnit,
+          prepTimeMinutes: input.prepTimeMinutes,
+          cookTimeMinutes: input.cookTimeMinutes,
+          laborCost: input.laborCost,
+          overheadCost: input.overheadCost,
+          sellingPrice: input.sellingPrice,
+          imageUrl: input.imageUrl,
+          isSubIngredient: input.isSubIngredient,
+          subIngredientUnit: input.subIngredientUnit || 'g',
+          subIngredientCostPerUnit,
+          ingredients: input.ingredients,
+        }),
+      })
 
-        if (updateError) {
-          throw updateError
-        }
-      } else {
-        const { data, error: createError } = await supabase
-          .from('recipes')
-          .insert(payload)
-          .select('id')
-          .single()
+      const json = await res.json() as { success?: boolean; recipeId?: string; error?: string }
+      if (!res.ok) throw new Error(json.error ?? 'Unable to save recipe')
 
-        if (createError || !data) {
-          throw createError ?? new Error('Unable to create recipe')
-        }
+      const savedId = json.recipeId
+      if (!savedId) throw new Error('Recipe id missing after save')
 
-        savedId = data.id
+      const refreshed = await getRecipeWithIngredients(savedId).catch((error) => {
+        console.warn('[useRecipes] Reload after save failed:', error)
+        return null
+      })
+
+      if (refreshed) {
+        return refreshed
       }
 
-      if (!savedId) {
-        throw new Error('Recipe id missing after save')
-      }
-
-      await persistRecipeIngredients(savedId, input.ingredients)
-      const refreshed = await getRecipeWithIngredients(savedId)
-      if (!refreshed) {
-        throw new Error('Unable to reload saved recipe')
-      }
-      return refreshed
+      console.warn('[useRecipes] Falling back to local recipe snapshot after save')
+      return buildRecipeRecordFromInput(
+        input,
+        savedId,
+        tenantId,
+        new Date().toISOString(),
+        new Date().toISOString()
+      )
     },
-    [getRecipeWithIngredients, persistRecipeIngredients]
+    [getRecipeWithIngredients]
   )
 
   const createRecipe = useCallback(
