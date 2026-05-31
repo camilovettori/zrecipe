@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { Grid2X2, List, Plus, Search, ChefHat, Lock } from 'lucide-react'
@@ -9,6 +9,7 @@ import EmptyState from '@/components/shared/EmptyState'
 import RecipeCard from '@/components/recipes/RecipeCard'
 import { RECIPE_CATEGORIES, useRecipes } from '@/hooks/useRecipes'
 import { useSubscription } from '@/hooks/useSubscription'
+import { EU_ALLERGENS } from '@/lib/allergens'
 import { cn } from '@/lib/utils'
 
 type ViewMode = 'grid' | 'list'
@@ -41,9 +42,26 @@ export default function RecipesPage() {
   const { limits, hasFullAccess } = useSubscription()
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('all')
+  const [allergenFilter, setAllergenFilter] = useState<number | null>(null)
+  const [excludeRecipeIds, setExcludeRecipeIds] = useState<Set<string>>(new Set())
   const [view, setView] = useState<ViewMode>('grid')
+  const categoryOptions = ['all', 'sub-ingredients', ...RECIPE_CATEGORIES]
 
   const atRecipeLimit = !hasFullAccess && recipes.length >= limits.maxRecipes
+
+  // Fetch excluded recipe IDs when allergen filter changes
+  useEffect(() => {
+    if (!allergenFilter) {
+      setExcludeRecipeIds(new Set())
+      return
+    }
+    fetch(`/api/recipes/allergen-free?allergen_id=${allergenFilter}`)
+      .then((r) => r.json())
+      .then((data: { excludeRecipeIds?: string[] }) => {
+        setExcludeRecipeIds(new Set(data.excludeRecipeIds ?? []))
+      })
+      .catch(() => setExcludeRecipeIds(new Set()))
+  }, [allergenFilter])
 
   const filteredRecipes = useMemo(() => {
     const search = query.trim().toLowerCase()
@@ -53,12 +71,17 @@ export default function RecipesPage() {
         recipe.name.toLowerCase().includes(search) ||
         recipe.description.toLowerCase().includes(search)
       const matchesCategory =
-        category === 'all' || recipe.category.toLowerCase() === category.toLowerCase()
-      return matchesSearch && matchesCategory
+        category === 'all'
+          ? true
+          : category === 'sub-ingredients'
+            ? recipe.isSubIngredient
+            : recipe.category.toLowerCase() === category.toLowerCase()
+      const matchesAllergen = !allergenFilter || !excludeRecipeIds.has(recipe.id)
+      return matchesSearch && matchesCategory && matchesAllergen
     })
-  }, [category, query, recipes])
+  }, [category, query, recipes, allergenFilter, excludeRecipeIds])
 
-  const hasFilters = query.trim().length > 0 || category !== 'all'
+  const hasFilters = query.trim().length > 0 || category !== 'all' || allergenFilter !== null
 
   return (
     <div className="space-y-6">
@@ -119,10 +142,27 @@ export default function RecipesPage() {
           onChange={(event) => setCategory(event.target.value)}
           className="h-11 rounded-full border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-emerald-500"
         >
-          <option value="all">All categories</option>
-          {RECIPE_CATEGORIES.map((item) => (
-            <option key={item} value={item}>
-              {item}
+          {categoryOptions.map((item) =>
+            item === 'all' ? (
+              <option key={item} value="all">All categories</option>
+            ) : item === 'sub-ingredients' ? (
+              <option key={item} value="sub-ingredients">Sub-ingredients</option>
+            ) : (
+              <option key={item} value={item}>{item}</option>
+            )
+          )}
+        </select>
+
+        <select
+          value={allergenFilter ?? ''}
+          onChange={(e) => setAllergenFilter(e.target.value ? Number(e.target.value) : null)}
+          className="h-11 rounded-full border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-emerald-500"
+          title="Filter by allergen — shows only recipes free from the selected allergen"
+        >
+          <option value="">All allergens</option>
+          {EU_ALLERGENS.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.icon} Free from {a.shortName}
             </option>
           ))}
         </select>
@@ -157,12 +197,6 @@ export default function RecipesPage() {
         </div>
       </div>
 
-      {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
       {loading ? (
         view === 'grid' ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -188,6 +222,17 @@ export default function RecipesPage() {
             </div>
           </div>
         )
+      ) : error ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700">
+          <p className="font-medium">{error}</p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="mt-2 text-xs font-semibold underline hover:no-underline"
+          >
+            Retry
+          </button>
+        </div>
       ) : filteredRecipes.length === 0 ? (
         <EmptyState
           icon={ChefHat}
@@ -257,7 +302,14 @@ export default function RecipesPage() {
                           )}
                         </div>
                         <div>
-                          <p className="font-medium text-slate-900">{recipe.name}</p>
+                          <p className="font-medium text-slate-900">
+                            {recipe.name}
+                            {recipe.isSubIngredient && (
+                              <span className="ml-1 align-middle text-xs font-semibold text-emerald-600">
+                                (Sub)
+                              </span>
+                            )}
+                          </p>
                           <p className="text-xs text-slate-500">{recipe.description || 'No description'}</p>
                         </div>
                       </div>

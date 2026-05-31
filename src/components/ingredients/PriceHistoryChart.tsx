@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import {
   LineChart,
   Line,
@@ -10,25 +11,43 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { format } from 'date-fns'
+import { ArrowDownRight, ArrowUpRight, Minus, FileText, Pencil } from 'lucide-react'
 
 export interface PricePoint {
   id: string
   ingredient_id: string
   price: number
   unit: string
-  currency: string
-  effective_date: string
+  recorded_at?: string | null
+  effective_date?: string | null
   invoice_id: string | null
-  created_at: string
+  created_at?: string | null
 }
 
 interface ChartPoint extends PricePoint {
   label: string
+  displayPrice: number
+  displayUnit: string
 }
 
 interface TooltipEntry {
   value: number
   payload: ChartPoint
+}
+
+function resolveDate(point: PricePoint) {
+  return point.recorded_at ?? point.effective_date ?? point.created_at ?? new Date().toISOString()
+}
+
+function normalizePrice(point: PricePoint, fallbackUnit: string) {
+  const unit = (point.unit ?? fallbackUnit ?? 'unit').toLowerCase()
+
+  if (unit === 'kg') return { price: point.price, displayUnit: 'kg' }
+  if (unit === 'g') return { price: point.price * 1000, displayUnit: 'kg' }
+  if (unit === 'lb') return { price: point.price * 2.20462, displayUnit: 'kg' }
+  if (unit === 'oz') return { price: point.price * 35.27396, displayUnit: 'kg' }
+
+  return { price: point.price, displayUnit: point.unit || fallbackUnit || 'unit' }
 }
 
 function CustomTooltip({ active, payload }: { active?: boolean; payload?: TooltipEntry[] }) {
@@ -37,10 +56,10 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: Toolti
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 shadow-lg dark:border-slate-700 dark:bg-slate-800">
       <p className="text-xs text-slate-500 dark:text-slate-400">
-        {format(new Date(point.effective_date), 'MMM d, yyyy')}
+        {format(new Date(resolveDate(point)), 'MMM d, yyyy')}
       </p>
       <p className="mt-0.5 text-sm font-bold text-slate-900 dark:text-white">
-        €{point.price.toFixed(2)} / {point.unit}
+        €{point.displayPrice.toFixed(2)} / {point.displayUnit}
       </p>
       {point.invoice_id && (
         <p className="mt-0.5 font-mono text-xs text-slate-400">
@@ -57,7 +76,29 @@ interface PriceHistoryChartProps {
 }
 
 export default function PriceHistoryChart({ priceHistory, unit }: PriceHistoryChartProps) {
-  if (priceHistory.length === 0) {
+  const ordered = useMemo(
+    () =>
+      [...priceHistory].sort(
+        (a, b) => new Date(resolveDate(a)).getTime() - new Date(resolveDate(b)).getTime()
+      ),
+    [priceHistory]
+  )
+
+  const data: ChartPoint[] = useMemo(
+    () =>
+      ordered.map((p) => {
+        const normalized = normalizePrice(p, unit)
+        return {
+          ...p,
+          label: format(new Date(resolveDate(p)), 'MMM d'),
+          displayPrice: normalized.price,
+          displayUnit: normalized.displayUnit,
+        }
+      }),
+    [ordered, unit]
+  )
+
+  if (data.length === 0) {
     return (
       <div className="flex h-52 items-center justify-center rounded-xl border border-dashed border-slate-200 dark:border-slate-700">
         <p className="text-sm text-slate-400 dark:text-slate-500">
@@ -67,38 +108,80 @@ export default function PriceHistoryChart({ priceHistory, unit }: PriceHistoryCh
     )
   }
 
-  const data: ChartPoint[] = priceHistory.map((p) => ({
-    ...p,
-    label: format(new Date(p.effective_date), 'MMM d'),
-  }))
+  const latest = data[data.length - 1]
+  const previous = data[data.length - 2]
+  const trend =
+    latest && previous
+      ? latest.displayPrice > previous.displayPrice
+        ? { label: 'Up', tone: 'text-red-700 bg-red-50', Icon: ArrowUpRight }
+        : latest.displayPrice < previous.displayPrice
+          ? { label: 'Down', tone: 'text-emerald-700 bg-emerald-50', Icon: ArrowDownRight }
+          : { label: 'Flat', tone: 'text-slate-600 bg-slate-100', Icon: Minus }
+      : null
+
+  const recentEntries = [...data].reverse().slice(0, 5)
 
   return (
-    <ResponsiveContainer width="100%" height={220}>
-      <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
-        <XAxis
-          dataKey="label"
-          tick={{ fontSize: 11, fill: '#94a3b8' }}
-          axisLine={false}
-          tickLine={false}
-        />
-        <YAxis
-          tick={{ fontSize: 11, fill: '#94a3b8' }}
-          axisLine={false}
-          tickLine={false}
-          tickFormatter={(v: number) => `${v} ${unit}`}
-          width={42}
-        />
-        <Tooltip content={<CustomTooltip />} />
-        <Line
-          type="monotone"
-          dataKey="price"
-          stroke="#059669"
-          strokeWidth={2.5}
-          dot={{ r: 4, fill: '#059669', strokeWidth: 0 }}
-          activeDot={{ r: 6, fill: '#059669', strokeWidth: 0 }}
-        />
-      </LineChart>
-    </ResponsiveContainer>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Trend</p>
+          <p className="text-sm font-semibold text-slate-900 dark:text-white">
+            {latest ? `€${latest.displayPrice.toFixed(2)} / ${latest.displayUnit}` : 'No trend data'}
+          </p>
+        </div>
+        {trend && (
+          <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${trend.tone}`}>
+            <trend.Icon className="h-3.5 w-3.5" />
+            {trend.label}
+          </span>
+        )}
+      </div>
+
+      <div className="h-32 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 5, right: 4, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.12)" vertical={false} />
+            <XAxis dataKey="label" hide />
+            <YAxis hide domain={['dataMin - 1', 'dataMax + 1']} />
+            <Tooltip content={<CustomTooltip />} />
+            <Line
+              type="monotone"
+              dataKey="displayPrice"
+              stroke="#059669"
+              strokeWidth={2.5}
+              dot={false}
+              activeDot={{ r: 5, fill: '#059669', strokeWidth: 0 }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="space-y-2">
+        {recentEntries.map((point) => {
+          const date = format(new Date(resolveDate(point)), 'MMM d, yyyy')
+          const fromInvoice = Boolean(point.invoice_id)
+          return (
+            <div
+              key={point.id}
+              className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/60"
+            >
+              <span
+                title={fromInvoice ? 'From invoice' : 'Manual edit'}
+                className="shrink-0 text-slate-400 dark:text-slate-500"
+              >
+                {fromInvoice
+                  ? <FileText className="h-3.5 w-3.5" />
+                  : <Pencil className="h-3.5 w-3.5" />}
+              </span>
+              <span className="flex-1 text-slate-500 dark:text-slate-400">{date}</span>
+              <span className="font-semibold text-slate-900 dark:text-white">
+                €{point.displayPrice.toFixed(2)} / {point.displayUnit}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }

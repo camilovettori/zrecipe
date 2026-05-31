@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { useDropzone } from 'react-dropzone'
 import { useRouter } from 'next/navigation'
 import { Reorder, useDragControls } from 'framer-motion'
@@ -35,11 +36,32 @@ import {
 } from '@/hooks/useRecipes'
 import type { IngredientLookup } from '@/hooks/useInvoices'
 import { resolveTenantId } from '@/hooks/useTenant'
+import { computeRecipeAllergens, type RecipeAllergenSummary, type IngredientAllergen } from '@/lib/allergens'
 import IngredientSearch, { type SubRecipeLookup } from './IngredientSearch'
 import CostBreakdown from './CostBreakdown'
-import PrintOptionsModal from './PrintOptionsModal'
+
+const AllergenPanel = dynamic(() => import('./AllergenPanel'), {
+  ssr: false,
+})
+
+const PrintOptionsModal = dynamic(() => import('./PrintOptionsModal'), {
+  ssr: false,
+})
 
 const SUB_INGREDIENT_UNITS = ['g', 'kg', 'ml', 'L', 'unit', 'portion']
+
+function allergensToEntries(allergens: RecipeAllergenSummary): IngredientAllergen[] {
+  return [
+    ...allergens.contains.map((allergen) => ({
+      allergenId: allergen.id,
+      status: 'contains' as const,
+    })),
+    ...allergens.mayContain.map((allergen) => ({
+      allergenId: allergen.id,
+      status: 'may_contain' as const,
+    })),
+  ]
+}
 
 function createStep(text = ''): RecipeStepDraft {
   return { id: crypto.randomUUID(), text }
@@ -212,6 +234,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const [recipe, setRecipe] = useState<RecipeEditorData>(blankRecipe())
   const [loadedRecipe, setLoadedRecipe] = useState<RecipeRecord | null>(null)
   const [printOpen, setPrintOpen] = useState(false)
+  const [recipeAllergens, setRecipeAllergens] = useState<RecipeAllergenSummary>({ contains: [], mayContain: [] })
   const [uploadingImage, setUploadingImage] = useState(false)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
@@ -274,9 +297,42 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
         setError(null)
         const existing = await getRecipeWithIngredients(recipeId)
         if (!existing) { setError('Recipe not found.'); return }
-        setLoadedRecipe(existing)
-        setRecipe(mapRecipeToState(existing))
+        const hydratedIngredients = await hydrateIngredientAllergens(existing.ingredients)
+        const hydratedRecipe = {
+          ...existing,
+          ingredients: hydratedIngredients,
+        } as RecipeRecord
+        setLoadedRecipe(hydratedRecipe)
+        setRecipe(mapRecipeToState(hydratedRecipe))
         setImagePreview(existing.imageUrl)
+        setRecipeAllergens(
+          computeRecipeAllergens(
+            Object.fromEntries(
+              hydratedIngredients.map((ing: RecipeIngredientDraft) => [ing.id, ing.allergens ?? []])
+            )
+          )
+        )
+
+        // Fetch allergens before marking loaded so the patch doesn't falsely set isDirty
+        const ingredientIds = hydratedIngredients
+          .filter((i: RecipeIngredientDraft) => i.ingredientId)
+          .map((i: RecipeIngredientDraft) => i.ingredientId as string)
+        if (ingredientIds.length > 0) {
+          try {
+            const data = await fetch(`/api/ingredients/allergens?ids=${ingredientIds.join(',')}`)
+              .then((r) => r.json() as Promise<Record<string, IngredientAllergen[]>>)
+            setRecipe((c) => ({
+              ...c,
+              ingredients: c.ingredients.map((i) =>
+                i.ingredientId && data[i.ingredientId]?.length
+                  ? { ...i, allergens: data[i.ingredientId] }
+                  : i
+              ),
+            }))
+          } catch {
+            // Allergens are optional; don't fail the recipe load
+          }
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unable to load recipe')
       } finally {
@@ -286,7 +342,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     }
 
     loadRecipe()
-  }, [getRecipeWithIngredients, isNew, recipeId, storageKey])
+  }, [getRecipeWithIngredients, isNew, recipeId, storageKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-save draft to localStorage every 30 s ────────────────────────────
 
@@ -338,6 +394,70 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     [computedIngredients, loadedRecipe, recipe, recipeId]
   )
 
+  const hydrateIngredientAllergens = useCallback(
+    async function hydrateIngredientAllergens(
+      items: RecipeIngredientDraft[],
+      visitedRecipeIds = new Set<string>()
+    ): Promise<RecipeIngredientDraft[]> {
+      const directIngredientIds = items
+        .filter((item) => item.ingredientId)
+        .map((item) => item.ingredientId as string)
+
+      let directAllergenMap: Record<string, IngredientAllergen[]> = {}
+      if (directIngredientIds.length > 0) {
+        try {
+          directAllergenMap = await fetch(`/api/ingredients/allergens?ids=${directIngredientIds.join(',')}`)
+            .then((response) => response.json() as Promise<Record<string, IngredientAllergen[]>>)
+        } catch {
+          directAllergenMap = {}
+        }
+      }
+
+      const hydrated: RecipeIngredientDraft[] = []
+
+      for (const item of items) {
+        if (item.ingredientId) {
+          hydrated.push({
+            ...item,
+            allergens: directAllergenMap[item.ingredientId] ?? [],
+          })
+          continue
+        }
+
+        if (item.subRecipeId) {
+          if (visitedRecipeIds.has(item.subRecipeId)) {
+            hydrated.push({ ...item, allergens: [] })
+            continue
+          }
+
+          const subRecipe = await getRecipeWithIngredients(item.subRecipeId)
+          if (!subRecipe) {
+            hydrated.push({ ...item, allergens: [] })
+            continue
+          }
+
+          const nextVisited = new Set(visitedRecipeIds)
+          nextVisited.add(item.subRecipeId)
+          const hydratedSubIngredients = await hydrateIngredientAllergens(subRecipe.ingredients, nextVisited)
+          const summary = computeRecipeAllergens(
+            Object.fromEntries(hydratedSubIngredients.map((ing) => [ing.id, ing.allergens ?? []]))
+          )
+
+          hydrated.push({
+            ...item,
+            allergens: allergensToEntries(summary),
+          })
+          continue
+        }
+
+        hydrated.push({ ...item, allergens: [] })
+      }
+
+      return hydrated
+    },
+    [getRecipeWithIngredients]
+  )
+
   // ── State updaters ─────────────────────────────────────────────────────────
 
   const updateRecipeField = <K extends keyof RecipeEditorData>(field: K, value: RecipeEditorData[K]) => {
@@ -368,8 +488,25 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       unit,
       currentPrice: ingredient.currentPrice ?? null,
       priceUnit: ingredient.priceUnit ?? unit,
+      allergens: [],
     })
     setRecipe((c) => ({ ...c, ingredients: [...c.ingredients, nextLine] }))
+
+    // Async: fetch allergens for the added ingredient so the panel updates in real time
+    fetch(`/api/ingredients/allergens?id=${ingredient.id}`)
+      .then((r) => r.json() as Promise<Record<string, IngredientAllergen[]>>)
+      .then((data) => {
+        const allergens = data[ingredient.id]
+        if (allergens?.length) {
+          setRecipe((c) => ({
+            ...c,
+            ingredients: c.ingredients.map((i) =>
+              i.id === nextLine.id ? { ...i, allergens } : i
+            ),
+          }))
+        }
+      })
+      .catch(() => {})
   }
 
   const addSubRecipe = (subRecipe: SubRecipeLookup, quantity: number, unit: string) => {
@@ -383,6 +520,15 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       priceUnit: subRecipe.unit,
     })
     setRecipe((c) => ({ ...c, ingredients: [...c.ingredients, nextLine] }))
+
+    void hydrateIngredientAllergens([nextLine]).then((hydrated) => {
+      const hydratedLine = hydrated[0]
+      if (!hydratedLine) return
+      setRecipe((c) => ({
+        ...c,
+        ingredients: c.ingredients.map((item) => (item.id === hydratedLine.id ? hydratedLine : item)),
+      }))
+    })
   }
 
   const createIngredient = async (name: string, quantity: number, unit: string) => {
@@ -467,9 +613,21 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       }
 
       const saved = isNew ? await createRecipe(payload) : await updateRecipe(recipeId, payload)
-      setLoadedRecipe(saved)
-      setRecipe(mapRecipeToState(saved))
+      const hydratedIngredients = await hydrateIngredientAllergens(saved.ingredients)
+      const hydratedRecipe = {
+        ...saved,
+        ingredients: hydratedIngredients,
+      } as RecipeRecord
+      setLoadedRecipe(hydratedRecipe)
+      setRecipe(mapRecipeToState(hydratedRecipe))
       setImagePreview(saved.imageUrl)
+      setRecipeAllergens(
+        computeRecipeAllergens(
+          Object.fromEntries(
+            hydratedIngredients.map((ing: RecipeIngredientDraft) => [ing.id, ing.allergens ?? []])
+          )
+        )
+      )
       localStorage.removeItem(storageKey)
       setIsDirty(false)
       toast.success('Recipe saved')
@@ -868,10 +1026,17 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
         </Reorder.Group>
       </div>
 
+      {/* ── SECTION 4: Allergens ──────────────────────────────────────────── */}
+      <AllergenPanel
+        ingredients={computedIngredients}
+        onAllergenChange={setRecipeAllergens}
+      />
+
       <PrintOptionsModal
         open={printOpen}
         onClose={() => setPrintOpen(false)}
         recipe={currentRecipeRecord}
+        allergens={recipeAllergens}
       />
     </div>
   )

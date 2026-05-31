@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { getPackagePricingBasis, normalizePackageUnit } from '@/lib/invoices'
+import { fetchAndSaveIngredientImage } from '@/lib/ingredients/image-fetch'
 
 type SaveItem = {
   id?: string
@@ -444,6 +445,13 @@ export async function POST(request: NextRequest) {
         }
 
         ingredientId = createdIngredient.id
+
+        void fetchAndSaveIngredientImage({
+          ingredientId: createdIngredient.id,
+          ingredientName,
+        }).catch((error) => {
+          console.error('[/api/invoices/save] ingredient image fetch failed:', error)
+        })
       }
 
       console.log('[SAVE] Step 6: Creating invoice item...')
@@ -483,6 +491,7 @@ export async function POST(request: NextRequest) {
 
       if (ingredientId) {
         console.log('[SAVE] Step 7: Updating ingredient price...')
+
         const ingredientUpdatePayload = {
           current_price: pricing.currentPrice,
           price_unit: pricing.priceUnit,

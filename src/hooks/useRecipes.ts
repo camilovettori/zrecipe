@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { convertUnit } from '@/lib/utils/unit-converter'
 import { type IngredientLookup } from '@/hooks/useInvoices'
 import { resolveTenantId } from '@/hooks/useTenant'
+import { type IngredientAllergen, type AllergenStatus } from '@/lib/allergens'
 
 export interface RecipeStepDraft {
   id: string
@@ -22,6 +23,7 @@ export interface RecipeIngredientDraft {
   priceUnit?: string | null
   notes?: string | null
   lineCost: number
+  allergens?: IngredientAllergen[]
 }
 
 export interface RecipeEditorData {
@@ -77,6 +79,7 @@ type DBIngredientRow = {
   name: string
   current_price?: number | null
   price_unit?: string | null
+  ingredient_allergens?: Array<{ allergen_id: number; status: string }> | null
 }
 
 type DBRecipeIngredientRow = {
@@ -285,6 +288,18 @@ function mapRecipeRow(row: DBRecipeRow): RecipeRecord {
     .slice()
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
     .map((item, index) => {
+      // Access the raw ingredient row before normalization to extract allergens
+      const rawIngRow = Array.isArray(item.ingredient)
+        ? item.ingredient[0]
+        : item.ingredient
+      const allergens: IngredientAllergen[] = (rawIngRow?.ingredient_allergens ?? [])
+        .map((a) => ({
+          allergenId: a.allergen_id,
+          status: (a.status === 'contains' || a.status === 'may_contain'
+            ? a.status
+            : 'contains') as AllergenStatus,
+        }))
+
       const ingredient = normalizeIngredientRelation(item.ingredient)
       const ingredientName =
         ingredient?.name ?? item.notes ?? `Ingredient ${index + 1}`
@@ -301,6 +316,7 @@ function mapRecipeRow(row: DBRecipeRow): RecipeRecord {
         priceUnit,
         notes: item.notes ?? null,
         lineCost: 0,
+        allergens,
       }
       line.lineCost = calculateLineCost(line)
       return line
@@ -366,6 +382,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
     try {
       const supabase = createClient()
       const tenantId = await resolveTenantId()
+      console.log('[refreshRecipes] tenantId:', tenantId)
       const { data, error: fetchError } = await supabase
         .from('recipes')
         .select(
@@ -375,31 +392,17 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
             name,
             description,
             category,
-            instructions,
-            yield_quantity,
-            yield_unit,
-            prep_time_minutes,
-            cook_time_minutes,
             labor_cost,
             overhead_cost,
             selling_price,
             image_url,
-            is_active,
             is_sub_ingredient,
             sub_ingredient_unit,
             sub_ingredient_cost_per_unit,
             recipe_ingredients!recipe_ingredients_recipe_id_fkey (
-              id,
-              recipe_id,
-              ingredient_id,
-              sub_recipe_id,
               quantity,
               unit,
-              notes,
-              sort_order,
               ingredient:ingredients (
-                id,
-                name,
                 current_price,
                 price_unit
               )
@@ -412,11 +415,19 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
         .order('updated_at', { ascending: false })
 
       if (fetchError) {
+        console.error('[refreshRecipes] Supabase error:', {
+          message: fetchError.message,
+          code:    fetchError.code,
+          details: fetchError.details,
+          hint:    fetchError.hint,
+        })
         throw fetchError
       }
 
+      console.log('[refreshRecipes] OK, rows:', data?.length ?? 0)
       setRecipes((data as unknown as DBRecipeRow[] | null)?.map(mapSummary) ?? [])
     } catch (err) {
+      console.error('[refreshRecipes] caught:', err)
       setError(err instanceof Error ? err.message : 'Failed to load recipes')
       setRecipes([])
     } finally {
@@ -466,13 +477,13 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
             unit,
             notes,
             sort_order,
-              ingredient:ingredients (
-                id,
-                name,
-                current_price,
-                price_unit
-              )
-            ),
+            ingredient:ingredients (
+              id,
+              name,
+              current_price,
+              price_unit
+            )
+          ),
           created_at,
           updated_at
         `
@@ -481,6 +492,12 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
       .maybeSingle()
 
     if (fetchError) {
+      console.error('[getRecipeWithIngredients] Supabase error:', {
+        message: fetchError.message,
+        code:    fetchError.code,
+        details: fetchError.details,
+        hint:    fetchError.hint,
+      })
       throw fetchError
     }
 

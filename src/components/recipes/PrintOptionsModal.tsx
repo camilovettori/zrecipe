@@ -2,21 +2,22 @@
 
 import { useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { X, FileText, UtensilsCrossed, Loader2 } from 'lucide-react'
+import { X, UtensilsCrossed, Loader2, Tag } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import type { RecipeRecord } from '@/hooks/useRecipes'
-import { generateRecipePdf } from '@/lib/pdf/recipe-generator'
-
-type PrintMode = 'full' | 'kitchen'
+import { generateRecipePdf, type PrintMode } from '@/lib/pdf/recipe-generator'
+import type { RecipeAllergenSummary } from '@/lib/allergens'
 
 export default function PrintOptionsModal({
   open,
   onClose,
   recipe,
+  allergens,
 }: {
   open: boolean
   onClose: () => void
   recipe: RecipeRecord | null
+  allergens?: RecipeAllergenSummary
 }) {
   const [printing, setPrinting] = useState<PrintMode | null>(null)
 
@@ -24,8 +25,8 @@ export default function PrintOptionsModal({
     if (!recipe) return
     try {
       setPrinting(mode)
-      await generateRecipePdf(recipe, mode)
-      toast.success('Recipe PDF generated')
+      await generateRecipePdf(recipe, mode, allergens)
+      toast.success(mode === 'label' ? 'Product label downloaded' : 'Kitchen card downloaded')
       onClose()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to generate PDF')
@@ -38,59 +39,67 @@ export default function PrintOptionsModal({
     <Dialog.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,820px)] -translate-x-1/2 -translate-y-1/2 rounded-3xl bg-white p-6 shadow-2xl">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,560px)] -translate-x-1/2 -translate-y-1/2 rounded-3xl bg-white p-6 shadow-2xl">
           <Dialog.Close
             onClick={onClose}
             className="absolute right-4 top-4 rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-            aria-label="Close print modal"
+            aria-label="Close"
           >
             <X className="h-4 w-4" />
           </Dialog.Close>
 
           <div className="mb-5">
-            <Dialog.Title className="font-display text-2xl font-semibold text-slate-900">
-              Print Recipe
+            <Dialog.Title className="font-display text-xl font-semibold text-slate-900">
+              Download PDF
             </Dialog.Title>
             <Dialog.Description className="mt-1 text-sm text-slate-500">
-              Choose the print layout you want to generate.
+              Choose the format to generate for <strong>{recipe?.name}</strong>.
             </Dialog.Description>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <button
-              type="button"
-              onClick={() => handlePrint('full')}
-              className="group rounded-3xl border border-slate-200 p-5 text-left transition hover:border-emerald-300 hover:bg-emerald-50/50"
-            >
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 transition group-hover:bg-emerald-100">
-                {printing === 'full' ? <Loader2 className="h-5 w-5 animate-spin" /> : <FileText className="h-5 w-5" />}
-              </div>
-              <h3 className="text-base font-semibold text-slate-900">Full Report - With Costs</h3>
-              <p className="mt-2 text-sm text-slate-500">
-                Includes ingredient costs, labor, overhead, margin, and management details.
-              </p>
-            </button>
-
+          <div className="grid gap-3 sm:grid-cols-2">
+            {/* Kitchen Card */}
             <button
               type="button"
               onClick={() => handlePrint('kitchen')}
-              className="group rounded-3xl border border-slate-200 p-5 text-left transition hover:border-amber-300 hover:bg-amber-50/50"
+              disabled={printing !== null}
+              className="group flex flex-col gap-3 rounded-2xl border border-slate-200 p-5 text-left transition hover:border-emerald-300 hover:bg-emerald-50/40 disabled:opacity-60"
             >
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 transition group-hover:bg-amber-100">
-                {printing === 'kitchen' ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <UtensilsCrossed className="h-5 w-5" />
-                )}
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 transition group-hover:bg-emerald-200">
+                {printing === 'kitchen'
+                  ? <Loader2 className="h-5 w-5 animate-spin" />
+                  : <UtensilsCrossed className="h-5 w-5" />}
               </div>
-              <h3 className="text-base font-semibold text-slate-900">Kitchen Card - Recipe Only</h3>
-              <p className="mt-2 text-sm text-slate-500">
-                Clean recipe output with ingredients and instructions, without costs.
-              </p>
+              <div>
+                <p className="font-semibold text-slate-900">Kitchen Card</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                  Full professional card with ingredient costs, cost summary, allergen declaration (EU Reg. 1169/2011), and method steps.
+                </p>
+              </div>
+            </button>
+
+            {/* Product Label */}
+            <button
+              type="button"
+              onClick={() => handlePrint('label')}
+              disabled={printing !== null}
+              className="group flex flex-col gap-3 rounded-2xl border border-slate-200 p-5 text-left transition hover:border-violet-300 hover:bg-violet-50/40 disabled:opacity-60"
+            >
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-100 text-violet-600 transition group-hover:bg-violet-200">
+                {printing === 'label'
+                  ? <Loader2 className="h-5 w-5 animate-spin" />
+                  : <Tag className="h-5 w-5" />}
+              </div>
+              <div>
+                <p className="font-semibold text-slate-900">Product Label</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                  Compact A5 label for packaging. Ingredients list with allergens in bold, date fields, and EU FIC compliance note.
+                </p>
+              </div>
             </button>
           </div>
 
-          <div className="mt-6 flex justify-end">
+          <div className="mt-5 flex justify-end">
             <button
               type="button"
               onClick={onClose}

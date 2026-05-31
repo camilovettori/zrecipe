@@ -1,21 +1,39 @@
 'use client'
 
-import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from '@/lib/toast'
-import { Upload, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { resolveTenantId } from '@/hooks/useTenant'
 import { cn } from '@/lib/utils'
 import type { IngredientRow } from '@/hooks/useIngredients'
 
 export const CATEGORIES = [
-  'Dairy', 'Flour', 'Sugar', 'Spice', 'Meat', 'Vegetable', 'Fruit', 'Other',
+  'Dairy',
+  'Flour',
+  'Sugar',
+  'Spice',
+  'Meat',
+  'Vegetable',
+  'Fruit',
+  'Other',
 ]
+
 export const UNITS = [
-  'kg', 'g', 'lb', 'oz', 'L', 'ml', 'cup', 'tbsp', 'tsp', 'unit', 'dozen', 'pack',
+  'kg',
+  'g',
+  'lb',
+  'oz',
+  'L',
+  'ml',
+  'cup',
+  'tbsp',
+  'tsp',
+  'unit',
+  'dozen',
+  'pack',
 ]
 
 const schema = z.object({
@@ -63,12 +81,6 @@ export default function IngredientForm({
   onSaved,
 }: IngredientFormProps) {
   const router = useRouter()
-  const [imageUrl, setImageUrl] = useState<string | undefined>(
-    ingredient?.image_url ?? undefined
-  )
-  const [isDragging, setIsDragging] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
 
   const {
     register,
@@ -87,21 +99,6 @@ export default function IngredientForm({
     },
   })
 
-  const uploadImage = async (file: File) => {
-    if (!file.type.startsWith('image/')) return
-    setUploading(true)
-    const supabase = createClient()
-    const path = `${Date.now()}-${file.name.replace(/\s+/g, '-')}`
-    const { error } = await supabase.storage.from('ingredient-images').upload(path, file)
-    if (error) {
-      toast.error('Image upload failed')
-    } else {
-      const { data } = supabase.storage.from('ingredient-images').getPublicUrl(path)
-      setImageUrl(data.publicUrl)
-    }
-    setUploading(false)
-  }
-
   const onSubmit = async (data: FormData) => {
     onSubmittingChange?.(true)
     const supabase = createClient()
@@ -113,11 +110,14 @@ export default function IngredientForm({
       package_size: data.package_size ?? null,
       package_unit: data.package_unit ?? null,
       notes: data.notes ?? null,
-      image_url: imageUrl ?? null,
     }
 
     try {
       if (ingredient) {
+        const priceChanged =
+          data.current_price != null &&
+          data.current_price !== ingredient.current_price
+
         const { data: row, error } = await supabase
           .from('ingredients')
           .update(payload)
@@ -127,19 +127,80 @@ export default function IngredientForm({
         if (error) throw error
         toast.success('Ingredient updated')
         const savedRow = row as IngredientDbRow
+
+        if (priceChanged && data.current_price != null) {
+          try {
+            const tenantId = await resolveTenantId()
+            const historyPayload = {
+              ingredient_id: ingredient.id,
+              tenant_id: tenantId,
+              price: data.current_price,
+              unit: data.base_unit,
+              recorded_at: new Date().toISOString().slice(0, 10),
+            }
+            console.log('[ingredient] price history payload (update):', historyPayload)
+            const { data: historyData, error: historyError } = await supabase
+              .from('ingredient_price_history')
+              .insert(historyPayload)
+              .select('id, ingredient_id, tenant_id, price, unit, recorded_at')
+              .single()
+            console.log('[ingredient] price history result (update):', historyData)
+            console.log(
+              '[ingredient] price history error (update):',
+              historyError ? JSON.stringify(historyError) : 'null'
+            )
+            if (historyError) throw historyError
+          } catch {
+            // Price history is best-effort — don't fail the ingredient save
+          }
+        }
+
         onSaved?.({
           ...savedRow,
           base_unit: savedRow.price_unit ?? data.base_unit,
         } as IngredientRow)
       } else {
+        // Resolve tenant before insert — tenant_id is NOT NULL and RLS-enforced
+        const tenantId = await resolveTenantId()
+
         const { data: row, error } = await supabase
           .from('ingredients')
-          .insert(payload)
+          .insert({ ...payload, tenant_id: tenantId })
           .select()
           .single()
         if (error) throw error
+
+        const newId = (row as IngredientDbRow).id
         toast.success('Ingredient created')
-        router.push(`/ingredients/${(row as IngredientDbRow).id}`)
+
+        // Record initial price history entry (best-effort, never blocks save)
+        if (data.current_price != null && data.current_price > 0) {
+          try {
+            const historyPayload = {
+              ingredient_id: newId,
+              tenant_id: tenantId,
+              price: data.current_price,
+              unit: data.base_unit,
+              recorded_at: new Date().toISOString().slice(0, 10),
+            }
+            console.log('[ingredient] price history payload (create):', historyPayload)
+            const { data: historyData, error: historyError } = await supabase
+              .from('ingredient_price_history')
+              .insert(historyPayload)
+              .select('id, ingredient_id, tenant_id, price, unit, recorded_at')
+              .single()
+            console.log('[ingredient] price history result (create):', historyData)
+            console.log(
+              '[ingredient] price history error (create):',
+              historyError ? JSON.stringify(historyError) : 'null'
+            )
+            if (historyError) throw historyError
+          } catch (e) {
+            console.warn('[ingredient] price history insert failed:', e)
+          }
+        }
+
+        router.push(`/ingredients/${newId}`)
       }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Unable to save ingredient')
@@ -163,8 +224,12 @@ export default function IngredientForm({
       <div>
         <label className={label}>Category *</label>
         <select {...register('category')} className={selectClass}>
-          <option value="">Select category…</option>
-          {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          <option value="">Select category...</option>
+          {CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
         </select>
         {errors.category && (
           <p className="mt-1 text-xs text-red-500">{errors.category.message}</p>
@@ -195,8 +260,12 @@ export default function IngredientForm({
         <div>
           <label className={label}>Unit *</label>
           <select {...register('base_unit')} className={selectClass}>
-            <option value="">Select…</option>
-            {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+            <option value="">Select...</option>
+            {UNITS.map((u) => (
+              <option key={u} value={u}>
+                {u}
+              </option>
+            ))}
           </select>
           {errors.base_unit && (
             <p className="mt-1 text-xs text-red-500">{errors.base_unit.message}</p>
@@ -222,67 +291,14 @@ export default function IngredientForm({
         <div>
           <label className={label}>Package unit</label>
           <select {...register('package_unit')} className={selectClass}>
-            <option value="">Select…</option>
-            {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+            <option value="">Select...</option>
+            {UNITS.map((u) => (
+              <option key={u} value={u}>
+                {u}
+              </option>
+            ))}
           </select>
         </div>
-      </div>
-
-      {/* Image upload */}
-      <div>
-        <label className={label}>Image</label>
-        <div
-          onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
-          onDragLeave={(e) => { e.preventDefault(); setIsDragging(false) }}
-          onDrop={(e) => {
-            e.preventDefault()
-            setIsDragging(false)
-            const file = e.dataTransfer.files[0]
-            if (file) uploadImage(file)
-          }}
-          onClick={() => fileRef.current?.click()}
-          className={cn(
-            'flex min-h-[120px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-5 transition-colors',
-            isDragging
-              ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/10'
-              : 'border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600'
-          )}
-        >
-          {imageUrl ? (
-            <div className="relative">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={imageUrl} alt="Ingredient" className="h-24 w-24 rounded-lg object-cover" />
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setImageUrl(undefined) }}
-                className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-400"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          ) : uploading ? (
-            <div className="flex flex-col items-center gap-2">
-              <div className="h-7 w-7 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
-              <p className="text-xs text-slate-500">Uploading…</p>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-2 text-slate-400">
-              <Upload className="h-7 w-7" />
-              <p className="text-sm">
-                Drop image or{' '}
-                <span className="font-medium text-emerald-600">browse</span>
-              </p>
-              <p className="text-xs">PNG, JPG, WebP up to 5 MB</p>
-            </div>
-          )}
-        </div>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f) }}
-        />
       </div>
 
       {/* Notes */}
@@ -291,7 +307,7 @@ export default function IngredientForm({
         <textarea
           {...register('notes')}
           rows={3}
-          placeholder="Storage conditions, preferred supplier, substitutions…"
+          placeholder="Storage conditions, preferred supplier, substitutions..."
           className={cn(field, 'resize-none')}
         />
       </div>

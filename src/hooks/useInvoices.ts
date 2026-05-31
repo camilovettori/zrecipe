@@ -552,6 +552,21 @@ export function useInvoices(options?: { autoLoad?: boolean }) {
         recorded_at: invoiceDate,
       })
 
+      console.log('[useInvoices] price history payload:', {
+        ingredient_id: ingredientId,
+        tenant_id: tenantId,
+        price,
+        unit,
+        invoice_id: invoiceId,
+        recorded_at: invoiceDate,
+      })
+      console.log(
+        '[useInvoices] price history result:',
+        historyInsert.data,
+        'error:',
+        historyInsert.error ? JSON.stringify(historyInsert.error) : 'null'
+      )
+
       if (historyInsert.error) {
         throw historyInsert.error
       }

@@ -725,7 +725,9 @@ export default function ImportInvoicesPage() {
         body: formData,
       })
 
-      const payload = (await response.json().catch(() => ({}))) as { error?: string }
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string
+      }
       if (!response.ok) {
         throw new Error(payload.error ?? 'Unable to save invoice')
       }
