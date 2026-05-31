@@ -3,7 +3,6 @@
 import { useAppStore } from '@/stores/app'
 import Sidebar from '@/components/dashboard/Sidebar'
 import TopBar from '@/components/dashboard/TopBar'
-import CommandSearch from '@/components/shared/CommandSearch'
 import UpgradePopup, { UpgradeBanner } from '@/components/shared/UpgradePopup'
 import { cn } from '@/lib/utils'
 
@@ -32,7 +31,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </main>
       </div>
 
-      <CommandSearch />
       <UpgradePopup />
     </div>
   )

@@ -5,6 +5,7 @@ import { updateSession } from "@/lib/supabase/middleware";
 // Paths that never need a tenant check
 const EXEMPT_PREFIXES = [
   '/login',
+  '/signup',
   '/register',
   '/auth',
   '/api',           // all API routes — they handle their own auth
@@ -89,7 +90,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // ── Logged-in users off auth pages ───────────────────────────────────────
-  if (pathname === '/login' || pathname === '/register') {
+  if (pathname === '/login' || pathname === '/register' || pathname === '/signup') {
     return NextResponse.redirect(new URL('/dashboard', request.url))
   }
 

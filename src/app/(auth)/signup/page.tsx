@@ -3,7 +3,7 @@ import RegisterForm from '@/components/auth/RegisterForm'
 
 export const metadata = { title: 'Start Free Trial - ZRecipe' }
 
-export default function RegisterPage() {
+export default function SignupPage() {
   return (
     <AuthSplitShell
       badge="START YOUR TRIAL"

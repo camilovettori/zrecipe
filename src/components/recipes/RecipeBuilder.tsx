@@ -19,6 +19,7 @@ import {
   Check,
   Link2,
   ChefHat,
+  RefreshCw,
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
@@ -240,8 +241,13 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const [isDragging, setIsDragging] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
-  const [isDirty, setIsDirty] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'clean' | 'dirty' | 'autosaving' | 'saved' | 'failed'>('clean')
+  const [fetchingImage, setFetchingImage] = useState(false)
   const hasLoaded = useRef(false)
+  const suppressNextDirtyRef = useRef(false)
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const recipeRef = useRef(recipe)
+  const computedIngredientsRef = useRef<typeof computedIngredients>([])
 
   const storageKey = `zrecipe:recipe-draft:${recipeId}`
 
@@ -313,7 +319,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
           )
         )
 
-        // Fetch allergens before marking loaded so the patch doesn't falsely set isDirty
+        // Fetch allergens — suppress the dirty trigger from the setRecipe below
         const ingredientIds = hydratedIngredients
           .filter((i: RecipeIngredientDraft) => i.ingredientId)
           .map((i: RecipeIngredientDraft) => i.ingredientId as string)
@@ -354,22 +360,32 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     return () => clearInterval(handle)
   }, [recipe, storageKey])
 
+  // ── Keep refs in sync ─────────────────────────────────────────────────────
+
+  useEffect(() => { recipeRef.current = recipe }, [recipe])
+
   // ── Track dirty state after initial load ──────────────────────────────────
 
   useEffect(() => {
     if (!hasLoaded.current) return
-    setIsDirty(true)
-  }, [recipe])
+    if (suppressNextDirtyRef.current) {
+      suppressNextDirtyRef.current = false
+      return
+    }
+    setSaveStatus('dirty')
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
+    autoSaveTimerRef.current = setTimeout(() => void handleAutoSaveRef.current?.(), 3000)
+  }, [recipe]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Warn before leaving with unsaved changes ──────────────────────────────
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
-      if (isDirty) { e.preventDefault(); e.returnValue = '' }
+      if (saveStatus === 'dirty' || saveStatus === 'failed') { e.preventDefault(); e.returnValue = '' }
     }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
-  }, [isDirty])
+  }, [saveStatus])
 
   // ── Computed values ────────────────────────────────────────────────────────
 
@@ -377,6 +393,13 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     () => recipe.ingredients.map((item) => ({ ...item, lineCost: calculateLineCost(item) })),
     [recipe.ingredients]
   )
+
+  // Keep ref in sync so autosave always reads fresh computed ingredients
+  useEffect(() => { computedIngredientsRef.current = computedIngredients }, [computedIngredients])
+
+  // Stable ref to the latest autosave handler (avoids stale closure in setTimeout)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleAutoSaveRef = useRef<() => Promise<void>>(null as any)
 
   const cost = useMemo(
     () => calculateRecipeCost(computedIngredients, recipe.laborCost, recipe.overheadCost, recipe.sellingPrice),
@@ -600,46 +623,98 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     onDrop: async (files) => { if (files[0]) await uploadImage(files[0]) },
   })
 
+  // ── Pexels image fetch for recipe ─────────────────────────────────────────
+
+  const fetchRecipeImage = useCallback(async (savedRecipeId: string, recipeName: string) => {
+    if (!recipeName.trim()) return
+    setFetchingImage(true)
+    try {
+      const res = await fetch('/api/recipes/fetch-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipeName, recipeId: savedRecipeId }),
+      })
+      if (!res.ok) return
+      const { imageUrl } = await res.json() as { imageUrl: string | null }
+      if (imageUrl) {
+        setImagePreview(imageUrl)
+        suppressNextDirtyRef.current = true
+        setRecipe((c) => ({ ...c, imageUrl }))
+        setLoadedRecipe((prev) => prev ? { ...prev, imageUrl } : prev)
+      }
+    } catch {
+      // non-critical
+    } finally {
+      setFetchingImage(false)
+    }
+  }, [])
+
   // ── Save & Delete ──────────────────────────────────────────────────────────
 
+  const doSave = useCallback(async (currentRecipe: RecipeEditorData, currentIngredients: typeof computedIngredients, silent = false) => {
+    const payload: RecipeEditorData = {
+      ...currentRecipe,
+      ingredients: currentIngredients.map((item) => ({ ...item, lineCost: calculateLineCost(item) })),
+    }
+
+    const savedIsNew = !loadedRecipe
+    const saved = savedIsNew ? await createRecipe(payload) : await updateRecipe(recipeId, payload)
+    const hydratedIngredients = await hydrateIngredientAllergens(saved.ingredients)
+    const hydratedRecipe = { ...saved, ingredients: hydratedIngredients } as RecipeRecord
+
+    suppressNextDirtyRef.current = true
+    setLoadedRecipe(hydratedRecipe)
+    setRecipe(mapRecipeToState(hydratedRecipe))
+    setImagePreview(saved.imageUrl)
+    setRecipeAllergens(
+      computeRecipeAllergens(
+        Object.fromEntries(hydratedIngredients.map((ing: RecipeIngredientDraft) => [ing.id, ing.allergens ?? []]))
+      )
+    )
+    localStorage.removeItem(storageKey)
+    if (!silent) toast.success('Recipe saved')
+
+    // Auto-fetch Pexels image for new recipe with no image
+    if (savedIsNew && !saved.imageUrl && currentRecipe.name) {
+      void fetchRecipeImage(saved.id, currentRecipe.name)
+    }
+
+    return saved
+  }, [createRecipe, fetchRecipeImage, hydrateIngredientAllergens, loadedRecipe, recipeId, storageKey, updateRecipe])
+
   const handleSave = async () => {
+    if (autoSaveTimerRef.current) { clearTimeout(autoSaveTimerRef.current); autoSaveTimerRef.current = null }
     try {
       setSaving(true)
       setError(null)
-
-      const payload: RecipeEditorData = {
-        ...recipe,
-        ingredients: computedIngredients.map((item) => ({ ...item, lineCost: calculateLineCost(item) })),
-      }
-
-      const saved = isNew ? await createRecipe(payload) : await updateRecipe(recipeId, payload)
-      const hydratedIngredients = await hydrateIngredientAllergens(saved.ingredients)
-      const hydratedRecipe = {
-        ...saved,
-        ingredients: hydratedIngredients,
-      } as RecipeRecord
-      setLoadedRecipe(hydratedRecipe)
-      setRecipe(mapRecipeToState(hydratedRecipe))
-      setImagePreview(saved.imageUrl)
-      setRecipeAllergens(
-        computeRecipeAllergens(
-          Object.fromEntries(
-            hydratedIngredients.map((ing: RecipeIngredientDraft) => [ing.id, ing.allergens ?? []])
-          )
-        )
-      )
-      localStorage.removeItem(storageKey)
-      setIsDirty(false)
-      toast.success('Recipe saved')
+      const saved = await doSave(recipeRef.current, computedIngredientsRef.current, false)
+      setSaveStatus('clean')
       if (isNew) router.replace(`/recipes/${saved.id}`)
     } catch (saveError) {
       const msg = saveError instanceof Error ? saveError.message : 'Unable to save recipe'
       setError(msg)
       toast.error(msg)
+      setSaveStatus('failed')
     } finally {
       setSaving(false)
     }
   }
+
+  const handleAutoSave = useCallback(async () => {
+    autoSaveTimerRef.current = null
+    setSaveStatus('autosaving')
+    try {
+      const saved = await doSave(recipeRef.current, computedIngredientsRef.current, true)
+      setSaveStatus('saved')
+      setTimeout(() => setSaveStatus((s) => s === 'saved' ? 'clean' : s), 2000)
+      if (isNew) router.replace(`/recipes/${saved.id}`)
+    } catch {
+      setSaveStatus('failed')
+    }
+  }, [doSave, isNew, router])
+
+  // Keep the ref pointing to the latest handleAutoSave
+  handleAutoSaveRef.current = handleAutoSave
 
   const handleDelete = async () => {
     if (isNew) return
@@ -697,17 +772,29 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
           className="flex-1 min-w-0 bg-transparent text-base font-bold text-slate-900 outline-none placeholder:font-normal placeholder:text-slate-400"
         />
 
-        {isDirty && !saving ? (
+        {saveStatus === 'dirty' && !saving && (
           <span className="hidden items-center gap-1 text-xs text-amber-600 sm:flex">
             <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
             Unsaved
           </span>
-        ) : !isDirty && !isNew ? (
+        )}
+        {saveStatus === 'autosaving' && (
+          <span className="hidden items-center gap-1 text-xs text-slate-400 sm:flex">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Saving…
+          </span>
+        )}
+        {saveStatus === 'saved' && (
           <span className="hidden items-center gap-1 text-xs text-emerald-600 sm:flex">
             <Check className="h-3 w-3" />
-            Saved
+            Saved ✓
           </span>
-        ) : null}
+        )}
+        {saveStatus === 'failed' && !saving && (
+          <span className="hidden items-center gap-1 text-xs text-red-500 sm:flex">
+            Save failed — retry
+          </span>
+        )}
 
         <div className="flex shrink-0 items-center gap-2">
           <button
@@ -753,47 +840,75 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       <div className="grid gap-6 lg:grid-cols-[224px_1fr]">
 
         {/* Photo upload */}
-        <div
-          {...getRootProps()}
-          onDragEnter={() => setIsDragging(true)}
-          onDragLeave={() => setIsDragging(false)}
-          onDropCapture={() => setIsDragging(false)}
-          className={cn(
-            'relative flex h-56 flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed transition lg:h-full lg:min-h-[220px]',
-            isDragging ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-slate-50 hover:border-emerald-300 hover:bg-emerald-50/40'
-          )}
-        >
-          <input {...getInputProps()} />
-          {imagePreview ? (
-            <>
-              <Image src={imagePreview} alt={recipe.name || 'Recipe'} fill unoptimized className="object-cover" />
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-900/40 to-transparent" />
-              <button
-                type="button"
-                onClick={openFilePicker}
-                className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-white/90 px-4 py-1.5 text-xs font-semibold text-slate-700 shadow transition hover:bg-white"
-              >
-                {uploadingImage ? 'Uploading…' : 'Change photo'}
-              </button>
-            </>
-          ) : (
-            <div className="flex flex-col items-center gap-3 px-4 text-center">
-              {uploadingImage ? (
-                <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
-              ) : (
-                <UploadCloud className="h-8 w-8 text-slate-400" />
+        {(() => {
+          const imageSource = imagePreview?.includes('pexels.com') ? 'pexels' : imagePreview ? 'user' : null
+          return (
+            <div
+              {...getRootProps()}
+              onDragEnter={() => setIsDragging(true)}
+              onDragLeave={() => setIsDragging(false)}
+              onDropCapture={() => setIsDragging(false)}
+              className={cn(
+                'relative flex h-56 flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed transition lg:h-full lg:min-h-[220px]',
+                isDragging ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-slate-50 hover:border-emerald-300 hover:bg-emerald-50/40'
               )}
-              <p className="text-xs text-slate-500">Drop an image here or</p>
-              <button
-                type="button"
-                onClick={openFilePicker}
-                className="rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500"
-              >
-                {uploadingImage ? 'Uploading…' : 'Choose photo'}
-              </button>
+            >
+              <input {...getInputProps()} />
+              {imagePreview ? (
+                <>
+                  <Image src={imagePreview} alt={recipe.name || 'Recipe'} fill unoptimized className="object-cover" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-900/40 to-transparent" />
+                  {imageSource === 'pexels' && (
+                    <span className="absolute top-2 left-2 rounded bg-black/40 px-1.5 py-0.5 text-[10px] text-white/80">
+                      Stock photo
+                    </span>
+                  )}
+                  <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={openFilePicker}
+                      className="rounded-full bg-white/90 px-4 py-1.5 text-xs font-semibold text-slate-700 shadow transition hover:bg-white"
+                    >
+                      {uploadingImage ? 'Uploading…' : 'Change photo'}
+                    </button>
+                    {imageSource === 'pexels' && !isNew && (
+                      <button
+                        type="button"
+                        title="Fetch new stock photo"
+                        onClick={() => void fetchRecipeImage(recipeId, recipe.name)}
+                        disabled={fetchingImage}
+                        className="rounded-full bg-white/80 p-1.5 shadow transition hover:bg-white disabled:opacity-50"
+                      >
+                        <RefreshCw className={cn('h-3.5 w-3.5 text-slate-600', fetchingImage && 'animate-spin')} />
+                      </button>
+                    )}
+                  </div>
+                </>
+              ) : fetchingImage ? (
+                <div className="flex flex-col items-center gap-3 px-4 text-center">
+                  <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+                  <p className="text-xs text-slate-500">Fetching photo…</p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-3 px-4 text-center">
+                  {uploadingImage ? (
+                    <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+                  ) : (
+                    <UploadCloud className="h-8 w-8 text-slate-400" />
+                  )}
+                  <p className="text-xs text-slate-500">Drop an image here or</p>
+                  <button
+                    type="button"
+                    onClick={openFilePicker}
+                    className="rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500"
+                  >
+                    {uploadingImage ? 'Uploading…' : 'Choose photo'}
+                  </button>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          )
+        })()}
 
         {/* Details form */}
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

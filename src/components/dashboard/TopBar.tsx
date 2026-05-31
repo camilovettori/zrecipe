@@ -3,9 +3,10 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Search, Bell, Menu, ChevronRight, Home } from 'lucide-react'
+import { Bell, Menu, ChevronRight, Home } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useAppStore } from '@/stores/app'
+import CommandPalette from '@/components/shared/CommandPalette'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -49,9 +50,10 @@ function useBreadcrumbs(pathname: string, entityName: string | null) {
       const href = '/' + segments.slice(0, i + 1).join('/')
       const isLast = i === segments.length - 1
       const isUuid = UUID_RE.test(seg)
-      const label = isLast && isUuid && entityName
-        ? entityName
-        : seg.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+      const label =
+        isLast && isUuid && entityName
+          ? entityName
+          : seg.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
       return { label, href }
     }),
   ]
@@ -61,24 +63,13 @@ export default function TopBar() {
   const pathname = usePathname()
   const entityName = useEntityName(pathname)
   const breadcrumbs = useBreadcrumbs(pathname, entityName)
-  const { setMobileSidebarOpen, setCommandSearchOpen } = useAppStore()
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault()
-        setCommandSearchOpen(true)
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [setCommandSearchOpen])
+  const { setMobileSidebarOpen } = useAppStore()
 
   return (
     <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-3 border-b border-slate-200 bg-white/80 backdrop-blur-sm px-4 sm:px-6 dark:border-slate-700 dark:bg-slate-900/80">
       <button
         onClick={() => setMobileSidebarOpen(true)}
-        className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors lg:hidden"
+        className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 lg:hidden"
         aria-label="Open menu"
       >
         <Menu className="h-5 w-5" />
@@ -89,7 +80,10 @@ export default function TopBar() {
           <div key={crumb.href} className="flex items-center gap-1">
             {i > 0 && <ChevronRight className="h-3.5 w-3.5 text-slate-400" />}
             {i === breadcrumbs.length - 1 ? (
-              <span className="font-medium text-slate-900 dark:text-white max-w-[200px] truncate" title={crumb.label}>
+              <span
+                className="max-w-[200px] truncate font-medium text-slate-900 dark:text-white"
+                title={crumb.label}
+              >
                 {crumb.label}
               </span>
             ) : (
@@ -106,15 +100,8 @@ export default function TopBar() {
 
       <div className="flex-1" />
 
-      <button
-        type="button"
-        onClick={() => setCommandSearchOpen(true)}
-        className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500 transition-colors hover:border-slate-300 hover:bg-white hover:text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-400"
-        aria-label="Open search"
-      >
-        <Search className="h-4 w-4" />
-        <span className="hidden sm:inline">Search</span>
-      </button>
+      {/* Inline command palette — dropdown appears below the input */}
+      <CommandPalette />
 
       <button
         className="relative rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
