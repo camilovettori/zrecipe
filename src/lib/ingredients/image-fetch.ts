@@ -35,6 +35,45 @@ function cleanIngredientName(name: string): string {
     .toLowerCase()
 }
 
+// Ask Claude to extract the bare ingredient name, stripping brand/size/percentage.
+// Returns null on any failure so the caller can fall back to regex cleaning.
+async function getClaudeSearchQuery(ingredientName: string): Promise<string | null> {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) return null
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 20,
+        messages: [{
+          role: 'user',
+          content: `What is the base food ingredient in "${ingredientName}"? Reply with ONLY 1-3 words for an image search. Examples:
+"RHM 12% Flour" → "wheat flour"
+"Lakeland Butter Salted 250g" → "butter"
+"KTC Coconut Oil Pure 500ml" → "coconut oil"
+"GEM Almonds Ground Bulk 10kg" → "ground almonds"
+"Newforge Essence Vanilla 500ml" → "vanilla extract"
+Just the ingredient, no brand, no size, no percentage.`,
+        }],
+      }),
+    })
+
+    if (!res.ok) return null
+    const data = await res.json() as { content?: Array<{ text?: string }> }
+    const text = data.content?.[0]?.text?.trim().toLowerCase()
+    return text || null
+  } catch {
+    return null
+  }
+}
+
 async function searchPexels(query: string): Promise<string | null> {
   const key = process.env.PEXELS_API_KEY
   if (!key) return null
@@ -80,15 +119,21 @@ export async function fetchAndSaveIngredientImage({
     }
   }
 
-  const cleanName = cleanIngredientName(trimmedName)
+  // Step 1: ask Claude to extract the bare ingredient (strips brand/size/%).
+  // Falls back to regex-based cleaning if the API is unavailable.
+  const claudeQuery = await getClaudeSearchQuery(trimmedName)
+  const cleanName = claudeQuery ?? cleanIngredientName(trimmedName)
   const usedClean = cleanName !== trimmedName.toLowerCase()
+
+  console.log(`[image-fetch] query base: "${cleanName}" (${claudeQuery ? 'claude' : 'regex'})`)
 
   // Three-tier query strategy: specific → textural → bare name
   const queries = [
+    `${cleanName} close up food ingredient`,
     `${cleanName} raw ingredient white background`,
     `${cleanName} close up texture`,
     cleanName,
-    ...(usedClean ? [trimmedName] : []), // final fallback to original if cleaning changed it
+    ...(usedClean ? [trimmedName] : []),
   ]
 
   let imageUrl: string | null = null
