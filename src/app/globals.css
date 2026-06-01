@@ -53,6 +53,11 @@
   }
 }
 
+@keyframes holoPulse {
+  0%, 100% { opacity: 0.30; transform: translate(-50%, -50%) scaleX(1); }
+  50%       { opacity: 0.50; transform: translate(-50%, -50%) scaleX(1.06); }
+}
+
 @keyframes page-fade-in {
   from {
     opacity: 0;

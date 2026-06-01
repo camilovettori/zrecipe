@@ -20,8 +20,8 @@ export const metadata: Metadata = {
     description: 'Cost recipes, track suppliers, and manage invoices with confidence.',
   },
   icons: {
-    icon: '/icon.svg',
-    shortcut: '/icon.svg',
+    icon: '/images/favicon2.png',
+    shortcut: '/images/favicon2.png',
   },
 };
 

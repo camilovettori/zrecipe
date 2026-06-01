@@ -1,199 +1,314 @@
 'use client'
 
-import dynamic from 'next/dynamic'
-import Image from 'next/image'
 import Link from 'next/link'
-import { useEffect, useState, type ReactNode } from 'react'
-import { ArrowRight, Calculator, Check, FileText, Percent, ReceiptText, Sparkles } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import type { ReactNode } from 'react'
+import {
+  FileText, BarChart2, ShieldCheck, Camera, Bell, Printer,
+  Package, DollarSign, ArrowRight, Globe,
+} from 'lucide-react'
+import LiveCostingCard from './LiveCostingCard'
 
-const FloatingFoodShowcase = dynamic(() => import('./FloatingFoodShowcase'), {
-  ssr: false,
-  loading: () => (
-    <div className="relative mt-5 hidden h-[300px] max-w-[540px] lg:block">
-      <div className="absolute inset-x-0 top-8 h-56 rounded-full bg-emerald-400/10 blur-3xl" />
-    </div>
-  ),
-})
+const FEATURES = {
+  login: [
+    { Icon: FileText,    text: 'AI invoice imports' },
+    { Icon: BarChart2,   text: 'Accurate food cost calculations' },
+    { Icon: ShieldCheck, text: 'EU allergen & labeling compliance' },
+  ],
+  signup: [
+    { Icon: ShieldCheck, text: 'See your true food cost on every dish — instantly' },
+    { Icon: Camera,      text: 'Snap supplier invoices, prices update automatically' },
+    { Icon: Printer,     text: 'Print EU-compliant allergen labels (Reg. 1169/2011)' },
+  ],
+  recovery: [
+    { Icon: ShieldCheck, text: 'Secure email-based recovery' },
+    { Icon: ShieldCheck, text: 'Your workspace stays protected' },
+  ],
+}
 
-type FeatureStyle = 'subtle' | 'check'
+const COPY = {
+  login: {
+    eyebrow: 'FOOD COSTING SOFTWARE',
+    headlineMain: 'Know the true cost of',
+    headlineAccent: 'every plate.',
+    subtitle: 'ZRecipe turns invoices and ingredients into instant food-cost intelligence for bakeries, restaurants, and food businesses.',
+  },
+  signup: {
+    eyebrow: '14-DAY FREE TRIAL · NO CARD REQUIRED',
+    headlineMain: 'Start costing recipes in the next',
+    headlineAccent: '90 seconds.',
+    subtitle: "Full Pro access from day one. Cancel anytime. We'll remind you 3 days before the trial ends — no surprise charges.",
+  },
+  recovery: {
+    eyebrow: 'ACCOUNT RECOVERY',
+    headlineMain: 'Reset your',
+    headlineAccent: 'password.',
+    subtitle: "We'll send a secure link to your inbox so you can get back into your workspace safely.",
+  },
+}
+
+const WORKFLOW = [
+  { Icon: Package,    label: 'Ingredients', sub: 'Add & manage' },
+  { Icon: DollarSign, label: 'Cost',        sub: 'Real-time pricing' },
+  { Icon: BarChart2,  label: 'Margin',      sub: 'Track profitability' },
+  { Icon: FileText,   label: 'PDF',         sub: 'Export & share' },
+]
+
+const TRUST = [
+  { Icon: ShieldCheck, text: 'GDPR-compliant' },
+  { Icon: Globe,       text: 'EU-hosted' },
+  { Icon: DollarSign,  text: '€25/month after trial' },
+  { Icon: Package,     text: 'No credit card' },
+]
 
 interface AuthSplitShellProps {
-  badge?: string
-  leftTitle?: string
-  leftSubtitle?: string
-  features?: string[]
-  footerText?: string
-  rightTitle?: string
-  rightSubtitle?: string
-  featureStyle?: FeatureStyle
-  modelPath?: string
-  ctaHref?: string
-  ctaLabel?: string
-  pricingNote?: string
+  variant?: 'login' | 'signup' | 'recovery'
+  formBadge: string
+  formTitle: string
+  formSubtitle?: string
   formId?: string
   children: ReactNode
 }
 
-function FeatureIcon({ style }: { style: FeatureStyle }) {
-  return style === 'check' ? (
-    <Check className="h-4 w-4 flex-none text-emerald-300" />
-  ) : (
-    <Sparkles className="h-4 w-4 flex-none text-emerald-300" />
-  )
-}
-
-const workflow = [
-  { label: 'Ingredients', icon: ReceiptText },
-  { label: 'Cost', icon: Calculator },
-  { label: 'Margin', icon: Percent },
-  { label: 'PDF', icon: FileText },
-]
-
 export default function AuthSplitShell({
-  badge = 'ZRECIPE',
-  leftTitle = 'Recipe costing made simple',
-  leftSubtitle = 'Stop guessing your food costs. Track every ingredient, import invoices with AI, and stay EU-compliant - all in one place.',
-  features = [
-    'AI-powered invoice imports',
-    'Instant food cost calculations',
-    'EU allergen compliance',
-  ],
-  footerText = 'Built for bakeries, restaurants, and food businesses across Ireland and the EU.',
-  rightTitle = 'Welcome back',
-  rightSubtitle = 'Sign in to continue costing recipes, managing suppliers, and exporting kitchen-ready PDFs.',
-  featureStyle = 'subtle',
-  modelPath = '/models/croissant.glb',
-  ctaHref = '/signup',
-  ctaLabel = 'Start free trial',
-  pricingNote = 'No credit card required',
-  formId,
+  variant = 'login',
+  formBadge,
+  formTitle,
+  formSubtitle,
+  formId = 'auth-form',
   children,
 }: AuthSplitShellProps) {
-  const isCheckList = featureStyle === 'check'
-  const [showShowcase, setShowShowcase] = useState(false)
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(min-width: 1024px)')
-    const syncShowcase = () => setShowShowcase(mediaQuery.matches)
-
-    syncShowcase()
-    mediaQuery.addEventListener('change', syncShowcase)
-
-    return () => mediaQuery.removeEventListener('change', syncShowcase)
-  }, [])
+  const copy = COPY[variant]
+  const features = FEATURES[variant]
 
   return (
-    <div className="min-h-screen overflow-hidden bg-[#08111c] text-white">
-      <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(3,7,18,0.98),rgba(8,15,27,0.97)_48%,rgba(5,18,18,0.98))]" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_22%_30%,rgba(16,185,129,0.18),transparent_32%),radial-gradient(circle_at_80%_80%,rgba(20,184,166,0.10),transparent_28%)]" />
-      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.022)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.022)_1px,transparent_1px)] bg-[size:56px_56px] opacity-35" />
+    <div className="flex h-screen flex-col overflow-hidden lg:grid lg:grid-cols-[58%_42%]">
 
-      <div className="relative mx-auto grid min-h-screen max-w-[1500px] lg:grid-cols-2">
-        <section className="relative flex min-h-[46vh] flex-col px-6 py-7 sm:px-8 lg:min-h-screen lg:px-12 xl:px-16">
-          <div className="mx-auto flex w-full max-w-[620px] flex-1 flex-col justify-center">
-            <div className="mb-6">
-              <div className="inline-flex items-center rounded-lg border border-white/8 bg-white/[0.045] px-3 py-2 shadow-[0_16px_60px_rgba(2,6,23,0.22)] backdrop-blur-xl">
-                <Image
-                  src="/images/logo.png"
-                  alt="ZRecipe"
-                  width={165}
-                  height={48}
-                  priority
-                  sizes="(min-width: 1280px) 165px, 145px"
-                  className="h-auto w-[145px] max-w-full xl:w-[165px]"
-                />
-              </div>
-            </div>
+      {/* ══ LEFT ══════════════════════════════════════════════════════════════ */}
+      <aside
+        className="relative flex h-[220px] flex-shrink-0 flex-col overflow-hidden bg-[#0a1a14] bg-cover bg-center bg-no-repeat lg:h-auto"
+        style={{ backgroundImage: "url('/images/fundo2.png')" }}
+      >
+        {/* Dark-left → transparent-right overlay */}
+        <div
+          className="absolute inset-0"
+          style={{
+            background: 'linear-gradient(135deg, rgba(10,26,20,0.92) 0%, rgba(10,26,20,0.78) 40%, rgba(10,26,20,0.32) 70%, rgba(10,26,20,0.12) 100%)',
+          }}
+        />
+        {/* Stronger overlay on mobile */}
+        <div
+          className="absolute inset-0 lg:hidden"
+          style={{ background: 'rgba(10,26,20,0.55)' }}
+        />
 
-            <div className="mb-5 text-[11px] font-semibold uppercase tracking-[0.26em] text-emerald-300">
-              {badge}
-            </div>
+        {/* ── CONTENT — two sections, justify-between ──────────────────────── */}
+        <div
+          className="relative flex h-full flex-col justify-between px-8 pb-5 pt-8 lg:px-10 lg:pt-12"
+          style={{ zIndex: 10 }}
+        >
 
-            <h1 className="max-w-[560px] text-balance text-4xl font-semibold leading-[1.04] text-white sm:text-5xl xl:text-[54px]">
-              {leftTitle}
-            </h1>
-            <p className="mt-5 max-w-[560px] text-pretty text-base leading-7 text-slate-300 sm:text-lg">
-              {leftSubtitle}
-            </p>
-
-            <div className="mt-6 flex max-w-[590px] flex-wrap gap-2.5">
-              {features.map((feature) => (
-                <span
-                  key={feature}
-                  className={cn(
-                    'inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-sm font-medium backdrop-blur-xl',
-                    isCheckList
-                      ? 'border-emerald-400/18 bg-emerald-400/8 text-emerald-50'
-                      : 'border-white/10 bg-white/6 text-slate-100'
-                  )}
-                >
-                  <FeatureIcon style={featureStyle} />
-                  <span>{feature}</span>
-                </span>
-              ))}
-            </div>
-
-            <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center">
-              <Link
-                href={ctaHref}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-5 py-3 text-sm font-semibold text-white shadow-[0_16px_42px_rgba(16,185,129,0.28)] transition duration-200 hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:ring-offset-2 focus:ring-offset-slate-950"
+          {/* ── TOP SECTION ─────────────────────────────────────────────────── */}
+          <div>
+            {/* Brand block — flex column ensures logo + eyebrow share exact left edge */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', paddingLeft: 0 }}>
+              <img
+                src="/images/logo4.png"
+                alt="ZRecipe"
+                style={{ height: '64px', width: 'auto', objectFit: 'contain' }}
+              />
+              <span
+                className="hidden lg:block"
+                style={{
+                  marginTop: '6px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.13em',
+                  color: '#5DCAA5',
+                }}
               >
-                {ctaLabel}
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-
-              <div className="text-sm leading-6 text-slate-300">
-                <div className="font-semibold text-white">14 days free</div>
-                <div>
-                  Then &euro;25/month <span className="text-slate-500">/</span> {pricingNote}
-                </div>
-              </div>
+                {copy.eyebrow}
+              </span>
             </div>
 
-            <div className="mt-6 hidden w-fit items-center rounded-xl border border-white/8 bg-white/[0.045] px-3 py-2 text-xs text-slate-300 shadow-[0_16px_60px_rgba(2,6,23,0.14)] backdrop-blur-xl lg:flex">
-              {workflow.map((item, index) => {
-                const Icon = item.icon
+            {/* Mobile: compact headline (eyebrow already rendered above) */}
+            <div className="mt-2 lg:hidden">
+              <h1
+                className="font-display font-bold leading-tight text-white"
+                style={{ fontSize: '1.5rem', maxWidth: 300 }}
+              >
+                {copy.headlineMain}{' '}
+                {copy.headlineAccent && <span style={{ color: '#5DCAA5' }}>{copy.headlineAccent}</span>}
+              </h1>
+            </div>
 
+            {/* Desktop: headline + rest of content */}
+            <div className="hidden lg:block">
+              {/* (eyebrow is in brand block above) */}
+
+              <h1
+                className="font-display font-bold leading-[1.1] text-white"
+                style={{ fontSize: 'clamp(2rem, 2.85vw, 2.625rem)', maxWidth: '460px', marginTop: '28px' }}
+              >
+                {copy.headlineMain}{' '}
+                {copy.headlineAccent && <span style={{ color: '#5DCAA5' }}>{copy.headlineAccent}</span>}
+              </h1>
+
+              <p
+                className="leading-relaxed"
+                style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.86rem', maxWidth: '460px', marginTop: '14px' }}
+              >
+                {copy.subtitle}
+              </p>
+
+              <ul className="flex flex-col" style={{ maxWidth: '460px', marginTop: '20px', gap: '10px' }}>
+                {features.map(({ Icon, text }, i) => (
+                  <li
+                    key={i}
+                    className="flex items-center gap-2.5 rounded-lg px-3 py-2"
+                    style={{
+                      background: 'rgba(255,255,255,0.07)',
+                      border: '1px solid rgba(255,255,255,0.11)',
+                      fontSize: '12.5px',
+                      color: 'white',
+                    }}
+                  >
+                    <Icon className="h-3.5 w-3.5 shrink-0" style={{ color: '#5DCAA5' }} />
+                    {text}
+                  </li>
+                ))}
+              </ul>
+
+              {variant !== 'recovery' && (
+                <div style={{ maxWidth: '460px', marginTop: '20px' }}>
+                  <LiveCostingCard />
+                </div>
+              )}
+
+              {variant !== 'recovery' && (
+                <div style={{ marginTop: '24px' }}>
+                  <Link
+                    href={variant === 'login' ? '/register' : `#${formId}`}
+                    className="inline-flex items-center gap-2 font-semibold text-white transition-opacity hover:opacity-85"
+                    style={{ background: '#1D9E75', borderRadius: '10px', fontSize: '16px', padding: '14px 32px' }}
+                  >
+                    {variant === 'login' ? 'Start free trial →' : 'Create your kitchen →'}
+                  </Link>
+                  <p className="mt-2 text-[12px]" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                    14 days free · No credit card · Cancel anytime
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── BOTTOM SECTION (desktop only) — pushed to bottom by justify-between ── */}
+          <div className="hidden lg:block">
+
+            {/* Workflow strip — full width, evenly spread */}
+            <div className="flex w-full items-start justify-between">
+              {WORKFLOW.map((step, i) => {
+                const Icon = step.Icon
                 return (
-                  <div key={item.label} className="flex items-center">
-                    <span className="inline-flex items-center gap-2 px-2.5">
-                      <Icon className="h-3.5 w-3.5 text-emerald-300" />
-                      <span>{item.label}</span>
-                    </span>
-                    {index < workflow.length - 1 && <span className="text-slate-600">/</span>}
+                  <div key={step.label} className="flex items-start gap-3">
+                    <div className="flex flex-col items-center gap-2">
+                      <div
+                        className="flex h-9 w-9 items-center justify-center rounded-full"
+                        style={{ background: 'rgba(93,202,165,0.14)' }}
+                      >
+                        <Icon className="h-5 w-5" style={{ color: '#5DCAA5' }} />
+                      </div>
+                      <span className="text-[13px] font-medium text-white">{step.label}</span>
+                      <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.38)' }}>{step.sub}</span>
+                    </div>
+                    {i < WORKFLOW.length - 1 && (
+                      <ArrowRight className="mt-2 h-3.5 w-3.5 shrink-0" style={{ color: 'rgba(255,255,255,0.22)' }} />
+                    )}
                   </div>
                 )
               })}
             </div>
 
-            {showShowcase && <FloatingFoodShowcase modelPath={modelPath} />}
-
-            <p className="mt-3 max-w-[560px] text-sm leading-6 text-slate-400">{footerText}</p>
-          </div>
-        </section>
-
-        <aside className="relative flex items-center justify-center px-4 pb-8 pt-2 sm:px-6 lg:min-h-screen lg:px-10 lg:py-8">
-          <div className="relative w-full max-w-[520px]">
-            <div className="absolute inset-0 -z-10 rounded-[28px] bg-emerald-400/10 blur-2xl" />
-
-            <div className="rounded-2xl border border-white/10 bg-white p-6 text-slate-900 shadow-[0_30px_110px_rgba(2,6,23,0.36)] sm:p-8">
-              <div id={formId} className="scroll-mt-24">
-                <div className="mb-6">
-                  <div className="inline-flex items-center rounded-full border border-emerald-500/15 bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-700">
-                    {rightTitle === 'Create your account' ? 'Start your trial' : 'Sign in'}
-                  </div>
-                  <h2 className="mt-4 text-3xl font-semibold text-slate-950">
-                    {rightTitle}
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">{rightSubtitle}</p>
+            {/* Trust badges — full width, centered with gap */}
+            <div className="mt-4 flex w-full items-center justify-between">
+              {TRUST.map(({ Icon, text }) => (
+                <div
+                  key={text}
+                  className="flex items-center gap-1.5"
+                  style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}
+                >
+                  <Icon className="h-3.5 w-3.5 shrink-0" />
+                  {text}
                 </div>
-                {children}
-              </div>
+              ))}
             </div>
+
+            {/* Legal footer — centered, stacked lines */}
+            <div className="mt-3 text-center" style={{ fontSize: '11px', lineHeight: 1.8 }}>
+              <div style={{ color: 'rgba(255,255,255,0.6)' }}>
+                <Link href="/privacy" className="transition-colors hover:text-white">Privacy Policy</Link>
+                <span className="mx-1.5" style={{ color: 'rgba(255,255,255,0.25)' }}>·</span>
+                <Link href="/terms" className="transition-colors hover:text-white">Terms of Service</Link>
+              </div>
+              <p style={{ color: 'rgba(255,255,255,0.4)' }}>© 2026 Ziffera. All rights reserved.</p>
+              <p style={{ color: 'rgba(255,255,255,0.4)' }}>
+                Developed by{' '}
+                <a
+                  href="https://ziffera.ie"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="transition-colors hover:text-white"
+                  style={{ color: 'rgba(255,255,255,0.55)' }}
+                >
+                  Ziffera.ie
+                </a>
+              </p>
+            </div>
+
           </div>
-        </aside>
-      </div>
+        </div>
+      </aside>
+
+      {/* ══ RIGHT — form panel ════════════════════════════════════════════════ */}
+      <main
+        className="relative flex flex-1 items-start justify-center overflow-y-auto px-6 py-8 lg:items-center lg:px-10 lg:py-10"
+        style={{ background: '#f0f5f2' }}
+      >
+        {/* Left-edge gradient — blends wallpaper boundary into panel, no wallpaper content hidden */}
+        <div
+          className="pointer-events-none absolute bottom-0 left-0 top-0 hidden lg:block"
+          style={{
+            width: '80px',
+            background: 'linear-gradient(to right, rgba(10,26,20,0.4) 0%, rgba(240,245,242,0.5) 40%, rgba(240,245,242,1) 100%)',
+            zIndex: 0,
+          }}
+        />
+        <div
+          id={formId}
+          className="w-full max-w-[400px] scroll-mt-4 rounded-2xl bg-white p-7 shadow-[0_8px_32px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)] lg:p-9"
+        >
+          <div className="mb-3 flex justify-center">
+            <img
+              src="/images/favicon2.png"
+              alt="ZRecipe"
+              style={{ width: '64px', height: '64px', objectFit: 'contain', background: 'transparent', display: 'block' }}
+            />
+          </div>
+
+          <h2 className="text-center font-display text-[1.65rem] font-bold leading-tight tracking-tight text-[#1A1A1A]">
+            {formTitle}
+          </h2>
+
+          {formSubtitle && (
+            <p className="mt-1.5 text-center text-[0.84rem] text-[#6B6B6B]">
+              {formSubtitle}
+            </p>
+          )}
+
+          <div className="mt-6">{children}</div>
+        </div>
+      </main>
+
     </div>
   )
 }

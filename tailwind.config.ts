@@ -10,6 +10,13 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        brand: {
+          green: '#0E3B2E',
+          'green-hover': '#164d3c',
+          cream: '#E8DCC4',
+          paper: '#FAF8F4',
+          terra: '#C5614A',
+        },
         primary: {
           DEFAULT: "#059669",
           50: "#ecfdf5",
