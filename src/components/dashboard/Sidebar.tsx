@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -180,11 +181,12 @@ function SidebarContent({
         )}
       >
         {collapsed ? (
-          <span className="font-display text-xl font-bold text-emerald-400">Z</span>
+          <Image src="/images/favicon2.png" alt="ZRecipe" width={28} height={28} style={{ width: '28px', height: '28px', objectFit: 'contain' }} />
         ) : (
-          <span className="font-display text-xl font-bold text-white">
-            Z<span className="text-emerald-400">Recipe</span>
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Image src="/images/favicon2.png" alt="ZRecipe" width={28} height={28} style={{ width: '28px', height: '28px', objectFit: 'contain' }} />
+            <span style={{ fontSize: '18px', fontWeight: 600, color: '#1D9E75' }}>ZRecipe</span>
+          </div>
         )}
       </div>
 

@@ -1,68 +1,63 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import dynamic from 'next/dynamic'
+import { useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import Image from 'next/image'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { motion } from 'framer-motion'
+import { Building2, ChevronDown, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-
-const ThreeBackground = dynamic(
-  () => import('@/components/auth/ThreeBackground'),
-  { ssr: false }
-)
 
 const schema = z.object({
   businessName: z.string().min(2, 'Business name must be at least 2 characters'),
-  businessType: z.enum(['restaurant', 'cafe', 'bakery', 'other'], {
+  businessType: z.enum(['restaurant', 'cafe', 'bakery', 'catering', 'hotel', 'food-truck', 'other'], {
     error: 'Please select a business type',
   }),
 })
-
 type FormData = z.infer<typeof schema>
 
-const inputClass =
-  'w-full rounded-lg bg-white/10 border border-white/20 px-4 py-2.5 text-white placeholder-white/40 focus:border-emerald-400/60 focus:outline-none focus:ring-2 focus:ring-emerald-400/20 transition-colors'
+const labelClass = 'mb-1.5 block text-[10px] font-bold uppercase tracking-[0.1em] text-[#6B6B6B]'
+const inputBase =
+  'h-12 w-full rounded-lg border border-[#E2DDD4] bg-white px-4 text-sm text-[#1A1A1A] outline-none transition-all placeholder:text-[#C0BAB1] focus:border-[#0E3B2E] focus:ring-4 focus:ring-[#0E3B2E]/[0.08] disabled:bg-[#FAFAF8]'
 
 export default function WorkspaceSetupPage() {
   const router = useRouter()
-  const nextPath = typeof window !== 'undefined'
-    ? new URLSearchParams(window.location.search).get('next')
-    : null
+  const searchParams = useSearchParams()
+  const [serverError, setServerError] = useState<string | null>(null)
+  const [ready, setReady] = useState(false)
+
+  const nextPath = searchParams.get('next')
   const destination =
     nextPath && nextPath.startsWith('/') && nextPath !== '/login' && nextPath !== '/auth/callback'
       ? nextPath
       : '/dashboard'
-  const [serverError, setServerError] = useState<string | null>(null)
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<FormData>({ resolver: zodResolver(schema) })
+  const { register, handleSubmit, setValue, formState: { errors, isSubmitting } } =
+    useForm<FormData>({ resolver: zodResolver(schema) })
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) { router.push('/login'); return }
+      const meta = user.user_metadata ?? {}
+      // Pre-fill from email signup metadata or Google profile
+      if (meta.business_name) setValue('businessName', meta.business_name)
+      if (meta.business_type) setValue('businessType', meta.business_type)
+      setReady(true)
+    })
+  }, [router, setValue])
 
   const onSubmit = async (data: FormData) => {
     setServerError(null)
-
-    // Ensure the user is still authenticated (session may have expired)
     const supabase = createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/login')
-      return
-    }
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { router.push('/login'); return }
 
     const res = await fetch('/api/auth/setup-tenant', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        businessName: data.businessName,
-        businessType: data.businessType,
-      }),
+      body: JSON.stringify({ businessName: data.businessName, businessType: data.businessType }),
     })
 
     if (!res.ok) {
@@ -71,98 +66,114 @@ export default function WorkspaceSetupPage() {
       return
     }
 
-    // Belt-and-suspenders: set the cookie client-side too so middleware
-    // sees it even if the server Set-Cookie header was dropped.
     document.cookie = 'has-tenant=true; path=/; max-age=31536000; samesite=lax'
-
     router.push(destination)
     router.refresh()
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden">
-      <ThreeBackground />
-      <div className="page-fade-in relative z-10 flex min-h-screen items-center justify-center p-4">
-        <motion.div
-          initial={{ opacity: 0, y: 24, scale: 0.97 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.5, ease: 'easeOut' }}
-          className="w-full max-w-md"
-        >
-          <div className="backdrop-blur-xl bg-white/10 border border-white/20 rounded-2xl shadow-2xl p-8">
-            {/* Logo */}
-            <div className="mb-8 text-center">
-              <h1 className="font-display text-3xl font-bold text-white">
-                Z<span className="text-emerald-400">Recipe</span>
-              </h1>
-              <p className="mt-2 text-sm text-white/60">
-                One last step — tell us about your business
-              </p>
-            </div>
+    <div
+      className="flex min-h-screen items-center justify-center px-4 py-12"
+      style={{ background: '#f0f5f2' }}
+    >
+      <div className="w-full max-w-[400px]">
+        <div className="rounded-2xl bg-white p-8 shadow-[0_8px_32px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)]">
+
+          {/* Brand icon */}
+          <div className="mb-4 flex justify-center">
+            <Image
+              src="/images/favicon2.png"
+              alt="ZRecipe"
+              width={64}
+              height={64}
+              style={{ width: '64px', height: '64px', objectFit: 'contain' }}
+            />
+          </div>
+
+          <h1 className="text-center font-display text-[1.65rem] font-bold leading-tight tracking-tight text-[#1A1A1A]">
+            Set up your kitchen.
+          </h1>
+          <p className="mt-1.5 text-center text-[0.84rem] text-[#6B6B6B]">
+            One last step — name your workspace and you&apos;re in.
+          </p>
+
+          <form onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-4" noValidate>
 
             {serverError && (
-              <motion.div
-                initial={{ opacity: 0, y: -8 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mb-4 rounded-lg border border-red-500/30 bg-red-500/20 px-4 py-3 text-sm text-red-200"
-              >
+              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                 {serverError}
-              </motion.div>
+              </div>
             )}
 
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-              {/* Business name */}
-              <div>
-                <label className="mb-1 block text-sm font-medium text-white/80">
-                  Business name
-                </label>
+            {/* Business name */}
+            <div>
+              <label htmlFor="ws-biz" className={labelClass}>Business name</label>
+              <div className="relative">
                 <input
+                  id="ws-biz"
                   {...register('businessName')}
                   type="text"
                   autoComplete="organization"
-                  placeholder="Acme Bakery"
-                  className={inputClass}
+                  placeholder="Boulangerie Margaux"
+                  className={`${inputBase} pr-11`}
                 />
-                {errors.businessName && (
-                  <p className="mt-1 text-xs text-red-300">{errors.businessName.message}</p>
-                )}
+                <Building2 className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#C0BAB1]" />
               </div>
+              {errors.businessName && (
+                <p className="mt-1.5 text-xs text-amber-600">{errors.businessName.message}</p>
+              )}
+            </div>
 
-              {/* Business type */}
-              <div>
-                <label className="mb-1 block text-sm font-medium text-white/80">
-                  Business type
-                </label>
+            {/* Business type */}
+            <div>
+              <label htmlFor="ws-type" className={labelClass}>Business type</label>
+              <div className="relative">
                 <select
+                  id="ws-type"
                   {...register('businessType')}
-                  className={`${inputClass} [&>option]:bg-slate-900 [&>option]:text-white`}
+                  className={`${inputBase} appearance-none pr-10`}
                   defaultValue=""
                 >
-                  <option value="" disabled className="bg-slate-900 text-white/40">
-                    Select type…
-                  </option>
-                  <option value="restaurant" className="bg-slate-900">Restaurant</option>
-                  <option value="cafe" className="bg-slate-900">Café</option>
-                  <option value="bakery" className="bg-slate-900">Bakery</option>
-                  <option value="other" className="bg-slate-900">Other</option>
+                  <option value="" disabled>Select your kitchen type…</option>
+                  <option value="bakery">Bakery</option>
+                  <option value="restaurant">Restaurant</option>
+                  <option value="cafe">Café</option>
+                  <option value="catering">Catering</option>
+                  <option value="hotel">Hotel</option>
+                  <option value="food-truck">Food Truck</option>
+                  <option value="other">Other</option>
                 </select>
-                {errors.businessType && (
-                  <p className="mt-1 text-xs text-red-300">{errors.businessType.message}</p>
-                )}
+                <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#C0BAB1]" />
               </div>
+              {errors.businessType && (
+                <p className="mt-1.5 text-xs text-amber-600">{errors.businessType.message}</p>
+              )}
+            </div>
 
-              <motion.button
-                type="submit"
-                disabled={isSubmitting}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-transparent transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isSubmitting ? 'Setting up workspace…' : 'Create Workspace'}
-              </motion.button>
-            </form>
-          </div>
-        </motion.div>
+            {/* Submit */}
+            <button
+              type="submit"
+              disabled={isSubmitting || !ready}
+              className="mt-2 flex h-12 w-full items-center justify-center gap-2 rounded-lg text-sm font-semibold tracking-wide text-white transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+              style={{ background: '#0E3B2E' }}
+              onMouseEnter={(e) => {
+                if (!isSubmitting) (e.currentTarget as HTMLElement).style.background = '#164d3c'
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLElement).style.background = '#0E3B2E'
+              }}
+            >
+              {isSubmitting || !ready
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> {isSubmitting ? 'Setting up…' : 'Loading…'}</>
+                : 'Create workspace →'}
+            </button>
+
+          </form>
+        </div>
+
+        <p className="mt-6 text-center text-[11px]" style={{ color: 'rgba(0,0,0,0.35)' }}>
+          © 2026 Ziffera · GDPR-compliant · EU-hosted
+        </p>
       </div>
     </div>
   )
