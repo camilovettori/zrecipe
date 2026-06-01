@@ -94,19 +94,23 @@ export default function RegisterForm() {
       return
     }
 
-    const workspaceRes = await fetch('/api/auth/setup-tenant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: authData.user.id, businessName: data.businessName, businessType: normalizedBusinessType }),
-    })
-
-    if (!workspaceRes.ok) {
-      const err = await workspaceRes.json().catch(() => ({}))
-      setServerError((err as { error?: string }).error ?? 'Failed to create workspace')
-      return
-    }
-
+    // If there's an immediate session (email confirmation disabled),
+    // set up the workspace now. Otherwise the /auth/callback route
+    // handles workspace creation after the user confirms their email
+    // (it reads business_name from the metadata we set above).
     if (authData.session) {
+      const workspaceRes = await fetch('/api/auth/setup-tenant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: authData.user.id, businessName: data.businessName, businessType: normalizedBusinessType }),
+      })
+
+      if (!workspaceRes.ok) {
+        const err = await workspaceRes.json().catch(() => ({}))
+        setServerError((err as { error?: string }).error ?? 'Failed to create workspace')
+        return
+      }
+
       router.push('/dashboard')
     } else {
       setSuccessMessage('Check your email to confirm your account.')

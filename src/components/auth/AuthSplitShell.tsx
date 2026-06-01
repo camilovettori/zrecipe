@@ -80,7 +80,7 @@ export default function AuthSplitShell({
   const features = FEATURES[variant]
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden lg:grid lg:grid-cols-[58%_42%]">
+    <div className="flex min-h-screen flex-col lg:grid lg:grid-cols-[58%_42%]">
 
       {/* ══ LEFT ══════════════════════════════════════════════════════════════ */}
       <aside
