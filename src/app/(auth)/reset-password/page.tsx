@@ -7,7 +7,7 @@ export default function ResetPasswordPage() {
   return (
     <AuthSplitShell
       variant="recovery"
-      formBadge="New Password"
+
       formTitle="Set a new password."
       formSubtitle="Enter and confirm your new password below."
     >

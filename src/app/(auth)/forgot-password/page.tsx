@@ -7,7 +7,7 @@ export default function ForgotPasswordPage() {
   return (
     <AuthSplitShell
       variant="recovery"
-      formBadge="Reset Password"
+
       formTitle="Forgot your password?"
       formSubtitle="Enter your email and we'll send a reset link."
     >

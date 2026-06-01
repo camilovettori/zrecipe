@@ -1,9 +1,10 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import type { ReactNode } from 'react'
 import {
-  FileText, BarChart2, ShieldCheck, Camera, Bell, Printer,
+  FileText, BarChart2, ShieldCheck, Camera, Printer,
   Package, DollarSign, ArrowRight, Globe,
 } from 'lucide-react'
 import LiveCostingCard from './LiveCostingCard'
@@ -62,7 +63,6 @@ const TRUST = [
 
 interface AuthSplitShellProps {
   variant?: 'login' | 'signup' | 'recovery'
-  formBadge: string
   formTitle: string
   formSubtitle?: string
   formId?: string
@@ -71,7 +71,6 @@ interface AuthSplitShellProps {
 
 export default function AuthSplitShell({
   variant = 'login',
-  formBadge,
   formTitle,
   formSubtitle,
   formId = 'auth-form',
@@ -111,9 +110,11 @@ export default function AuthSplitShell({
           <div>
             {/* Brand block — flex column ensures logo + eyebrow share exact left edge */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', paddingLeft: 0 }}>
-              <img
+              <Image
                 src="/images/logo4.png"
                 alt="ZRecipe"
+                width={180}
+                height={64}
                 style={{ height: '64px', width: 'auto', objectFit: 'contain' }}
               />
               <span
@@ -288,10 +289,12 @@ export default function AuthSplitShell({
           className="w-full max-w-[400px] scroll-mt-4 rounded-2xl bg-white p-7 shadow-[0_8px_32px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)] lg:p-9"
         >
           <div className="mb-3 flex justify-center">
-            <img
+            <Image
               src="/images/favicon2.png"
               alt="ZRecipe"
-              style={{ width: '64px', height: '64px', objectFit: 'contain', background: 'transparent', display: 'block' }}
+              width={64}
+              height={64}
+              style={{ width: '64px', height: '64px', objectFit: 'contain' }}
             />
           </div>
 
