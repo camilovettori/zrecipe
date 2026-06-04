@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   LineChart,
   Line,
@@ -13,6 +14,13 @@ import {
 import { format } from 'date-fns'
 import { ArrowDownRight, ArrowUpRight, Minus, FileText, Pencil } from 'lucide-react'
 
+type JoinedSupplier = { name: string | null }
+type JoinedInvoice = {
+  id?: string | null
+  invoice_number?: string | null
+  supplier?: JoinedSupplier | JoinedSupplier[] | null
+}
+
 export interface PricePoint {
   id: string
   ingredient_id: string
@@ -22,6 +30,7 @@ export interface PricePoint {
   effective_date?: string | null
   invoice_id: string | null
   created_at?: string | null
+  invoice?: JoinedInvoice | JoinedInvoice[] | null
 }
 
 interface ChartPoint extends PricePoint {
@@ -50,20 +59,43 @@ function normalizePrice(point: PricePoint, fallbackUnit: string) {
   return { price: point.price, displayUnit: point.unit || fallbackUnit || 'unit' }
 }
 
+function resolveInvoice(point: PricePoint) {
+  return Array.isArray(point.invoice) ? point.invoice[0] : point.invoice
+}
+
+function resolveSupplierName(point: PricePoint) {
+  const invoice = resolveInvoice(point)
+  const supplier = Array.isArray(invoice?.supplier) ? invoice?.supplier[0] : invoice?.supplier
+  return supplier?.name ?? null
+}
+
+function resolveInvoiceLabel(point: PricePoint) {
+  const invoice = resolveInvoice(point)
+  return invoice?.invoice_number ?? point.invoice_id?.slice(0, 8) ?? null
+}
+
 function CustomTooltip({ active, payload }: { active?: boolean; payload?: TooltipEntry[] }) {
   if (!active || !payload?.length) return null
   const point = payload[0].payload
+  const supplierName = resolveSupplierName(point)
+  const invoiceLabel = resolveInvoiceLabel(point)
+
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 shadow-lg dark:border-slate-700 dark:bg-slate-800">
       <p className="text-xs text-slate-500 dark:text-slate-400">
         {format(new Date(resolveDate(point)), 'MMM d, yyyy')}
       </p>
       <p className="mt-0.5 text-sm font-bold text-slate-900 dark:text-white">
-        €{point.displayPrice.toFixed(2)} / {point.displayUnit}
+        {'\u20ac'}{point.displayPrice.toFixed(2)} / {point.displayUnit}
       </p>
-      {point.invoice_id && (
+      {supplierName && (
+        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+          {supplierName}
+        </p>
+      )}
+      {point.invoice_id && invoiceLabel && (
         <p className="mt-0.5 font-mono text-xs text-slate-400">
-          inv: {point.invoice_id.slice(0, 8)}…
+          inv: {invoiceLabel}
         </p>
       )}
     </div>
@@ -76,6 +108,7 @@ interface PriceHistoryChartProps {
 }
 
 export default function PriceHistoryChart({ priceHistory, unit }: PriceHistoryChartProps) {
+  const router = useRouter()
   const ordered = useMemo(
     () =>
       [...priceHistory].sort(
@@ -127,7 +160,7 @@ export default function PriceHistoryChart({ priceHistory, unit }: PriceHistoryCh
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Trend</p>
           <p className="text-sm font-semibold text-slate-900 dark:text-white">
-            {latest ? `€${latest.displayPrice.toFixed(2)} / ${latest.displayUnit}` : 'No trend data'}
+            {latest ? `\u20ac${latest.displayPrice.toFixed(2)} / ${latest.displayUnit}` : 'No trend data'}
           </p>
         </div>
         {trend && (
@@ -161,10 +194,18 @@ export default function PriceHistoryChart({ priceHistory, unit }: PriceHistoryCh
         {recentEntries.map((point) => {
           const date = format(new Date(resolveDate(point)), 'MMM d, yyyy')
           const fromInvoice = Boolean(point.invoice_id)
+          const supplierName = resolveSupplierName(point)
+          const invoiceLabel = resolveInvoiceLabel(point)
+
           return (
-            <div
+            <button
               key={point.id}
-              className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/60"
+              type="button"
+              disabled={!point.invoice_id}
+              onClick={() => {
+                if (point.invoice_id) router.push(`/invoices/${point.invoice_id}`)
+              }}
+              className="flex w-full items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-left text-sm transition-colors enabled:cursor-pointer enabled:hover:bg-slate-100 disabled:cursor-default dark:bg-slate-800/60 dark:enabled:hover:bg-slate-700/60"
             >
               <span
                 title={fromInvoice ? 'From invoice' : 'Manual edit'}
@@ -174,11 +215,18 @@ export default function PriceHistoryChart({ priceHistory, unit }: PriceHistoryCh
                   ? <FileText className="h-3.5 w-3.5" />
                   : <Pencil className="h-3.5 w-3.5" />}
               </span>
-              <span className="flex-1 text-slate-500 dark:text-slate-400">{date}</span>
-              <span className="font-semibold text-slate-900 dark:text-white">
-                €{point.displayPrice.toFixed(2)} / {point.displayUnit}
+              <span className="min-w-0 flex-1">
+                <span className="block text-slate-500 dark:text-slate-400">{date}</span>
+                {(supplierName || invoiceLabel) && (
+                  <span className="block truncate text-xs text-slate-400 dark:text-slate-500">
+                    {supplierName ?? 'Invoice'}{invoiceLabel ? ` · ${invoiceLabel}` : ''}
+                  </span>
+                )}
               </span>
-            </div>
+              <span className="shrink-0 font-semibold text-slate-900 dark:text-white">
+                {'\u20ac'}{point.displayPrice.toFixed(2)} / {point.displayUnit}
+              </span>
+            </button>
           )
         })}
       </div>

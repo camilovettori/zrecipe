@@ -9,21 +9,9 @@ async function loadManifest(): Promise<Record<string, string>> {
   } catch {
     manifestCache = {}
   }
-  return manifestCache
+  return manifestCache!
 }
 
-/**
- * Returns the public path to a local ingredient image, or null if no match.
- *
- * Matching priority:
- *   1. Exact match on lowercased name
- *   2. Keyword match — any manifest key contained in the name
- *      e.g. "Lakeland Butter Salted 250g" → "butter" → /images/ingredients/butter.jpg
- *      e.g. "RHM 12% Flour"              → "flour"  → /images/ingredients/flour.jpg
- *
- * Longer keys are checked first so "brown sugar" wins over "sugar" and
- * "coconut oil" wins over "oil" (if oil were ever added).
- */
 export async function findIngredientImage(ingredientName: string): Promise<string | null> {
   const manifest = await loadManifest()
   const name = ingredientName.toLowerCase().trim()
@@ -33,10 +21,13 @@ export async function findIngredientImage(ingredientName: string): Promise<strin
     return `/images/ingredients/${manifest[name]}`
   }
 
-  // 2. Keyword match — longer keys first to prevent false positives
+  // 2. Word-boundary keyword match — longer keys first so "coconut oil" wins over "oil"
+  // and "demerara sugar" wins over "sugar". \b prevents "salt" matching "salted".
   const sortedKeys = Object.keys(manifest).sort((a, b) => b.length - a.length)
   for (const key of sortedKeys) {
-    if (name.includes(key)) {
+    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+')
+    const regex = new RegExp(`\\b${escaped}\\b`, 'i')
+    if (regex.test(name)) {
       return `/images/ingredients/${manifest[key]}`
     }
   }

@@ -10,13 +10,47 @@ import AllergenPicker from '@/components/ingredients/AllergenPicker'
 import PriceHistoryChart, { type PricePoint } from '@/components/ingredients/PriceHistoryChart'
 import ConfirmDelete from '@/components/shared/ConfirmDelete'
 import PriceChangeBanner from '@/components/ingredients/PriceChangeBanner'
-import { cn } from '@/lib/utils'
 import type { IngredientRow } from '@/hooks/useIngredients'
 import { EU_ALLERGENS, type AllergenStatus, type IngredientAllergen } from '@/lib/allergens'
 import { findIngredientImage } from '@/lib/utils/ingredient-image'
 
 function formatMoney(value: number) {
-  return `€${value.toFixed(2)}`
+  return `\u20ac${value.toFixed(2)}`
+}
+
+const categoryEmoji: Record<string, string> = {
+  bread: '\u{1F35E}',
+  pastry: '\u{1F950}',
+  cake: '\u{1F382}',
+  main: '\u{1F37D}\uFE0F',
+  dessert: '\u{1F370}',
+  beverage: '\u2615',
+  other: '\u{1F374}',
+}
+
+type UsedRecipe = {
+  id: string
+  name: string
+  category: string | null
+  quantity: number
+  unit: string
+}
+
+type RecipeIngredientUsageRow = {
+  quantity: number | null
+  unit: string | null
+  recipes:
+    | {
+        id: string
+        name: string
+        category: string | null
+      }
+    | {
+        id: string
+        name: string
+        category: string | null
+      }[]
+    | null
 }
 
 function formatPricePerKg(ingredient: IngredientRow | null) {
@@ -26,15 +60,34 @@ function formatPricePerKg(ingredient: IngredientRow | null) {
   const packageUnit = (ingredient.package_unit ?? '').toLowerCase()
   const baseUnit = (ingredient.base_unit ?? '').toLowerCase()
 
-  if (packageUnit === 'kg' && ingredient.package_size && ingredient.package_size > 0) {
-    return `${formatMoney(price / ingredient.package_size)} / kg`
-  }
-
   if (baseUnit === 'kg') return `${formatMoney(price)} / kg`
   if (baseUnit === 'g') return `${formatMoney(price * 1000)} / kg`
   if (baseUnit === 'lb') return `${formatMoney(price * 2.20462)} / kg`
+  if (packageUnit === 'kg') return `${formatMoney(price)} / kg`
 
-  return `${formatMoney(price)} / ${ingredient.base_unit || 'unit'}`
+  return `${formatMoney(price)} / ${ingredient.base_unit || ingredient.package_unit || 'unit'}`
+}
+
+function normalizeUsedRecipes(rows: RecipeIngredientUsageRow[] | null): UsedRecipe[] {
+  return (rows ?? []).flatMap((row) => {
+    const recipe = Array.isArray(row.recipes) ? row.recipes[0] : row.recipes
+    if (!recipe) return []
+
+    return [
+      {
+        id: recipe.id,
+        name: recipe.name,
+        category: recipe.category,
+        quantity: row.quantity ?? 0,
+        unit: row.unit ?? '',
+      },
+    ]
+  })
+}
+
+function formatQuantity(value: number) {
+  if (Number.isInteger(value)) return value.toString()
+  return value.toLocaleString(undefined, { maximumFractionDigits: 2 })
 }
 
 function PageSkeleton() {
@@ -91,6 +144,8 @@ export default function IngredientDetailPage() {
 
   const [ingredient, setIngredient] = useState<IngredientRow | null>(null)
   const [priceHistory, setPriceHistory] = useState<PricePoint[]>([])
+  const [usedRecipes, setUsedRecipes] = useState<UsedRecipe[]>([])
+  const [usedRecipesLoading, setUsedRecipesLoading] = useState(!isNew)
   const [loading, setLoading] = useState(!isNew)
   const [isSaving, setIsSaving] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -124,7 +179,21 @@ export default function IngredientDetailPage() {
         .single(),
       supabase
         .from('ingredient_price_history')
-        .select('id, ingredient_id, price, unit, recorded_at, invoice_id')
+        .select(`
+          id,
+          ingredient_id,
+          price,
+          unit,
+          recorded_at,
+          invoice_id,
+          invoice:invoices (
+            id,
+            invoice_number,
+            supplier:suppliers (
+              name
+            )
+          )
+        `)
         .eq('ingredient_id', id)
         .order('recorded_at', { ascending: true }),
       fetch(`/api/ingredients/allergens?id=${id}`).then((r) => r.json()).catch(() => ({})),
@@ -134,6 +203,8 @@ export default function IngredientDetailPage() {
         router.replace('/ingredients')
         return
       }
+
+      console.log('[INGREDIENT DETAIL] price history query result:', histRes.data, 'error:', histRes.error)
 
       setIngredient({
         ...(ingRes.data as IngredientDbRow),
@@ -149,6 +220,37 @@ export default function IngredientDetailPage() {
       setLoading(false)
     })
   }, [id, isNew, router])
+
+  useEffect(() => {
+    if (isNew) return
+
+    let cancelled = false
+    const supabase = createClient()
+    setUsedRecipesLoading(true)
+
+    supabase
+      .from('recipe_ingredients')
+      .select(`
+        quantity,
+        unit,
+        recipes!recipe_ingredients_recipe_id_fkey (
+          id,
+          name,
+          category
+        )
+      `)
+      .eq('ingredient_id', id)
+      .then((usedRecipesRes) => {
+        console.log('[INGREDIENT DETAIL] used recipes query result:', usedRecipesRes.data, 'error:', usedRecipesRes.error)
+        if (cancelled) return
+        setUsedRecipes(normalizeUsedRecipes((usedRecipesRes.data ?? []) as RecipeIngredientUsageRow[]))
+        setUsedRecipesLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [id, isNew])
 
   // Resolve manifest image whenever ingredient name changes (client-side, no DB write)
   useEffect(() => {
@@ -387,6 +489,60 @@ export default function IngredientDetailPage() {
               unit={ingredient?.base_unit ?? 'unit'}
             />
           </div>
+
+          {!isNew && (
+            <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-800">
+              <div className="mb-3 flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+                  Used in Recipes
+                </h2>
+                {usedRecipes.length > 0 && (
+                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                    {usedRecipes.length}
+                  </span>
+                )}
+              </div>
+
+              {usedRecipesLoading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 2 }).map((_, index) => (
+                    <div key={index} className="flex animate-pulse items-center justify-between rounded-lg px-2 py-2.5">
+                      <div className="h-4 w-36 rounded bg-slate-200 dark:bg-slate-700" />
+                      <div className="h-3 w-14 rounded bg-slate-200 dark:bg-slate-700" />
+                    </div>
+                  ))}
+                </div>
+              ) : usedRecipes.length === 0 ? (
+                <p className="py-3 text-center text-sm italic text-slate-400">
+                  Not used in any recipe yet
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  {usedRecipes.map((recipe) => {
+                    const category = (recipe.category ?? 'other').toLowerCase()
+                    const emoji = categoryEmoji[category] ?? categoryEmoji.other
+
+                    return (
+                      <button
+                        key={recipe.id}
+                        type="button"
+                        onClick={() => router.push(`/recipes/${recipe.id}`)}
+                        className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/50"
+                      >
+                        <span className="min-w-0 flex-1 truncate font-medium text-slate-800 dark:text-slate-100">
+                          <span className="mr-2" aria-hidden="true">{emoji}</span>
+                          {recipe.name}
+                        </span>
+                        <span className="shrink-0 text-sm text-slate-500 dark:text-slate-400">
+                          {formatQuantity(recipe.quantity)} {recipe.unit}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Details panel */}
           {!isNew && ingredient && (

@@ -20,6 +20,8 @@ export interface IngredientLookup {
   name: string
   currentPrice?: number | null
   priceUnit?: string | null
+  packageSize?: number | null
+  packageUnit?: string | null
 }
 
 export interface InvoiceItemRecord {
@@ -125,12 +127,16 @@ type DatabaseInvoiceRow = {
           name: string
           current_price?: number | null
           price_unit?: string | null
+          package_size?: number | null
+          package_unit?: string | null
         }
       | Array<{
           id: string
           name: string
           current_price?: number | null
           price_unit?: string | null
+          package_size?: number | null
+          package_unit?: string | null
         }>
       | null
   }>
@@ -185,6 +191,8 @@ function mapInvoiceRow(row: DatabaseInvoiceRow): InvoiceRecord {
                 name: ingredientRow.name,
                 currentPrice: ingredientRow.current_price ?? null,
                 priceUnit: ingredientRow.price_unit ?? null,
+                packageSize: ingredientRow.package_size ?? null,
+                packageUnit: ingredientRow.package_unit ?? null,
               }
             : null,
         }
@@ -244,7 +252,9 @@ export function useInvoices(options?: { autoLoad?: boolean }) {
                 id,
                 name,
                 current_price,
-                price_unit
+                price_unit,
+                package_size,
+                package_unit
               )
             ),
             created_at,
@@ -308,13 +318,17 @@ export function useInvoices(options?: { autoLoad?: boolean }) {
             description,
             quantity,
             unit,
+            package_size,
+            package_unit,
             unit_price,
             total_price,
             ingredient:ingredients (
               id,
               name,
               current_price,
-              price_unit
+              price_unit,
+              package_size,
+              package_unit
             )
           ),
           created_at,
@@ -425,7 +439,9 @@ export function useInvoices(options?: { autoLoad?: boolean }) {
                 id,
                 name,
                 current_price,
-                price_unit
+                price_unit,
+                package_size,
+                package_unit
               )
             ),
             created_at,

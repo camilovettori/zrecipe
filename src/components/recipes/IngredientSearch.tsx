@@ -14,7 +14,7 @@ export interface SubRecipeLookup {
   unit: string
 }
 
-type SelectionKind = 'ingredient' | 'sub-recipe' | 'create'
+type SelectionKind = 'ingredient' | 'sub-recipe'
 
 interface Selection {
   kind: SelectionKind
@@ -24,13 +24,13 @@ interface Selection {
 
 interface IngredientSearchProps {
   onAddIngredient: (ingredient: IngredientLookup, quantity: number, unit: string) => Promise<void> | void
-  onCreateIngredient: (name: string, quantity: number, unit: string) => Promise<void> | void
+  onCreateIngredient: (name: string) => Promise<void> | void
   onAddSubRecipe?: (subRecipe: SubRecipeLookup, quantity: number, unit: string) => Promise<void> | void
 }
 
 function formatPrice(ingredient: IngredientLookup) {
   if (ingredient.currentPrice == null) return 'No price set'
-  return `€${ingredient.currentPrice.toFixed(2)} / ${ingredient.priceUnit ?? 'unit'}`
+  return `\u20ac${ingredient.currentPrice.toFixed(2)} / ${ingredient.priceUnit ?? 'unit'}`
 }
 
 export default function IngredientSearch({
@@ -136,8 +136,6 @@ export default function IngredientSearch({
       await onAddIngredient(selection.ingredient, quantity, unit)
     } else if (selection.kind === 'sub-recipe' && selection.subRecipe && onAddSubRecipe) {
       await onAddSubRecipe(selection.subRecipe, quantity, unit)
-    } else if (selection.kind === 'create' && query.trim()) {
-      await onCreateIngredient(query.trim(), quantity, unit)
     }
 
     setQuery('')
@@ -160,13 +158,16 @@ export default function IngredientSearch({
   }
 
   const selectCreate = () => {
-    setSelection({ kind: 'create' })
-    setUnit('unit')
-    setQuantity(1)
-    setOpen(true)
+    const name = query.trim()
+    if (!name) return
+    void onCreateIngredient(name)
+    setQuery('')
+    resetSelection()
+    setOpen(false)
   }
 
-  const hasDropdownContent = loading || results.length > 0 || subRecipes.length > 0 || (!hasExactMatch && query.trim())
+  const hasDropdownContent =
+    loading || results.length > 0 || subRecipes.length > 0 || (!hasExactMatch && query.trim())
 
   return (
     <div className="relative">
@@ -235,7 +236,7 @@ export default function IngredientSearch({
                           <p className="text-sm font-medium text-emerald-800">{sr.name}</p>
                           <p className="text-xs text-slate-500">
                             {sr.costPerUnit != null
-                              ? `€${sr.costPerUnit.toFixed(4)} / ${sr.unit}`
+                              ? `\u20ac${sr.costPerUnit.toFixed(4)} / ${sr.unit}`
                               : `per ${sr.unit}`}
                           </p>
                         </div>
@@ -273,20 +274,16 @@ export default function IngredientSearch({
               )}
               <div>
                 <p className="text-sm font-semibold text-slate-900">
-                  {selection.kind === 'create'
-                    ? `Create "${query.trim()}"`
-                    : selection.kind === 'sub-recipe'
-                      ? selection.subRecipe?.name
-                      : selection.ingredient?.name}
+                  {selection.kind === 'sub-recipe'
+                    ? selection.subRecipe?.name
+                    : selection.ingredient?.name}
                 </p>
                 <p className="text-xs text-slate-500">
-                  {selection.kind === 'create'
-                    ? 'New ingredient placeholder'
-                    : selection.kind === 'sub-recipe'
-                      ? selection.subRecipe?.costPerUnit != null
-                        ? `€${selection.subRecipe.costPerUnit.toFixed(4)} / ${selection.subRecipe.unit}`
-                        : 'Sub-recipe'
-                      : formatPrice(selection.ingredient!)}
+                  {selection.kind === 'sub-recipe'
+                    ? selection.subRecipe?.costPerUnit != null
+                      ? `\u20ac${selection.subRecipe.costPerUnit.toFixed(4)} / ${selection.subRecipe.unit}`
+                      : 'Sub-recipe'
+                    : formatPrice(selection.ingredient!)}
                 </p>
               </div>
             </div>

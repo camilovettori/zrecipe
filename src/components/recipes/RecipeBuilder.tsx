@@ -40,6 +40,7 @@ import { resolveTenantId } from '@/hooks/useTenant'
 import { computeRecipeAllergens, type RecipeAllergenSummary, type IngredientAllergen } from '@/lib/allergens'
 import IngredientSearch, { type SubRecipeLookup } from './IngredientSearch'
 import CostBreakdown from './CostBreakdown'
+import NewIngredientModal, { type NewIngredientFormData } from './NewIngredientModal'
 
 const AllergenPanel = dynamic(() => import('./AllergenPanel'), {
   ssr: false,
@@ -243,6 +244,10 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'clean' | 'dirty' | 'autosaving' | 'saved' | 'failed'>('clean')
   const [fetchingImage, setFetchingImage] = useState(false)
+  const [newIngredientName, setNewIngredientName] = useState('')
+  const [newIngredientModalOpen, setNewIngredientModalOpen] = useState(false)
+  const [newIngredientSaving, setNewIngredientSaving] = useState(false)
+  const [newIngredientError, setNewIngredientError] = useState<string | null>(null)
   const hasLoaded = useRef(false)
   const suppressNextDirtyRef = useRef(false)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -554,25 +559,74 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     })
   }
 
-  const createIngredient = async (name: string, quantity: number, unit: string) => {
+  const openCreateIngredientModal = (name: string) => {
+    setNewIngredientName(name)
+    setNewIngredientError(null)
+    setNewIngredientModalOpen(true)
+  }
+
+  const closeCreateIngredientModal = () => {
+    setNewIngredientModalOpen(false)
+    setNewIngredientName('')
+    setNewIngredientError(null)
+  }
+
+  const createIngredient = async (formData: NewIngredientFormData) => {
     try {
+      setNewIngredientSaving(true)
+      setNewIngredientError(null)
       const supabase = createClient()
       const tenantId = await resolveTenantId()
       const { data, error } = await supabase
         .from('ingredients')
-        .insert({ tenant_id: tenantId, name, current_price: 0, price_unit: unit })
+        .insert({
+          tenant_id: tenantId,
+          name: formData.name,
+          brand: formData.brand || null,
+          category: formData.category || null,
+          current_price: formData.pricePerUnit,
+          price_unit: formData.unit,
+          package_size: formData.packageSize || null,
+          package_unit: formData.packageUnit || null,
+        })
         .select('id, name, current_price, price_unit')
         .single()
 
       if (error || !data) throw error ?? new Error('Unable to create ingredient')
+
+      const historyInsert = await supabase
+        .from('ingredient_price_history')
+        .insert({
+          ingredient_id: data.id,
+          tenant_id: tenantId,
+          price: formData.pricePerUnit,
+          unit: formData.unit,
+          invoice_id: null,
+          recorded_at: new Date().toISOString().slice(0, 10),
+        })
+
+      if (historyInsert.error) {
+        await supabase.from('ingredients').delete().eq('id', data.id)
+        throw historyInsert.error
+      }
+
       addIngredient(
-        { id: data.id, name: data.name, currentPrice: data.current_price ?? 0, priceUnit: data.price_unit ?? unit },
-        quantity,
-        unit
+        {
+          id: data.id,
+          name: data.name,
+          currentPrice: data.current_price ?? formData.pricePerUnit,
+          priceUnit: data.price_unit ?? formData.unit,
+        },
+        formData.recipeQuantity,
+        formData.recipeUnit
       )
-      toast.success(`Created ${name}`)
+      toast.success('Ingredient created and added to recipe')
+      closeCreateIngredientModal()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Unable to create ingredient')
+      console.error('[recipe builder] ingredient create failed:', err)
+      setNewIngredientError('Failed to save ingredient. Please try again.')
+    } finally {
+      setNewIngredientSaving(false)
     }
   }
 
@@ -983,17 +1037,6 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
               />
             </label>
 
-            <label className="block">
-              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Selling price (€)</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={recipe.sellingPrice}
-                onChange={(e) => updateRecipeField('sellingPrice', parseFloat(e.target.value || '0'))}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500"
-              />
-            </label>
           </div>
 
           {/* Sub-ingredient toggle */}
@@ -1052,7 +1095,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
           <IngredientSearch
             onAddIngredient={addIngredient}
-            onCreateIngredient={createIngredient}
+            onCreateIngredient={openCreateIngredientModal}
             onAddSubRecipe={addSubRecipe}
           />
 
@@ -1145,6 +1188,15 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       <AllergenPanel
         ingredients={computedIngredients}
         onAllergenChange={setRecipeAllergens}
+      />
+
+      <NewIngredientModal
+        open={newIngredientModalOpen}
+        initialName={newIngredientName}
+        saving={newIngredientSaving}
+        error={newIngredientError}
+        onClose={closeCreateIngredientModal}
+        onSave={createIngredient}
       />
 
       <PrintOptionsModal

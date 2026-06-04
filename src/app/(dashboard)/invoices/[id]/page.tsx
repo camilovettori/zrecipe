@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { ArrowLeft, Edit3, FileText, Image as ImageIcon, Trash2 } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, Edit3, FileText, Image as ImageIcon, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
 import InvoiceEditor from '@/components/invoices/InvoiceEditor'
@@ -26,6 +26,45 @@ function formatDate(value: string) {
     month: 'short',
     year: 'numeric',
   }).format(new Date(value))
+}
+
+function getPackagePriceLine(item: InvoiceRecord['items'][number], currency: string) {
+  if (!item.ingredientId) return null
+
+  const packageSize = item.ingredient?.packageSize ?? item.packageSize ?? null
+  const packageUnit = (item.ingredient?.packageUnit ?? item.packageUnit ?? '').trim().toLowerCase()
+
+  if (!packageSize || packageSize <= 0) return null
+
+  const unitDenominators: Record<string, { factor: number; unit: string }> = {
+    kg: { factor: 1, unit: 'kg' },
+    g: { factor: 1000, unit: 'kg' },
+    l: { factor: 1, unit: 'L' },
+    litre: { factor: 1, unit: 'L' },
+    liter: { factor: 1, unit: 'L' },
+    ml: { factor: 1000, unit: 'L' },
+  }
+
+  const denominator = unitDenominators[packageUnit]
+  if (!denominator) return null
+
+  const normalizedSize = packageSize / denominator.factor
+  if (!Number.isFinite(normalizedSize) || normalizedSize <= 0) return null
+
+  return `${formatCurrency(item.unitPrice / normalizedSize, currency)} / ${denominator.unit}`
+}
+
+function getPackSizeLine(item: InvoiceRecord['items'][number]) {
+  const packageSize = item.ingredient?.packageSize ?? null
+  const packageUnit = item.ingredient?.packageUnit ?? null
+
+  if (!packageSize || !packageUnit) return null
+
+  const formattedSize = Number.isInteger(packageSize)
+    ? packageSize.toString()
+    : packageSize.toLocaleString(undefined, { maximumFractionDigits: 2 })
+
+  return `${formattedSize} ${packageUnit}`
 }
 
 function statusStyles(status: InvoiceRecord['ocrStatus']) {
@@ -178,7 +217,7 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
             .order('name', { ascending: true }),
           supabase
             .from('ingredients')
-            .select('id, name, current_price, price_unit')
+            .select('id, name, current_price, price_unit, package_size, package_unit')
             .eq('tenant_id', tenantId)
             .order('name', { ascending: true }),
         ])
@@ -200,6 +239,8 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
             name: item.name,
             currentPrice: item.current_price ?? null,
             priceUnit: item.price_unit ?? null,
+            packageSize: item.package_size ?? null,
+            packageUnit: item.package_unit ?? null,
           }))
         )
       } catch (loadError) {
@@ -478,75 +519,101 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
         </div>
 
         <div className="space-y-6">
-          <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 px-4 py-3">
+          <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+            <div className="border-b border-gray-200 px-4 py-3">
               <h2 className="font-display text-2xl font-semibold text-slate-900">Invoice items</h2>
             </div>
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+              <table className="min-w-full text-sm">
+                <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                   <tr>
-                    <th className="px-4 py-3 font-semibold">Description</th>
-                    <th className="px-4 py-3 font-semibold">Qty</th>
-                    <th className="px-4 py-3 font-semibold">Unit</th>
-                    <th className="px-4 py-3 font-semibold">Unit price</th>
-                    <th className="px-4 py-3 font-semibold">Total</th>
-                    <th className="px-4 py-3 font-semibold">Ingredient</th>
+                    <th className="w-[34%] px-4 py-3.5">Description</th>
+                    <th className="w-[10%] px-4 py-3.5 text-center">Qty</th>
+                    <th className="w-[12%] px-4 py-3.5">Unit</th>
+                    <th className="w-[14%] px-4 py-3.5">Pack size</th>
+                    <th className="w-[15%] px-4 py-3.5">Unit price</th>
+                    <th className="w-[15%] px-4 py-3.5">Total</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 bg-white">
-                  {invoice.items.map((item) => (
-                    <tr key={item.id}>
-                      <td className="px-4 py-3 font-medium text-slate-900">{item.description}</td>
-                      <td className="px-4 py-3 text-slate-600">{item.quantity}</td>
-                      <td className="px-4 py-3 text-slate-600">{item.unit}</td>
-                      <td className="px-4 py-3 text-slate-600">
-                        {formatCurrency(item.unitPrice, invoice.currency ?? 'EUR')}
-                      </td>
-                      <td className="px-4 py-3 font-semibold text-slate-900">
-                        {formatCurrency(item.totalPrice, invoice.currency ?? 'EUR')}
-                      </td>
-                      <td className="px-4 py-3">
-                        {item.ingredientId ? (
-                          <a
-                            href={`/ingredients/${item.ingredientId}`}
-                            className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 hover:underline"
-                          >
-                            {item.ingredient?.name ?? item.ingredientId}
-                          </a>
-                        ) : (
-                          <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
-                            Unmatched
+                <tbody className="bg-white">
+                  {invoice.items.map((item) => {
+                    const packagePriceLine = getPackagePriceLine(item, invoice.currency ?? 'EUR')
+                    const packSizeLine = getPackSizeLine(item)
+
+                    return (
+                      <tr
+                        key={item.id}
+                        className="border-b border-gray-100 transition-colors duration-100 last:border-b-0 hover:bg-gray-50"
+                      >
+                        <td className="px-4 py-3.5">
+                          {item.ingredientId ? (
+                            <button
+                              type="button"
+                              onClick={() => router.push(`/ingredients/${item.ingredientId}`)}
+                              className="group inline-flex cursor-pointer items-center text-left font-medium text-gray-900 transition-colors duration-150 hover:text-emerald-600"
+                            >
+                              <span>{item.description}</span>
+                              <ArrowUpRight className="ml-1 h-[13px] w-[13px] shrink-0 text-emerald-500 opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
+                            </button>
+                          ) : (
+                            <span className="text-gray-700">{item.description}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5 text-center font-medium text-gray-700">
+                          {item.quantity}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <span className="inline-flex rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                            {item.unit}
                           </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          {packSizeLine ? (
+                            <span className="text-sm font-medium text-gray-700">{packSizeLine}</span>
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <div className="text-sm font-semibold text-gray-900">
+                            {formatCurrency(item.unitPrice, invoice.currency ?? 'EUR')}
+                          </div>
+                          {packagePriceLine && (
+                            <div className="mt-0.5 text-xs font-normal text-gray-500">
+                              {packagePriceLine}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5 font-semibold text-gray-900">
+                          {formatCurrency(item.totalPrice, invoice.currency ?? 'EUR')}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
-          </section>
-
-          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Summary
-            </h2>
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs uppercase tracking-wide text-slate-500">Items count</p>
-                <p className="mt-1 text-xl font-semibold text-slate-900">{invoice.items.length}</p>
-              </div>
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs uppercase tracking-wide text-slate-500">Total amount</p>
-                <p className="mt-1 text-xl font-semibold text-slate-900">
-                  {formatCurrency(invoice.totalAmount ?? 0, invoice.currency ?? 'EUR')}
-                </p>
-              </div>
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs uppercase tracking-wide text-slate-500">Imported</p>
-                <p className="mt-1 text-xl font-semibold text-slate-900">
-                  {formatDate(invoice.createdAt)}
-                </p>
+            <div className="border-t-2 border-gray-200 bg-gray-50 p-5">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                Summary
+              </h2>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-gray-500">Items count</p>
+                  <p className="mt-1 text-lg font-bold text-gray-900">{invoice.items.length}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-gray-500">Total amount</p>
+                  <p className="mt-1 text-lg font-bold text-emerald-600">
+                    {formatCurrency(invoice.totalAmount ?? 0, invoice.currency ?? 'EUR')}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-gray-500">Imported</p>
+                  <p className="mt-1 text-lg font-bold text-gray-900">
+                    {formatDate(invoice.createdAt)}
+                  </p>
+                </div>
               </div>
             </div>
           </section>

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
-import { ArrowDown, ArrowRight, ArrowUp, ChevronDown, ChevronUp, Minus, Pencil, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowRight, ArrowUp, ChevronDown, Minus, Pencil, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { IngredientRow } from '@/hooks/useIngredients'
 import type { SortKey } from '@/hooks/useIngredients'
@@ -26,14 +26,16 @@ const CATEGORY_BADGE: Record<string, string> = {
 }
 
 function Thumbnail({ ingredient }: { ingredient: IngredientRow }) {
-  const [src, setSrc] = useState<string | null>(
-    ingredient.image_url?.startsWith('http') ? ingredient.image_url : null
-  )
+  const [src, setSrc] = useState<string | null>(null)
 
   useEffect(() => {
-    if (src) return
+    if (ingredient.image_url?.startsWith('http')) {
+      setSrc(ingredient.image_url)
+      return
+    }
+    setSrc(null)
     findIngredientImage(ingredient.name).then(setSrc)
-  }, [ingredient.name, src])
+  }, [ingredient.id, ingredient.image_url, ingredient.name])
 
   if (src) {
     return (
