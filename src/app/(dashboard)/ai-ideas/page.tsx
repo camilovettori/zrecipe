@@ -18,6 +18,7 @@ import { toast } from '@/lib/toast'
 import { useIngredients } from '@/hooks/useIngredients'
 import { resolveTenantContext } from '@/hooks/useTenant'
 import { cn } from '@/lib/utils'
+import { CustomSelect } from '@/components/ui/CustomSelect'
 
 type Tab = 'what-can-make' | 'use-before-expires'
 
@@ -564,17 +565,11 @@ export default function AIIdeasPage() {
             <label className="mb-1.5 block text-sm font-medium text-slate-700">
               I run a...
             </label>
-            <select
+            <CustomSelect
               value={businessType}
-              onChange={(e) => setBusinessType(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500"
-            >
-              {businessTypeOptions.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
+              onChange={setBusinessType}
+              options={businessTypeOptions.map((t) => ({ value: t, label: t }))}
+            />
           </div>
           <div>
             <label className="mb-1.5 block text-sm font-medium text-slate-700">
@@ -592,17 +587,11 @@ export default function AIIdeasPage() {
             <label className="mb-1.5 block text-sm font-medium text-slate-700">
               Suggestions
             </label>
-            <select
-              value={count}
-              onChange={(e) => setCount(Number(e.target.value))}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500"
-            >
-              {COUNTS.map((n) => (
-                <option key={n} value={n}>
-                  {n} recipes
-                </option>
-              ))}
-            </select>
+            <CustomSelect
+              value={String(count)}
+              onChange={(v) => setCount(Number(v))}
+              options={COUNTS.map((n) => ({ value: String(n), label: `${n} recipes` }))}
+            />
           </div>
         </div>
 

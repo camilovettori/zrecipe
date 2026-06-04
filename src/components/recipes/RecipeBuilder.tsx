@@ -17,9 +17,12 @@ import {
   Trash2,
   Loader2,
   Check,
+  CheckCircle,
   Link2,
   ChefHat,
   RefreshCw,
+  Pencil,
+  X,
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
@@ -39,18 +42,38 @@ import type { IngredientLookup } from '@/hooks/useInvoices'
 import { resolveTenantId } from '@/hooks/useTenant'
 import { computeRecipeAllergens, type RecipeAllergenSummary, type IngredientAllergen } from '@/lib/allergens'
 import IngredientSearch, { type SubRecipeLookup } from './IngredientSearch'
+import { CustomSelect } from '@/components/ui/CustomSelect'
+import { YieldFactorPopover } from './YieldFactorPopover'
+import { YieldFactorModal } from './YieldFactorModal'
+import { findYieldFactor } from '@/lib/data/yield-factors'
 import CostBreakdown from './CostBreakdown'
 import NewIngredientModal, { type NewIngredientFormData } from './NewIngredientModal'
-
-const AllergenPanel = dynamic(() => import('./AllergenPanel'), {
-  ssr: false,
-})
 
 const PrintOptionsModal = dynamic(() => import('./PrintOptionsModal'), {
   ssr: false,
 })
 
 const SUB_INGREDIENT_UNITS = ['g', 'kg', 'ml', 'L', 'unit', 'portion']
+
+const YIELD_UNIT_OPTIONS = [
+  { value: 'g',       label: 'g' },
+  { value: 'kg',      label: 'kg' },
+  { value: 'ml',      label: 'ml' },
+  { value: 'L',       label: 'L' },
+  { value: 'unit',    label: 'unit' },
+  { value: 'portion', label: 'portion' },
+  { value: 'batch',   label: 'Batch' },
+]
+
+const INGREDIENT_ROW_UNITS = [
+  { value: 'g',    label: 'g' },
+  { value: 'kg',   label: 'kg' },
+  { value: 'ml',   label: 'ml' },
+  { value: 'L',    label: 'L' },
+  { value: 'unit', label: 'unit' },
+  { value: 'tsp',  label: 'tsp' },
+  { value: 'tbsp', label: 'tbsp' },
+]
 
 function allergensToEntries(allergens: RecipeAllergenSummary): IngredientAllergen[] {
   return [
@@ -80,6 +103,9 @@ function createIngredientLine(partial?: Partial<RecipeIngredientDraft>): RecipeI
     currentPrice: partial?.currentPrice ?? null,
     priceUnit: partial?.priceUnit ?? null,
     notes: partial?.notes ?? null,
+    allergens: partial?.allergens ?? [],
+    yield_percent: partial?.yield_percent ?? 100,
+    yield_override: partial?.yield_override ?? false,
     lineCost: 0,
   }
   line.lineCost = calculateLineCost(line)
@@ -96,7 +122,11 @@ function blankRecipe(): RecipeEditorData {
     prepTimeMinutes: 0,
     cookTimeMinutes: 0,
     laborCost: 0,
+    laborMode: 'fixed',
     overheadCost: 0,
+    overheadMode: 'fixed',
+    overheadPercent: 0,
+    wastePercent: 0,
     sellingPrice: 0,
     imageUrl: null,
     isSubIngredient: false,
@@ -116,7 +146,11 @@ function mapRecipeToState(recipe: RecipeRecord): RecipeEditorData {
     prepTimeMinutes: recipe.prepTimeMinutes,
     cookTimeMinutes: recipe.cookTimeMinutes,
     laborCost: recipe.laborCost,
+    laborMode: recipe.laborMode ?? 'fixed',
     overheadCost: recipe.overheadCost,
+    overheadMode: recipe.overheadMode ?? 'fixed',
+    overheadPercent: recipe.overheadPercent ?? 0,
+    wastePercent: recipe.wastePercent ?? 0,
     sellingPrice: recipe.sellingPrice,
     imageUrl: recipe.imageUrl,
     isSubIngredient: recipe.isSubIngredient ?? false,
@@ -160,6 +194,11 @@ function IngredientRow({
 }) {
   const controls = useDragControls()
 
+  const yieldPct = item.yield_percent ?? 100
+  const apQty = yieldPct > 0 && yieldPct < 100
+    ? Math.ceil(item.quantity / (yieldPct / 100))
+    : null
+
   return (
     <Reorder.Item
       value={item}
@@ -167,7 +206,7 @@ function IngredientRow({
       dragControls={controls}
       className="group"
     >
-      <div className="grid grid-cols-[28px_1fr_72px_72px_64px_28px] items-center gap-1.5 rounded-xl border border-slate-100 bg-white px-2 py-1.5 transition hover:border-slate-200 hover:shadow-sm">
+      <div className="grid grid-cols-[28px_1fr_72px_72px_auto_64px_28px] items-center gap-1.5 rounded-xl border border-slate-100 bg-white px-2 py-1.5 transition hover:border-slate-200 hover:shadow-sm">
         <div
           className="cursor-grab touch-none text-slate-300 transition hover:text-slate-500 active:cursor-grabbing"
           onPointerDown={(e) => controls.start(e)}
@@ -197,15 +236,24 @@ function IngredientRow({
           className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-right text-sm outline-none transition focus:border-emerald-500 focus:bg-white"
         />
 
-        <select
+        <CustomSelect
           value={item.unit}
-          onChange={(e) => onUpdate({ unit: e.target.value })}
-          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-1 py-1 text-sm outline-none transition focus:border-emerald-500 focus:bg-white"
-        >
-          {RECIPE_UNITS.map((u) => (
-            <option key={u} value={u}>{u}</option>
-          ))}
-        </select>
+          onChange={(v) => onUpdate({ unit: v })}
+          options={INGREDIENT_ROW_UNITS}
+          size="sm"
+        />
+
+        {/* Yield factor section */}
+        <div className="flex items-center gap-1.5">
+          {!item.subRecipeId && (
+            <YieldFactorPopover item={item} onUpdate={onUpdate} />
+          )}
+          {apQty != null && (
+            <span className="whitespace-nowrap text-xs text-slate-400">
+              AP: {apQty}{item.unit}
+            </span>
+          )}
+        </div>
 
         <span className="text-right text-sm font-medium tabular-nums text-slate-700">
           €{lineCost.toFixed(2)}
@@ -244,10 +292,14 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'clean' | 'dirty' | 'autosaving' | 'saved' | 'failed'>('clean')
   const [fetchingImage, setFetchingImage] = useState(false)
+  const [categoryMode, setCategoryMode] = useState<'select' | 'custom'>('select')
+  const [customCategoryInput, setCustomCategoryInput] = useState('')
+  const [yieldModalOpen, setYieldModalOpen] = useState(false)
   const [newIngredientName, setNewIngredientName] = useState('')
   const [newIngredientModalOpen, setNewIngredientModalOpen] = useState(false)
   const [newIngredientSaving, setNewIngredientSaving] = useState(false)
   const [newIngredientError, setNewIngredientError] = useState<string | null>(null)
+  const [laborHourlyRate, setLaborHourlyRate] = useState(0)
   const hasLoaded = useRef(false)
   const suppressNextDirtyRef = useRef(false)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -355,6 +407,31 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     loadRecipe()
   }, [getRecipeWithIngredients, isNew, recipeId, storageKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Fetch tenant settings (labor rate, overhead defaults) ─────────────────
+
+  useEffect(() => {
+    resolveTenantId().then(async (tenantId) => {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('tenants')
+        .select('labor_hourly_rate, overhead_method, overhead_percent, waste_percent')
+        .eq('id', tenantId)
+        .maybeSingle()
+      if (!data) return
+      setLaborHourlyRate(Number(data.labor_hourly_rate ?? 0))
+      // Pre-fill defaults for NEW recipes only
+      if (isNew) {
+        setRecipe((prev) => ({
+          ...prev,
+          laborMode: (data.labor_hourly_rate ?? 0) > 0 ? 'time' : 'fixed',
+          overheadMode: data.overhead_method === 'percent' ? 'percent' : 'fixed',
+          overheadPercent: Number(data.overhead_percent ?? 0),
+          wastePercent: Number(data.waste_percent ?? 0),
+        }))
+      }
+    }).catch(() => {})
+  }, [isNew]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Auto-save draft to localStorage every 30 s ────────────────────────────
 
   useEffect(() => {
@@ -402,13 +479,41 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   // Keep ref in sync so autosave always reads fresh computed ingredients
   useEffect(() => { computedIngredientsRef.current = computedIngredients }, [computedIngredients])
 
+  // Recompute allergen summary whenever the ingredient list changes
+  useEffect(() => {
+    setRecipeAllergens(
+      computeRecipeAllergens(
+        Object.fromEntries(computedIngredients.map((ing) => [ing.id, ing.allergens ?? []]))
+      )
+    )
+  }, [computedIngredients])
+
   // Stable ref to the latest autosave handler (avoids stale closure in setTimeout)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleAutoSaveRef = useRef<() => Promise<void>>(null as any)
 
   const cost = useMemo(
-    () => calculateRecipeCost(computedIngredients, recipe.laborCost, recipe.overheadCost, recipe.sellingPrice),
-    [computedIngredients, recipe.laborCost, recipe.overheadCost, recipe.sellingPrice]
+    () => calculateRecipeCost(
+      computedIngredients,
+      recipe.laborCost,
+      recipe.overheadCost,
+      recipe.sellingPrice,
+      {
+        laborMode: recipe.laborMode,
+        prepTimeMinutes: recipe.prepTimeMinutes,
+        laborHourlyRate,
+        overheadMode: recipe.overheadMode,
+        overheadPercent: recipe.overheadPercent,
+        wastePercent: recipe.wastePercent,
+        yieldQuantity: recipe.yieldQuantity,
+        yieldUnit: recipe.yieldUnit,
+      }
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [computedIngredients, recipe.laborCost, recipe.laborMode, recipe.overheadCost,
+     recipe.overheadMode, recipe.overheadPercent, recipe.wastePercent,
+     recipe.sellingPrice, recipe.prepTimeMinutes, recipe.yieldQuantity,
+     recipe.yieldUnit, laborHourlyRate]
   )
 
   const currentRecipeRecord = useMemo(
@@ -509,6 +614,8 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   }
 
   const addIngredient = (ingredient: IngredientLookup, quantity: number, unit: string) => {
+    const yf = findYieldFactor(ingredient.name)
+    const yieldPercent = yf?.yieldPercent ?? 100
     const nextLine = createIngredientLine({
       ingredientId: ingredient.id,
       ingredientName: ingredient.name,
@@ -517,8 +624,13 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       currentPrice: ingredient.currentPrice ?? null,
       priceUnit: ingredient.priceUnit ?? unit,
       allergens: [],
+      yield_percent: yieldPercent,
+      yield_override: false,
     })
     setRecipe((c) => ({ ...c, ingredients: [...c.ingredients, nextLine] }))
+    if (yf && yieldPercent < 100) {
+      toast.info(`Yield ${yieldPercent}% applied for ${ingredient.name} — ${yf.notes}`)
+    }
 
     // Async: fetch allergens for the added ingredient so the panel updates in real time
     fetch(`/api/ingredients/allergens?id=${ingredient.id}`)
@@ -967,16 +1079,78 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
         {/* Details form */}
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block">
-              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Category</span>
-              <select
-                value={recipe.category}
-                onChange={(e) => updateRecipeField('category', e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500"
-              >
-                {RECIPE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </label>
+            <div className="block">
+              <div className="mb-1.5 flex items-center gap-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Category</span>
+                {recipe.category && !RECIPE_CATEGORIES.includes(recipe.category) && categoryMode === 'select' && (
+                  <button
+                    type="button"
+                    title="Edit custom category"
+                    onClick={() => { setCustomCategoryInput(recipe.category); setCategoryMode('custom') }}
+                    className="text-slate-400 hover:text-slate-600"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+
+              {categoryMode === 'select' ? (
+                <CustomSelect
+                  value={recipe.category && !RECIPE_CATEGORIES.includes(recipe.category) ? recipe.category : recipe.category}
+                  onChange={(v) => {
+                    if (v === '__create__') {
+                      setCategoryMode('custom')
+                      setCustomCategoryInput('')
+                    } else {
+                      updateRecipeField('category', v)
+                    }
+                  }}
+                  options={[
+                    ...RECIPE_CATEGORIES.map((c) => ({ value: c, label: c })),
+                    ...(recipe.category && !RECIPE_CATEGORIES.includes(recipe.category)
+                      ? [{ value: recipe.category, label: recipe.category }]
+                      : []),
+                    { value: '', label: '', separator: true },
+                    { value: '__create__', label: '+ Create category…' },
+                  ]}
+                />
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    autoFocus
+                    type="text"
+                    value={customCategoryInput}
+                    onChange={(e) => setCustomCategoryInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const trimmed = customCategoryInput.trim()
+                        if (trimmed) { updateRecipeField('category', trimmed); setCategoryMode('select'); setCustomCategoryInput('') }
+                      }
+                      if (e.key === 'Escape') { setCategoryMode('select'); setCustomCategoryInput('') }
+                    }}
+                    placeholder="Category name…"
+                    className="min-w-0 flex-1 rounded-xl border border-emerald-400 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-400/20"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const trimmed = customCategoryInput.trim()
+                      if (trimmed) { updateRecipeField('category', trimmed); setCategoryMode('select'); setCustomCategoryInput('') }
+                    }}
+                    className="rounded-xl bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+                  >
+                    <Check className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setCategoryMode('select'); setCustomCategoryInput('') }}
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-500 hover:bg-slate-50"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+            </div>
 
             <div className="grid grid-cols-[1fr_100px] gap-2">
               <label className="block">
@@ -992,13 +1166,11 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
               </label>
               <label className="block">
                 <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Unit</span>
-                <select
+                <CustomSelect
                   value={recipe.yieldUnit}
-                  onChange={(e) => updateRecipeField('yieldUnit', e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500"
-                >
-                  {RECIPE_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
-                </select>
+                  onChange={(v) => updateRecipeField('yieldUnit', v)}
+                  options={YIELD_UNIT_OPTIONS}
+                />
               </label>
             </div>
 
@@ -1056,13 +1228,12 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
               <div className="mt-3 flex flex-wrap items-center gap-4">
                 <label className="flex items-center gap-2 text-sm">
                   <span className="text-slate-600">Base unit:</span>
-                  <select
+                  <CustomSelect
                     value={recipe.subIngredientUnit}
-                    onChange={(e) => updateRecipeField('subIngredientUnit', e.target.value)}
-                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-emerald-500"
-                  >
-                    {SUB_INGREDIENT_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
-                  </select>
+                    onChange={(v) => updateRecipeField('subIngredientUnit', v)}
+                    options={SUB_INGREDIENT_UNITS.map((u) => ({ value: u, label: u }))}
+                    size="sm"
+                  />
                 </label>
 
                 {cost.totalCost > 0 && recipe.yieldQuantity > 0 && (
@@ -1091,6 +1262,14 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                 {computedIngredients.length}
               </span>
             )}
+            <button
+              type="button"
+              onClick={() => setYieldModalOpen(true)}
+              title="Yield factor reference table"
+              className="ml-auto rounded-full border border-slate-200 px-2 py-0.5 text-xs text-slate-400 transition hover:border-slate-300 hover:text-slate-600"
+            >
+              YF ref
+            </button>
           </div>
 
           <IngredientSearch
@@ -1102,11 +1281,12 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
           {computedIngredients.length > 0 && (
             <div className="mt-4">
               {/* Table header */}
-              <div className="mb-1 grid grid-cols-[28px_1fr_72px_72px_64px_28px] items-center gap-1.5 px-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+              <div className="mb-1 grid grid-cols-[28px_1fr_72px_72px_auto_64px_28px] items-center gap-1.5 px-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
                 <div />
                 <div>Ingredient</div>
-                <div className="text-right">Qty</div>
+                <div className="text-right">EP Qty</div>
                 <div>Unit</div>
+                <div>YF</div>
                 <div className="text-right">Cost</div>
                 <div />
               </div>
@@ -1128,9 +1308,85 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                 ))}
               </Reorder.Group>
 
-              <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-sm">
-                <span className="text-slate-500">Total ingredient cost</span>
-                <span className="font-semibold text-slate-900">€{cost.ingredientCost.toFixed(2)}</span>
+              <div className="mt-3 border-t border-slate-100 pt-3 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Total ingredient cost</span>
+                  <span className="font-semibold text-slate-900">€{cost.ingredientCost.toFixed(2)}</span>
+                </div>
+
+                {(() => {
+                  const gramUnits = new Set(['g', 'kg'])
+                  const epG = computedIngredients.reduce((sum, ing) => {
+                    if (!gramUnits.has(ing.unit)) return sum
+                    const grams = ing.unit === 'kg' ? ing.quantity * 1000 : ing.quantity
+                    return sum + grams
+                  }, 0)
+                  const apG = computedIngredients.reduce((sum, ing) => {
+                    if (!gramUnits.has(ing.unit)) return sum
+                    const grams = ing.unit === 'kg' ? ing.quantity * 1000 : ing.quantity
+                    const yf = Math.max(0.01, (ing.yield_percent ?? 100) / 100)
+                    return sum + grams / yf
+                  }, 0)
+                  if (epG === 0) return null
+                  return (
+                    <div className="mt-2 space-y-0.5 text-xs text-slate-400">
+                      <div className="flex items-center justify-between">
+                        <span>Recipe weight (EP)</span>
+                        <span>{epG >= 1000 ? `${(epG / 1000).toFixed(2)}kg` : `${Math.round(epG)}g`}</span>
+                      </div>
+                      {apG > epG + 0.5 && (
+                        <div className="flex items-center justify-between">
+                          <span>As purchased (AP)</span>
+                          <span>{apG >= 1000 ? `${(apG / 1000).toFixed(2)}kg` : `${Math.round(apG)}g`}</span>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+              </div>
+
+              {/* Allergens */}
+              <div className="mt-3 border-t border-slate-100 pt-3">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Allergens</span>
+                  <span className="text-xs text-slate-400">EU Reg. 1169/2011 — auto-calculated</span>
+                </div>
+
+                {recipeAllergens.contains.length === 0 && recipeAllergens.mayContain.length === 0 ? (
+                  <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-600">
+                    <CheckCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                    <span>No allergens detected. Tag ingredients on their detail pages.</span>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {recipeAllergens.contains.length > 0 && (
+                      <div className="flex items-start gap-2">
+                        <span className="mt-0.5 w-16 flex-shrink-0 text-xs font-semibold uppercase tracking-wider text-red-500">Contains</span>
+                        <div className="flex flex-wrap gap-1">
+                          {recipeAllergens.contains.map((a) => (
+                            <span key={a.id} className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-600">
+                              <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-red-500" />
+                              {a.icon} {a.shortName}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {recipeAllergens.mayContain.length > 0 && (
+                      <div className="flex items-start gap-2">
+                        <span className="mt-0.5 w-16 flex-shrink-0 text-xs font-semibold uppercase tracking-wider text-amber-500">May contain</span>
+                        <div className="flex flex-wrap gap-1">
+                          {recipeAllergens.mayContain.map((a) => (
+                            <span key={a.id} className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-600">
+                              <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-amber-400" />
+                              {a.icon} {a.shortName}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1142,8 +1398,18 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
             cost={cost}
             yieldQuantity={recipe.yieldQuantity}
             yieldUnit={recipe.yieldUnit}
+            prepTimeMinutes={recipe.prepTimeMinutes}
+            laborHourlyRate={laborHourlyRate}
+            laborMode={recipe.laborMode}
+            overheadMode={recipe.overheadMode}
+            overheadPercent={recipe.overheadPercent}
+            wastePercent={recipe.wastePercent}
+            onLaborModeChange={(v) => updateRecipeField('laborMode', v)}
             onLaborCostChange={(v) => updateRecipeField('laborCost', v)}
+            onOverheadModeChange={(v) => updateRecipeField('overheadMode', v)}
             onOverheadCostChange={(v) => updateRecipeField('overheadCost', v)}
+            onOverheadPercentChange={(v) => updateRecipeField('overheadPercent', v)}
+            onWastePercentChange={(v) => updateRecipeField('wastePercent', v)}
             onSellingPriceChange={(v) => updateRecipeField('sellingPrice', v)}
           />
         </div>
@@ -1184,11 +1450,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
         </Reorder.Group>
       </div>
 
-      {/* ── SECTION 4: Allergens ──────────────────────────────────────────── */}
-      <AllergenPanel
-        ingredients={computedIngredients}
-        onAllergenChange={setRecipeAllergens}
-      />
+      <YieldFactorModal open={yieldModalOpen} onClose={() => setYieldModalOpen(false)} />
 
       <NewIngredientModal
         open={newIngredientModalOpen}

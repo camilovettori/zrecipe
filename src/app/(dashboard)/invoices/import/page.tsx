@@ -30,6 +30,7 @@ import { resolveTenantId } from '@/hooks/useTenant'
 import type { IngredientLookup, SupplierLookup } from '@/hooks/useInvoices'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
+import { CustomSelect } from '@/components/ui/CustomSelect'
 
 type Step = 'upload' | 'review' | 'confirm'
 
@@ -936,23 +937,12 @@ export default function ImportInvoicesPage() {
                       <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
                         {field}
                       </span>
-                      <select
+                      <CustomSelect
                         value={csvColumnMap[field] ?? ''}
-                        onChange={(event) =>
-                          setCsvColumnMap((current) => ({
-                            ...current,
-                            [field]: event.target.value,
-                          }))
-                        }
-                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-emerald-500"
-                      >
-                        <option value="">Select column</option>
-                        {csvData.headers.map((header) => (
-                          <option key={header} value={header}>
-                            {header}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(v) => setCsvColumnMap((cur) => ({ ...cur, [field]: v }))}
+                        placeholder="Select column"
+                        options={csvData.headers.map((h) => ({ value: h, label: h }))}
+                      />
                     </label>
                   )
                 )}

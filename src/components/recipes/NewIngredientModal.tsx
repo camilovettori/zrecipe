@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Loader2, X } from 'lucide-react'
+import { CustomSelect } from '@/components/ui/CustomSelect'
 
 export type NewIngredientFormData = {
   name: string
@@ -197,15 +198,11 @@ export default function NewIngredientModal({
 
                   <label className="block">
                     <span className="mb-1.5 block text-xs font-medium text-slate-600">Category</span>
-                    <select
+                    <CustomSelect
                       value={category}
-                      onChange={(event) => setCategory(event.target.value)}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-emerald-500"
-                    >
-                      {CATEGORY_OPTIONS.map((option) => (
-                        <option key={option} value={option}>{option}</option>
-                      ))}
-                    </select>
+                      onChange={setCategory}
+                      options={CATEGORY_OPTIONS.map((o) => ({ value: o, label: o }))}
+                    />
                   </label>
                 </div>
 
@@ -230,15 +227,11 @@ export default function NewIngredientModal({
 
                   <label className="block">
                     <span className="mb-1.5 block text-xs font-medium text-slate-600">Unit</span>
-                    <select
+                    <CustomSelect
                       value={unit}
-                      onChange={(event) => setUnit(event.target.value)}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-emerald-500"
-                    >
-                      {PRICE_UNITS.map((option) => (
-                        <option key={option} value={option}>{option}</option>
-                      ))}
-                    </select>
+                      onChange={setUnit}
+                      options={PRICE_UNITS.map((o) => ({ value: o, label: o }))}
+                    />
                   </label>
                 </div>
 
@@ -258,15 +251,11 @@ export default function NewIngredientModal({
 
                   <label className="block">
                     <span className="mb-1.5 block text-xs font-medium text-slate-600">Package unit</span>
-                    <select
+                    <CustomSelect
                       value={packageUnit}
-                      onChange={(event) => setPackageUnit(event.target.value)}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-emerald-500"
-                    >
-                      {PRICE_UNITS.map((option) => (
-                        <option key={option} value={option}>{option}</option>
-                      ))}
-                    </select>
+                      onChange={setPackageUnit}
+                      options={PRICE_UNITS.map((o) => ({ value: o, label: o }))}
+                    />
                   </label>
                 </div>
               </section>
@@ -294,15 +283,11 @@ export default function NewIngredientModal({
 
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-medium text-slate-600">Unit</span>
-                  <select
+                  <CustomSelect
                     value={recipeUnit}
-                    onChange={(event) => setRecipeUnit(event.target.value)}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-emerald-500"
-                  >
-                    {RECIPE_UNITS.map((option) => (
-                      <option key={option} value={option}>{option}</option>
-                    ))}
-                  </select>
+                    onChange={setRecipeUnit}
+                    options={RECIPE_UNITS.map((o) => ({ value: o, label: o }))}
+                  />
                 </label>
               </section>
             </div>

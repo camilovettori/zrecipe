@@ -5,6 +5,7 @@ import { Search, Plus, X, Loader2, ChefHat } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { COMMON_UNITS } from '@/lib/utils/unit-converter'
 import { cn } from '@/lib/utils'
+import { CustomSelect } from '@/components/ui/CustomSelect'
 import type { IngredientLookup } from '@/hooks/useInvoices'
 
 export interface SubRecipeLookup {
@@ -311,15 +312,11 @@ export default function IngredientSearch({
 
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-slate-500">Unit</span>
-              <select
+              <CustomSelect
                 value={unit}
-                onChange={(e) => setUnit(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-emerald-500"
-              >
-                {COMMON_UNITS.map((u) => (
-                  <option key={u} value={u}>{u}</option>
-                ))}
-              </select>
+                onChange={setUnit}
+                options={COMMON_UNITS.map((u) => ({ value: u, label: u }))}
+              />
             </label>
 
             <button

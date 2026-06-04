@@ -53,7 +53,11 @@ export async function POST(request: NextRequest) {
       prep_time_minutes: body.prepTimeMinutes,
       cook_time_minutes: body.cookTimeMinutes,
       labor_cost: body.laborCost,
+      labor_mode: body.laborMode ?? 'fixed',
       overhead_cost: body.overheadCost,
+      overhead_mode: body.overheadMode ?? 'fixed',
+      overhead_percent: body.overheadPercent ?? 0,
+      waste_percent: body.wastePercent ?? 0,
       selling_price: body.sellingPrice,
       image_url: body.imageUrl,
       is_active: true,
@@ -105,6 +109,8 @@ export async function POST(request: NextRequest) {
             unit: string
             notes?: string | null
             ingredientName?: string
+            yield_percent?: number | null
+            yield_override?: boolean | null
           },
           idx: number
         ) => ({
@@ -116,6 +122,8 @@ export async function POST(request: NextRequest) {
           notes: ing.notes ?? ing.ingredientName ?? null,
           sort_order: idx,
           tenant_id: tenantId,
+          yield_percent: ing.yield_percent ?? 100,
+          yield_override: ing.yield_override ?? false,
         })
       )
       console.log('[RECIPE SAVE] Inserting ingredients...')

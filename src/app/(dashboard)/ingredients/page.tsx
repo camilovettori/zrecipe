@@ -6,6 +6,7 @@ import { LayoutGrid, List, Plus, Search, SlidersHorizontal, Apple } from 'lucide
 import { motion, AnimatePresence } from 'framer-motion'
 import { useIngredients, type SortKey } from '@/hooks/useIngredients'
 import IngredientCard from '@/components/ingredients/IngredientCard'
+import { CustomSelect } from '@/components/ui/CustomSelect'
 import IngredientListView, { type TrendData } from '@/components/ingredients/IngredientListView'
 import EmptyState from '@/components/shared/EmptyState'
 import ConfirmDelete from '@/components/shared/ConfirmDelete'
@@ -178,27 +179,19 @@ export default function IngredientsPage() {
           />
         </div>
 
-        <select
+        <CustomSelect
           value={category}
-          onChange={(e) => filterByCategory(e.target.value)}
-          className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 focus:border-emerald-400 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white [&>option]:bg-white dark:[&>option]:bg-slate-800"
-        >
-          {CATEGORIES.map((c) => (
-            <option key={c} value={c}>{c === 'all' ? 'All Categories' : c}</option>
-          ))}
-        </select>
+          onChange={filterByCategory}
+          options={CATEGORIES.map((c) => ({ value: c, label: c === 'all' ? 'All Categories' : c }))}
+        />
 
         <div className="flex items-center gap-2">
           <SlidersHorizontal className="h-4 w-4 shrink-0 text-slate-400" />
-          <select
+          <CustomSelect
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as SortKey)}
-            className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 focus:border-emerald-400 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white [&>option]:bg-white dark:[&>option]:bg-slate-800"
-          >
-            {SORT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>Sort: {o.label}</option>
-            ))}
-          </select>
+            onChange={(v) => setSortBy(v as SortKey)}
+            options={SORT_OPTIONS.map((o) => ({ value: o.value, label: `Sort: ${o.label}` }))}
+          />
         </div>
 
         {/* View mode toggle */}

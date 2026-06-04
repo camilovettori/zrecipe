@@ -10,6 +10,7 @@ import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
 import { cn } from '@/lib/utils'
 import type { IngredientRow } from '@/hooks/useIngredients'
+import { CustomSelect } from '@/components/ui/CustomSelect'
 
 export const CATEGORIES = [
   'Dairy',
@@ -118,6 +119,7 @@ export default function IngredientForm({
     register,
     handleSubmit,
     control,
+    setValue,
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -129,6 +131,9 @@ export default function IngredientForm({
 
   // Watch all fields — triggers re-render (and re-runs the debounce effect) on any change.
   const watched = useWatch({ control }) as FormData
+  const categoryValue = (watched.category ?? '') as string
+  const baseUnitValue = (watched.base_unit ?? '') as string
+  const packageUnitValue = (watched.package_unit ?? '') as string
 
   // ── Core save function ────────────────────────────────────────────────────
   // silent=true: used by autosave (no toast, reports status via onAutoSaveStatus)
@@ -292,17 +297,13 @@ export default function IngredientForm({
       {/* Category */}
       <div>
         <label className={label}>Category *</label>
-        <select {...register('category')} className={selectClass}>
-          <option value="">Select category...</option>
-          {CATEGORIES.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-        {errors.category && (
-          <p className="mt-1 text-xs text-red-500">{errors.category.message}</p>
-        )}
+        <CustomSelect
+          value={categoryValue}
+          onChange={(v) => setValue('category', v, { shouldValidate: true })}
+          placeholder="Select category…"
+          options={CATEGORIES.map((c) => ({ value: c, label: c }))}
+          error={errors.category?.message}
+        />
       </div>
 
       {/* Price + Unit */}
@@ -328,17 +329,13 @@ export default function IngredientForm({
         </div>
         <div>
           <label className={label}>Unit *</label>
-          <select {...register('base_unit')} className={selectClass}>
-            <option value="">Select...</option>
-            {UNITS.map((u) => (
-              <option key={u} value={u}>
-                {u}
-              </option>
-            ))}
-          </select>
-          {errors.base_unit && (
-            <p className="mt-1 text-xs text-red-500">{errors.base_unit.message}</p>
-          )}
+          <CustomSelect
+            value={baseUnitValue}
+            onChange={(v) => setValue('base_unit', v, { shouldValidate: true })}
+            placeholder="Select…"
+            options={UNITS.map((u) => ({ value: u, label: u }))}
+            error={errors.base_unit?.message}
+          />
         </div>
       </div>
 
@@ -359,14 +356,12 @@ export default function IngredientForm({
         </div>
         <div>
           <label className={label}>Package unit</label>
-          <select {...register('package_unit')} className={selectClass}>
-            <option value="">Select...</option>
-            {UNITS.map((u) => (
-              <option key={u} value={u}>
-                {u}
-              </option>
-            ))}
-          </select>
+          <CustomSelect
+            value={packageUnitValue}
+            onChange={(v) => setValue('package_unit', v)}
+            placeholder="Select…"
+            options={UNITS.map((u) => ({ value: u, label: u }))}
+          />
         </div>
       </div>
 

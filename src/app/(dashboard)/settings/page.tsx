@@ -9,11 +9,15 @@ import {
   AlertTriangle,
   KeyRound,
   Loader2,
+  Mail,
   Package,
   Receipt,
+  RefreshCw,
+  Send,
   Shield,
   Sparkles,
   TrendingUp,
+  Users,
   X,
   Zap,
 } from 'lucide-react'
@@ -24,6 +28,8 @@ import { clearTenantCache, resolveTenantContext } from '@/hooks/useTenant'
 import { TRIAL_PERIOD_DAYS, getEffectiveSubscriptionStatus } from '@/lib/tenant'
 import { FREE_LIMITS, PRO_LIMITS } from '@/lib/subscription/limits'
 import { cn } from '@/lib/utils'
+import { CustomSelect } from '@/components/ui/CustomSelect'
+import { format } from 'date-fns'
 
 type TenantSettings = {
   id: string
@@ -49,13 +55,13 @@ const TABS = ['account', 'billing'] as const
 type SettingsTab = (typeof TABS)[number]
 
 function fmt(value?: string | null) {
-  if (!value) return 'â€”'
+  if (!value) return 'â€"'
   return new Intl.DateTimeFormat('en-IE', {
     day: '2-digit', month: 'short', year: 'numeric',
   }).format(new Date(value))
 }
 
-// â”€â”€ Subscription status card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€ Subscription status card â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function TrialingCard({
   tenant,
@@ -135,7 +141,7 @@ function ActiveCard({
             <CheckCircle2 className="h-3.5 w-3.5" />
             Active
           </div>
-          <h2 className="mt-3 text-2xl font-bold text-slate-900">ZRecipe Pro â€” Active</h2>
+          <h2 className="mt-3 text-2xl font-bold text-slate-900">ZRecipe Pro â€" Active</h2>
           <p className="mt-1 text-sm text-slate-500">
             {tenant.subscription_current_period_end
               ? `Next billing date: ${fmt(tenant.subscription_current_period_end)}`
@@ -207,7 +213,7 @@ function InactiveCard({
   )
 }
 
-// â”€â”€ Plan comparison â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€ Plan comparison â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 const FREE_FEATURES = [
   { text: `${FREE_LIMITS.maxRecipes} recipes maximum`, included: false },
@@ -347,7 +353,7 @@ function PlanComparison({
     </div>
   )
 }
-// â”€â”€ Usage stat card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€ Usage stat card â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function UsageStat({
   label, value, max, icon: Icon,
@@ -386,7 +392,7 @@ function UsageStat({
             />
           </div>
           {atLimit && (
-            <p className="mt-1 text-xs text-red-600 font-medium">Limit reached â€” upgrade to add more</p>
+            <p className="mt-1 text-xs text-red-600 font-medium">Limit reached â€" upgrade to add more</p>
           )}
         </div>
       )}
@@ -394,7 +400,7 @@ function UsageStat({
   )
 }
 
-// â”€â”€ Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€ Page â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 export default function SettingsPage() {
   const router = useRouter()
@@ -414,6 +420,17 @@ export default function SettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [tab, setTab]                 = useState<SettingsTab>('account')
 
+  // Team members state
+  type TeamMember = { id: string; user_id: string; role: string; created_at: string; email: string; full_name: string | null }
+  type PendingInvite = { id: string; email: string; role: string; invited_at: string; status: string }
+  const [members, setMembers]               = useState<TeamMember[]>([])
+  const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([])
+  const [currentUserRole, setCurrentUserRole] = useState<string>('owner')
+  const [currentTenantId, setCurrentTenantId] = useState<string>('')
+  const [inviteEmail, setInviteEmail]         = useState('')
+  const [inviteRole, setInviteRole]           = useState('staff')
+  const [isSending, setIsSending]             = useState(false)
+
   const isCheckoutSuccess =
     searchParams.get('tab') === 'billing' && searchParams.get('success') === 'true'
 
@@ -425,7 +442,7 @@ export default function SettingsPage() {
   const isTrial = subStatus === 'trialing'
   const hasFullAccess = subStatus === 'active' || subStatus === 'trialing'
 
-  // â”€â”€ URL params: tab + notice toasts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ URL params: tab + notice toasts â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const queryTab = params.get('tab')
@@ -515,14 +532,14 @@ export default function SettingsPage() {
     }
   }, [isCheckoutSuccess, router])
 
-  // â”€â”€ Data load â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Data load â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   useEffect(() => {
     const load = async () => {
       try {
         setLoading(true)
         const supabase = createClient()
 
-        // Use resolveTenantContext() â€” calls /api/auth/tenant which uses the
+        // Use resolveTenantContext() â€" calls /api/auth/tenant which uses the
         // service-role client, bypassing any RLS that blocks direct queries.
         // This avoids the anon-client tenants query that may fail due to RLS.
         const [{ data: authData }, ctx] = await Promise.all([
@@ -549,8 +566,23 @@ export default function SettingsPage() {
         setTenant(tenantRow)
         setAccountName(tenantRow.name)
         setBusinessType(tenantRow.business_type ?? '')
+        setCurrentTenantId(ctx.tenantId)
 
-        // Usage counts â€” these are simple row counts on other tables.
+        // Fetch team data (non-fatal if it fails)
+        try {
+          const [{ data: tuRow }, { data: membersData }, { data: invitesData }] = await Promise.all([
+            supabase.from('tenant_users').select('role').eq('tenant_id', ctx.tenantId).eq('user_id', authData.user?.id ?? '').maybeSingle(),
+            supabase.rpc('get_tenant_user_profiles', { p_tenant_id: ctx.tenantId }),
+            supabase.from('tenant_invites').select('id, email, role, invited_at, status').eq('tenant_id', ctx.tenantId).eq('status', 'pending'),
+          ])
+          setCurrentUserRole((tuRow as { role: string } | null)?.role ?? 'owner')
+          setMembers((membersData as TeamMember[] | null) ?? [])
+          setPendingInvites((invitesData as PendingInvite[] | null) ?? [])
+        } catch {
+          // non-fatal — card will show empty state
+        }
+
+        // Usage counts â€" these are simple row counts on other tables.
         // Errors here are non-fatal; we just show 0.
         const [{ count: rc }, { count: ic }, { count: inv }, aiUsageRes] = await Promise.all([
           supabase.from('recipes').select('id', { count: 'exact', head: true }).eq('tenant_id', ctx.tenantId),
@@ -570,7 +602,7 @@ export default function SettingsPage() {
     load()
   }, [])
 
-  // â”€â”€ Handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Handlers â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const handleAccountSave = async () => {
     if (!tenant) return
     try {
@@ -637,7 +669,56 @@ export default function SettingsPage() {
     }
   }
 
-  // â”€â”€ Loading skeleton â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Team handlers ─────────────────────────────────────────────────────────
+
+  const refetchTeam = async (tenantId?: string) => {
+    const id = tenantId ?? currentTenantId
+    if (!id) return
+    const supabase = createClient()
+    const [{ data: membersData }, { data: invitesData }] = await Promise.all([
+      supabase.rpc('get_tenant_user_profiles', { p_tenant_id: id }),
+      supabase.from('tenant_invites').select('id, email, role, invited_at, status').eq('tenant_id', id).eq('status', 'pending'),
+    ])
+    setMembers((membersData as TeamMember[] | null) ?? [])
+    setPendingInvites((invitesData as PendingInvite[] | null) ?? [])
+  }
+
+  const handleSendInvite = async () => {
+    if (!inviteEmail.trim()) return
+    setIsSending(true)
+    try {
+      const res = await fetch('/api/team/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole, tenantId: currentTenantId }),
+      })
+      const data = await res.json() as { error?: string }
+      if (!res.ok) throw new Error(data.error ?? 'Failed to send invite')
+      toast.success(`Invite sent to ${inviteEmail.trim()}`)
+      setInviteEmail('')
+      refetchTeam()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to send invite')
+    } finally {
+      setIsSending(false)
+    }
+  }
+
+  const handleRemoveMember = async (userId: string) => {
+    if (!window.confirm('Remove this team member?')) return
+    const supabase = createClient()
+    await supabase.from('tenant_users').delete().eq('tenant_id', currentTenantId).eq('user_id', userId)
+    toast.success('Member removed')
+    refetchTeam()
+  }
+
+  const handleCancelInvite = async (inviteId: string) => {
+    const supabase = createClient()
+    await supabase.from('tenant_invites').update({ status: 'expired' }).eq('id', inviteId)
+    refetchTeam()
+  }
+
+  // â"€â"€ Loading skeleton â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   if (loading) {
     return (
       <div className="space-y-6">
@@ -684,9 +765,9 @@ export default function SettingsPage() {
           </Tabs.Trigger>
         </Tabs.List>
 
-        {/* â”€â”€ Account tab â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* â"€â"€ Account tab â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
         <Tabs.Content value="account" className="mt-6 space-y-6">
-          <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+          <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]" id="account-grid">
             <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
@@ -774,9 +855,158 @@ export default function SettingsPage() {
               </div>
             </section>
           </div>
+
+          {/* Team Members card */}
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="mb-5 flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                  <Users className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">Team Members</h2>
+                  <p className="text-sm text-slate-500">Invite your team to access the workspace.</p>
+                </div>
+              </div>
+              <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500">
+                {members.length} member{members.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+
+            {/* Current members */}
+            <div className="mb-5 space-y-2">
+              {members.map((member) => (
+                <div key={member.id} className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2.5">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100">
+                      <span className="text-xs font-semibold text-emerald-700">
+                        {(member.full_name ?? member.email ?? '?').charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">{member.full_name ?? member.email}</p>
+                      {member.full_name && <p className="text-xs text-gray-400">{member.email}</p>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={cn(
+                      'rounded-full px-2 py-0.5 text-xs font-medium',
+                      member.role === 'owner' ? 'bg-emerald-100 text-emerald-700'
+                        : member.role === 'manager' ? 'bg-blue-100 text-blue-700'
+                        : 'bg-gray-100 text-gray-600'
+                    )}>
+                      {member.role}
+                    </span>
+                    {member.role !== 'owner' && currentUserRole === 'owner' && (
+                      <button
+                        onClick={() => handleRemoveMember(member.user_id)}
+                        className="p-1 text-gray-300 transition-colors hover:text-red-400"
+                        title="Remove member"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Pending invites */}
+            {pendingInvites.length > 0 && (
+              <div className="mb-5">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400">Pending invites</p>
+                <div className="space-y-2">
+                  {pendingInvites.map((invite) => (
+                    <div key={invite.id} className="flex items-center justify-between rounded-xl border border-dashed border-gray-200 px-3 py-2">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100">
+                          <Mail className="h-3.5 w-3.5 text-gray-400" />
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-600">{invite.email}</p>
+                          <p className="text-xs text-gray-400">
+                            Invited {format(new Date(invite.invited_at), 'MMM d, yyyy')} · {invite.role}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-600">
+                          Pending
+                        </span>
+                        <button
+                          onClick={() => { setInviteEmail(invite.email); setInviteRole(invite.role); handleSendInvite() }}
+                          className="p-1 text-gray-300 transition-colors hover:text-emerald-500"
+                          title="Resend invite"
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleCancelInvite(invite.id)}
+                          className="p-1 text-gray-300 transition-colors hover:text-red-400"
+                          title="Cancel invite"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="border-t border-slate-100 pt-5">
+              {currentUserRole === 'owner' ? (
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold text-slate-700">Invite a team member</p>
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      type="email"
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSendInvite()}
+                      placeholder="colleague@restaurant.com"
+                      className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500"
+                    />
+                    <CustomSelect
+                      value={inviteRole}
+                      onChange={setInviteRole}
+                      className="w-36"
+                      options={[
+                        { value: 'manager', label: 'Manager', description: 'Edit recipes, view costs' },
+                        { value: 'staff', label: 'Chef / Staff', description: 'View recipes only' },
+                      ]}
+                    />
+                    <button
+                      onClick={handleSendInvite}
+                      disabled={!inviteEmail.trim() || isSending}
+                      className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isSending
+                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        : <Send className="h-4 w-4" />}
+                      Send Invite
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-lg bg-blue-50 p-2.5">
+                      <p className="mb-1 text-xs font-semibold text-blue-700">Manager</p>
+                      <p className="text-xs text-blue-600">Can create and edit recipes, view ingredient costs. Cannot access billing.</p>
+                    </div>
+                    <div className="rounded-lg bg-gray-50 p-2.5">
+                      <p className="mb-1 text-xs font-semibold text-gray-600">Chef / Staff</p>
+                      <p className="text-xs text-gray-500">Can view recipes and ingredients. No access to costs, prices, or settings.</p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="py-2 text-center text-sm text-slate-400">Only the workspace owner can invite team members.</p>
+              )}
+            </div>
+          </section>
         </Tabs.Content>
 
-        {/* â”€â”€ Billing tab â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* â"€â"€ Billing tab â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
       <Tabs.Content value="billing" className="mt-6">
         <div className="mx-auto max-w-3xl space-y-6">
           {checkoutState !== 'idle' && (
@@ -798,7 +1028,7 @@ export default function SettingsPage() {
             </div>
           )}
 
-            {/* Section 1 â€” Subscription status */}
+            {/* Section 1 â€" Subscription status */}
             {tenant && (
               <>
                 {subStatus === 'trialing' && (
@@ -813,7 +1043,7 @@ export default function SettingsPage() {
               </>
             )}
 
-            {/* Section 2 â€” Plan comparison (only for non-active) */}
+            {/* Section 2 â€" Plan comparison (only for non-active) */}
             {subStatus !== 'active' && (
               <section>
                 <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-slate-400">
@@ -827,7 +1057,7 @@ export default function SettingsPage() {
               </section>
             )}
 
-            {/* Section 3 â€” Usage stats */}
+            {/* Section 3 â€" Usage stats */}
             <section>
               <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-slate-400">
                 Your Usage
@@ -860,7 +1090,7 @@ export default function SettingsPage() {
               )}
             </section>
 
-            {/* Section 4 â€” Billing history placeholder */}
+            {/* Section 4 â€" Billing history placeholder */}
             <section>
               <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-slate-400">
                 Billing History

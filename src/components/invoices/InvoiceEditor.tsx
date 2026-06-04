@@ -14,6 +14,7 @@ import {
 } from '@/lib/invoices'
 import type { IngredientLookup, SupplierLookup } from '@/hooks/useInvoices'
 import { cn } from '@/lib/utils'
+import { CustomSelect } from '@/components/ui/CustomSelect'
 
 type Props = {
   title: string
@@ -614,15 +615,15 @@ export default function InvoiceEditor({
             <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
               Currency
             </span>
-            <select
+            <CustomSelect
               value={draft.currency}
-              onChange={(e) => updateDraft({ currency: e.target.value })}
-              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
-            >
-              <option value="EUR">EUR</option>
-              <option value="USD">USD</option>
-              <option value="GBP">GBP</option>
-            </select>
+              onChange={(v) => updateDraft({ currency: v })}
+              options={[
+                { value: 'EUR', label: 'EUR' },
+                { value: 'USD', label: 'USD' },
+                { value: 'GBP', label: 'GBP' },
+              ]}
+            />
           </label>
         </div>
 
@@ -725,15 +726,12 @@ export default function InvoiceEditor({
                   </td>
 
                   <td className="border-b border-slate-100 px-3 py-2">
-                    <select
+                    <CustomSelect
                       value={item.unit}
-                      onChange={(e) => updateItem(item.id, { unit: e.target.value })}
-                      className="h-10 w-full rounded-xl border border-slate-200 bg-white px-2 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
-                    >
-                      {INVOICE_UNITS.map((u) => (
-                        <option key={u} value={u}>{u}</option>
-                      ))}
-                    </select>
+                      onChange={(v) => updateItem(item.id, { unit: v })}
+                      options={INVOICE_UNITS.map((u) => ({ value: u, label: u }))}
+                      size="sm"
+                    />
                   </td>
 
                   <td className="border-b border-slate-100 px-3 py-2">
@@ -750,15 +748,13 @@ export default function InvoiceEditor({
                         className="h-10 w-[76px] rounded-xl border border-slate-200 bg-white px-2 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
                         placeholder="Size"
                       />
-                      <select
+                      <CustomSelect
                         value={item.packageUnit ?? 'kg'}
-                        onChange={(e) => updateItem(item.id, { packageUnit: e.target.value })}
-                        className="h-10 w-[64px] rounded-xl border border-slate-200 bg-white px-2 text-xs outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
-                      >
-                        {PACKAGE_UNIT_OPTIONS.map((u) => (
-                          <option key={u} value={u}>{u}</option>
-                        ))}
-                      </select>
+                        onChange={(v) => updateItem(item.id, { packageUnit: v })}
+                        options={PACKAGE_UNIT_OPTIONS.map((u) => ({ value: u, label: u }))}
+                        size="sm"
+                        className="w-[80px]"
+                      />
                     </div>
                   </td>
 

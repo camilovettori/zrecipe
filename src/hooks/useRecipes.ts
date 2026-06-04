@@ -24,6 +24,8 @@ export interface RecipeIngredientDraft {
   notes?: string | null
   lineCost: number
   allergens?: IngredientAllergen[]
+  yield_percent?: number | null
+  yield_override?: boolean | null
 }
 
 export interface RecipeEditorData {
@@ -35,7 +37,11 @@ export interface RecipeEditorData {
   prepTimeMinutes: number
   cookTimeMinutes: number
   laborCost: number
+  laborMode: 'fixed' | 'time'
   overheadCost: number
+  overheadMode: 'fixed' | 'percent'
+  overheadPercent: number
+  wastePercent: number
   sellingPrice: number
   imageUrl: string | null
   isSubIngredient: boolean
@@ -48,7 +54,11 @@ export interface RecipeCostSummary {
   ingredientCost: number
   laborCost: number
   overheadCost: number
+  wasteCost: number
+  subtotal: number
   totalCost: number
+  costPerUnit: number
+  isBatch: boolean
   sellingPrice: number
   marginPercent: number
   foodCostPercentage: number
@@ -91,6 +101,8 @@ type DBRecipeIngredientRow = {
   unit: string
   notes?: string | null
   sort_order?: number | null
+  yield_percent?: number | null
+  yield_override?: boolean | null
   ingredient?: DBIngredientRow[] | DBIngredientRow | null
 }
 
@@ -106,7 +118,11 @@ type DBRecipeRow = {
   prep_time_minutes?: number | null
   cook_time_minutes?: number | null
   labor_cost?: number | null
+  labor_mode?: string | null
   overhead_cost?: number | null
+  overhead_mode?: string | null
+  overhead_percent?: number | null
+  waste_percent?: number | null
   selling_price?: number | null
   image_url?: string | null
   is_active?: boolean | null
@@ -201,12 +217,14 @@ function serializeInstructions(steps: RecipeStepDraft[]) {
 
 function ingredientLineCost(item: RecipeIngredientDraft) {
   const currentPrice = item.currentPrice ?? 0
-  if (!currentPrice) {
-    return 0
-  }
+  if (!currentPrice) return 0
+
+  // Apply yield factor: cost is based on AP (as-purchased) quantity
+  const yieldFactor = Math.max(0.01, (item.yield_percent ?? 100) / 100)
+  const apQuantity = item.quantity / yieldFactor
 
   const priceUnit = item.priceUnit ?? item.unit
-  const quantityInPriceUnit = convertUnit(item.quantity, item.unit, priceUnit)
+  const quantityInPriceUnit = convertUnit(apQuantity, item.unit, priceUnit)
   return Number((quantityInPriceUnit * currentPrice).toFixed(2))
 }
 
@@ -214,22 +232,58 @@ export function calculateRecipeCost(
   ingredients: RecipeIngredientDraft[],
   laborCost = 0,
   overheadCost = 0,
-  sellingPrice = 0
+  sellingPrice = 0,
+  opts?: {
+    laborMode?: 'fixed' | 'time'
+    prepTimeMinutes?: number
+    laborHourlyRate?: number
+    overheadMode?: 'fixed' | 'percent'
+    overheadPercent?: number
+    wastePercent?: number
+    yieldQuantity?: number
+    yieldUnit?: string
+  }
 ): RecipeCostSummary {
   const ingredientCost = Number(
     ingredients.reduce((sum, item) => sum + ingredientLineCost(item), 0).toFixed(2)
   )
-  const totalCost = Number((ingredientCost + laborCost + overheadCost).toFixed(2))
+
+  // Labor — fixed value or time-based
+  const effectiveLaborCost =
+    opts?.laborMode === 'time' && opts.laborHourlyRate && opts.laborHourlyRate > 0
+      ? Number(((opts.prepTimeMinutes ?? 0) / 60 * opts.laborHourlyRate).toFixed(2))
+      : laborCost
+
+  // Overhead — fixed value or % of ingredients
+  const effectiveOverheadCost =
+    opts?.overheadMode === 'percent' && opts.overheadPercent && opts.overheadPercent > 0
+      ? Number((ingredientCost * (opts.overheadPercent / 100)).toFixed(2))
+      : overheadCost
+
+  const subtotal = Number((ingredientCost + effectiveLaborCost + effectiveOverheadCost).toFixed(2))
+  const wasteCost = Number((subtotal * ((opts?.wastePercent ?? 0) / 100)).toFixed(2))
+  const totalCost = Number((subtotal + wasteCost).toFixed(2))
+
+  const isBatch = (opts?.yieldUnit ?? '').toLowerCase() === 'batch'
+  const effectiveQty = isBatch && (opts?.yieldQuantity ?? 0) > 0 ? (opts!.yieldQuantity ?? 1) : 1
+  const costPerUnit = Number((totalCost / effectiveQty).toFixed(4))
+
   const marginPercent =
-    sellingPrice > 0 ? Number((((sellingPrice - totalCost) / sellingPrice) * 100).toFixed(1)) : 0
+    sellingPrice > 0
+      ? Number((((sellingPrice - costPerUnit) / sellingPrice) * 100).toFixed(1))
+      : 0
   const foodCostPercentage =
-    sellingPrice > 0 ? Number(((totalCost / sellingPrice) * 100).toFixed(1)) : 0
+    sellingPrice > 0 ? Number(((costPerUnit / sellingPrice) * 100).toFixed(1)) : 0
 
   return {
     ingredientCost,
-    laborCost,
-    overheadCost,
+    laborCost: effectiveLaborCost,
+    overheadCost: effectiveOverheadCost,
+    wasteCost,
+    subtotal,
     totalCost,
+    costPerUnit,
+    isBatch,
     sellingPrice,
     marginPercent,
     foodCostPercentage,
@@ -264,7 +318,11 @@ function buildRecipeRecordFromInput(
     prepTimeMinutes: input.prepTimeMinutes,
     cookTimeMinutes: input.cookTimeMinutes,
     laborCost: input.laborCost,
+    laborMode: input.laborMode,
     overheadCost: input.overheadCost,
+    overheadMode: input.overheadMode,
+    overheadPercent: input.overheadPercent,
+    wastePercent: input.wastePercent,
     sellingPrice: input.sellingPrice,
     imageUrl: input.imageUrl,
     isSubIngredient: input.isSubIngredient,
@@ -317,17 +375,34 @@ function mapRecipeRow(row: DBRecipeRow): RecipeRecord {
         notes: item.notes ?? null,
         lineCost: 0,
         allergens,
+        yield_percent: item.yield_percent != null ? Number(item.yield_percent) : 100,
+        yield_override: item.yield_override ?? false,
       }
       line.lineCost = calculateLineCost(line)
       return line
     })
 
   const instructions = parseInstructions(row.instructions)
+  const laborMode = (row.labor_mode === 'time' ? 'time' : 'fixed') as 'fixed' | 'time'
+  const overheadMode = (row.overhead_mode === 'percent' ? 'percent' : 'fixed') as 'fixed' | 'percent'
+  const overheadPercent = Number(row.overhead_percent ?? 0)
+  const wastePercent = Number(row.waste_percent ?? 0)
+  const prepTimeMinutes = Number(row.prep_time_minutes ?? 0)
+
   const cost = calculateRecipeCost(
     ingredients,
     Number(row.labor_cost ?? 0),
     Number(row.overhead_cost ?? 0),
-    Number(row.selling_price ?? 0)
+    Number(row.selling_price ?? 0),
+    {
+      laborMode,
+      overheadMode,
+      overheadPercent,
+      wastePercent,
+      prepTimeMinutes,
+      yieldQuantity: Number(row.yield_quantity ?? 0),
+      yieldUnit: row.yield_unit ?? 'portion',
+    }
   )
 
   return {
@@ -338,10 +413,14 @@ function mapRecipeRow(row: DBRecipeRow): RecipeRecord {
     category: row.category ?? 'Other',
     yieldQuantity: Number(row.yield_quantity ?? 0),
     yieldUnit: row.yield_unit ?? 'portion',
-    prepTimeMinutes: Number(row.prep_time_minutes ?? 0),
+    prepTimeMinutes,
     cookTimeMinutes: Number(row.cook_time_minutes ?? 0),
     laborCost: Number(row.labor_cost ?? 0),
+    laborMode,
     overheadCost: Number(row.overhead_cost ?? 0),
+    overheadMode,
+    overheadPercent,
+    wastePercent,
     sellingPrice: Number(row.selling_price ?? 0),
     imageUrl: row.image_url ?? null,
     isSubIngredient: row.is_sub_ingredient ?? false,
@@ -393,7 +472,11 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
             description,
             category,
             labor_cost,
+            labor_mode,
             overhead_cost,
+            overhead_mode,
+            overhead_percent,
+            waste_percent,
             selling_price,
             image_url,
             is_sub_ingredient,
@@ -402,6 +485,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
             recipe_ingredients!recipe_ingredients_recipe_id_fkey (
               quantity,
               unit,
+              yield_percent,
               ingredient:ingredients (
                 current_price,
                 price_unit
@@ -461,7 +545,11 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           prep_time_minutes,
           cook_time_minutes,
           labor_cost,
+          labor_mode,
           overhead_cost,
+          overhead_mode,
+          overhead_percent,
+          waste_percent,
           selling_price,
           image_url,
           is_active,
@@ -477,6 +565,8 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
             unit,
             notes,
             sort_order,
+            yield_percent,
+            yield_override,
             ingredient:ingredients (
               id,
               name,
@@ -538,7 +628,11 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           prepTimeMinutes: input.prepTimeMinutes,
           cookTimeMinutes: input.cookTimeMinutes,
           laborCost: input.laborCost,
+          laborMode: input.laborMode,
           overheadCost: input.overheadCost,
+          overheadMode: input.overheadMode,
+          overheadPercent: input.overheadPercent,
+          wastePercent: input.wastePercent,
           sellingPrice: input.sellingPrice,
           imageUrl: input.imageUrl,
           isSubIngredient: input.isSubIngredient,

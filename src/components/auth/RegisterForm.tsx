@@ -6,8 +6,9 @@ import { useRouter } from 'next/navigation'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Building2, ChevronDown, Eye, EyeOff, Loader2, Mail, ShieldCheck, User } from 'lucide-react'
+import { Building2, Eye, EyeOff, Loader2, Mail, ShieldCheck, User } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { CustomSelect } from '@/components/ui/CustomSelect'
 
 const registerSchema = z.object({
   businessName: z.string().min(2, 'Business name must be at least 2 characters'),
@@ -58,8 +59,9 @@ export default function RegisterForm() {
   const [showPwd, setShowPwd] = useState(false)
   const router = useRouter()
 
-  const { register, handleSubmit, control, formState: { errors, isSubmitting } } =
+  const { register, handleSubmit, control, setValue, formState: { errors, isSubmitting } } =
     useForm<RegisterFormData>({ resolver: zodResolver(registerSchema) })
+  const businessType = useWatch({ control, name: 'businessType' }) ?? ''
 
   const passwordValue = useWatch({ control, name: 'password', defaultValue: '' })
 
@@ -216,25 +218,20 @@ export default function RegisterForm() {
       {/* Business type */}
       <div>
         <label htmlFor="r-type" className={labelClass}>Business type</label>
-        <div className="relative">
-          <select
-            id="r-type"
-            data-testid="signup-type-select"
-            {...register('businessType')}
-            className={`${inputBase} appearance-none pr-10`}
-            defaultValue=""
-          >
-            <option value="" disabled>Select your kitchen type…</option>
-            <option value="bakery">Bakery</option>
-            <option value="restaurant">Restaurant</option>
-            <option value="cafe">Café</option>
-            <option value="catering">Catering</option>
-            <option value="hotel">Hotel</option>
-            <option value="food-truck">Food Truck</option>
-            <option value="other">Other</option>
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#C0BAB1]" />
-        </div>
+        <CustomSelect
+          value={businessType}
+          onChange={(v) => setValue('businessType', v as RegisterFormData['businessType'], { shouldValidate: true })}
+          placeholder="Select your kitchen type…"
+          options={[
+            { value: 'bakery', label: 'Bakery' },
+            { value: 'restaurant', label: 'Restaurant' },
+            { value: 'cafe', label: 'Café' },
+            { value: 'catering', label: 'Catering' },
+            { value: 'hotel', label: 'Hotel' },
+            { value: 'food-truck', label: 'Food Truck' },
+            { value: 'other', label: 'Other' },
+          ]}
+        />
         {errors.businessType && <p className="mt-1.5 text-xs text-amber-600">{errors.businessType.message}</p>}
       </div>
 

@@ -2,6 +2,10 @@ import { createClient } from '@supabase/supabase-js'
 import { type NextRequest, NextResponse } from 'next/server'
 import { updateSession } from "@/lib/supabase/middleware";
 
+// Routes restricted by role (checked only when path matches — keeps middleware fast)
+const OWNER_ONLY_PREFIXES = ['/settings/billing']
+const STAFF_BLOCKED_PREFIXES = ['/settings', '/invoices']
+
 // Paths that never need a tenant check
 const EXEMPT_PREFIXES = [
   '/login',
@@ -118,6 +122,51 @@ export async function middleware(request: NextRequest) {
       sameSite: 'lax',
       path: '/',
       maxAge: 60 * 60 * 24 * 365,
+    })
+  }
+
+  // ── Role-based access (only checked for protected paths) ─────────────────
+  const needsRoleCheck =
+    OWNER_ONLY_PREFIXES.some((p) => pathname.startsWith(p)) ||
+    STAFF_BLOCKED_PREFIXES.some((p) => pathname.startsWith(p))
+
+  if (needsRoleCheck) {
+    const roleCookie = request.cookies.get('user-role')?.value
+
+    let role = roleCookie ?? ''
+
+    if (!role) {
+      try {
+        const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+        const key = process.env.SUPABASE_SERVICE_ROLE_KEY!
+        if (url && key) {
+          const admin = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } })
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { data: m } = await (admin.from('tenant_users') as any)
+            .select('role')
+            .eq('user_id', user.id)
+            .maybeSingle()
+          role = m?.role ?? 'staff'
+        }
+      } catch {
+        role = 'staff'
+      }
+    }
+
+    if (role === 'staff' && STAFF_BLOCKED_PREFIXES.some((p) => pathname.startsWith(p))) {
+      return NextResponse.redirect(new URL('/recipes', request.url))
+    }
+
+    if (role !== 'owner' && OWNER_ONLY_PREFIXES.some((p) => pathname.startsWith(p))) {
+      return NextResponse.redirect(new URL('/settings', request.url))
+    }
+
+    // Cache the role in a cookie (1 day) to avoid a DB query on every navigation
+    response.cookies.set('user-role', role, {
+      httpOnly: false,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24,
     })
   }
 
