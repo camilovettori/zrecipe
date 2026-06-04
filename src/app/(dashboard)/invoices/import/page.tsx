@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation'
 import {
   AlertCircle,
   ArrowLeft,
+  ChevronDown,
   FileSpreadsheet,
   FileText,
   Image as ImageIcon,
@@ -314,6 +315,7 @@ export default function ImportInvoicesPage() {
   const [loadingLookups, setLoadingLookups] = useState(true)
   const [csvData, setCsvData] = useState<CsvData | null>(null)
   const [csvColumnMap, setCsvColumnMap] = useState<Record<string, string>>({})
+  const [previewOpen, setPreviewOpen] = useState(false)
 
   useEffect(() => {
     const loadLookups = async () => {
@@ -867,175 +869,170 @@ export default function ImportInvoicesPage() {
       )}
 
       {step === 'review' && (
-        <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-          <div className="space-y-6">
-            <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium uppercase tracking-wide text-emerald-700">
-                    Preview
-                  </p>
-                  <h2 className="mt-1 font-display text-2xl font-semibold text-slate-900">
-                    {file?.name}
-                  </h2>
-                </div>
+        <div className="space-y-5">
+
+          {/* ── Collapsible PDF/image preview ─────────────────────────────── */}
+          <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+            <button
+              type="button"
+              onClick={() => setPreviewOpen((o) => !o)}
+              className="flex w-full items-center justify-between gap-3 px-6 py-4 text-left"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <FileText className="h-4 w-4 shrink-0 text-slate-400" />
+                <span className="truncate text-sm font-medium text-slate-700">{file?.name}</span>
                 {fileBadge}
               </div>
-
-              <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-                {fileKind === 'pdf' && filePreview ? (
-                  <iframe src={filePreview} className="h-[42rem] w-full" title="PDF preview" />
-                ) : fileKind === 'image' && filePreview ? (
-                  <div className="relative h-[42rem] w-full">
-                    <Image
-                      src={filePreview}
-                      alt="Invoice preview"
-                      fill
-                      unoptimized
-                      className="object-cover"
-                    />
-                  </div>
-                ) : (
-                  <div className="flex h-[24rem] items-center justify-center">
-                    <div className="text-center">
-                      <FileText className="mx-auto h-12 w-12 text-slate-300" />
-                      <p className="mt-3 text-sm font-medium text-slate-500">
-                        Preview available after upload
-                      </p>
-                    </div>
-                  </div>
+              <ChevronDown
+                className={cn(
+                  'h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200',
+                  previewOpen && 'rotate-180'
                 )}
-              </div>
-            </div>
+              />
+            </button>
 
-            {csvData && (
-              <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <h3 className="font-display text-xl font-semibold text-slate-900">
-                  CSV column mapping
-                </h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Auto-detected mapping. Adjust it if the columns do not line up.
-                </p>
-
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {(['description', 'quantity', 'unit', 'unitPrice', 'total'] as const).map(
-                    (field) => (
-                      <label key={field} className="block">
-                        <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          {field}
-                        </span>
-                        <select
-                          value={csvColumnMap[field] ?? ''}
-                          onChange={(event) =>
-                            setCsvColumnMap((current) => ({
-                              ...current,
-                              [field]: event.target.value,
-                            }))
-                          }
-                          className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-emerald-500"
-                        >
-                          <option value="">Select column</option>
-                          {csvData.headers.map((header) => (
-                            <option key={header} value={header}>
-                              {header}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )
+            {previewOpen && (
+              <div className="border-t border-slate-200 p-4">
+                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+                  {fileKind === 'pdf' && filePreview ? (
+                    <iframe src={filePreview} className="h-[42rem] w-full" title="PDF preview" />
+                  ) : fileKind === 'image' && filePreview ? (
+                    <div className="relative h-[42rem] w-full">
+                      <Image
+                        src={filePreview}
+                        alt="Invoice preview"
+                        fill
+                        unoptimized
+                        className="object-contain"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex h-48 items-center justify-center">
+                      <div className="text-center">
+                        <FileText className="mx-auto h-10 w-10 text-slate-300" />
+                        <p className="mt-2 text-sm text-slate-400">No preview available</p>
+                      </div>
+                    </div>
                   )}
                 </div>
-
-                <div className="mt-4 overflow-auto rounded-2xl border border-slate-200">
-                  <table className="min-w-full text-left text-sm">
-                    <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                      <tr>
-                        {csvData.headers.map((header) => (
-                          <th key={header} className="px-3 py-2 font-semibold">
-                            {header}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 bg-white">
-                      {csvData.rows.slice(0, 5).map((row, index) => (
-                        <tr key={`${index}-${file?.name}`}>
-                          {csvData.headers.map((header) => (
-                            <td key={header} className="px-3 py-2 text-slate-600">
-                              {row[header] ?? 'N/A'}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-    const items = csvData.rows.map((row) => {
-                      const description = row[csvColumnMap.description] ?? ''
-                      const quantity = Number.parseFloat(row[csvColumnMap.quantity] ?? '1') || 1
-                      const unit = row[csvColumnMap.unit] ?? 'unit'
-                      const unitPrice =
-                        Number.parseFloat(row[csvColumnMap.unitPrice] ?? '0') || 0
-                      const packageSize = null
-                      const packageUnit = 'kg'
-                      const total =
-                        Number.parseFloat(row[csvColumnMap.total] ?? `${quantity * unitPrice}`) ||
-                        quantity * unitPrice
-
-                      return {
-                        description,
-                        quantity,
-                        unit,
-                        packageSize,
-                        packageUnit,
-                        unitPrice,
-                        total,
-                      }
-                    })
-                    setDraft(
-                      buildDraftFromItems(
-                        file?.name.replace(/\.[^.]+$/, '') ?? 'CSV import',
-                        draft.invoiceNumber,
-                        draft.invoiceDate,
-                        items.reduce((sum, item) => sum + item.total, 0),
-                        'csv',
-                        null,
-                        items
-                      )
-                    )
-                    setCsvData({
-                      headers: csvData.headers,
-                      rows: csvData.rows,
-                    })
-                  }}
-                  className="mt-4 inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
-                >
-                  Apply mapping
-                </button>
               </div>
             )}
           </div>
 
-          <div>
-            <InvoiceEditor
-              title="Review extracted data"
-              subtitle="Edit the supplier, metadata, items, and ingredient links before confirming."
-              draft={draft}
-              onChange={updateDraft}
-              suppliers={suppliers}
-              ingredients={ingredients}
-              onSave={handleContinue}
-              onBack={() => setStep('upload')}
-              saving={false}
-              saveLabel="Continue to confirm"
-              allowEditing
-              showSummary
-            />
-          </div>
+          {/* ── CSV column mapping (only for CSV uploads) ────────────────── */}
+          {csvData && (
+            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h3 className="font-display text-xl font-semibold text-slate-900">
+                CSV column mapping
+              </h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Auto-detected mapping. Adjust it if the columns do not line up.
+              </p>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                {(['description', 'quantity', 'unit', 'unitPrice', 'total'] as const).map(
+                  (field) => (
+                    <label key={field} className="block">
+                      <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        {field}
+                      </span>
+                      <select
+                        value={csvColumnMap[field] ?? ''}
+                        onChange={(event) =>
+                          setCsvColumnMap((current) => ({
+                            ...current,
+                            [field]: event.target.value,
+                          }))
+                        }
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-emerald-500"
+                      >
+                        <option value="">Select column</option>
+                        {csvData.headers.map((header) => (
+                          <option key={header} value={header}>
+                            {header}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )
+                )}
+              </div>
+
+              <div className="mt-4 overflow-auto rounded-2xl border border-slate-200">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                      {csvData.headers.map((header) => (
+                        <th key={header} className="px-3 py-2 font-semibold">
+                          {header}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {csvData.rows.slice(0, 5).map((row, index) => (
+                      <tr key={`${index}-${file?.name}`}>
+                        {csvData.headers.map((header) => (
+                          <td key={header} className="px-3 py-2 text-slate-600">
+                            {row[header] ?? 'N/A'}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const items = csvData.rows.map((row) => {
+                    const description = row[csvColumnMap.description] ?? ''
+                    const quantity = Number.parseFloat(row[csvColumnMap.quantity] ?? '1') || 1
+                    const unit = row[csvColumnMap.unit] ?? 'unit'
+                    const unitPrice = Number.parseFloat(row[csvColumnMap.unitPrice] ?? '0') || 0
+                    const packageSize = null
+                    const packageUnit = 'kg'
+                    const total =
+                      Number.parseFloat(row[csvColumnMap.total] ?? `${quantity * unitPrice}`) ||
+                      quantity * unitPrice
+                    return { description, quantity, unit, packageSize, packageUnit, unitPrice, total }
+                  })
+                  setDraft(
+                    buildDraftFromItems(
+                      file?.name.replace(/\.[^.]+$/, '') ?? 'CSV import',
+                      draft.invoiceNumber,
+                      draft.invoiceDate,
+                      items.reduce((sum, item) => sum + item.total, 0),
+                      'csv',
+                      null,
+                      items
+                    )
+                  )
+                  setCsvData({ headers: csvData.headers, rows: csvData.rows })
+                }}
+                className="mt-4 inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+              >
+                Apply mapping
+              </button>
+            </div>
+          )}
+
+          {/* ── Invoice editor — full page width ─────────────────────────── */}
+          <InvoiceEditor
+            title="Review extracted data"
+            subtitle="Edit the supplier, metadata, items, and ingredient links before confirming."
+            draft={draft}
+            onChange={updateDraft}
+            suppliers={suppliers}
+            ingredients={ingredients}
+            onSave={handleContinue}
+            onBack={() => setStep('upload')}
+            saving={false}
+            saveLabel="Continue to confirm"
+            allowEditing
+            showSummary
+          />
         </div>
       )}
 

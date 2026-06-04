@@ -17,6 +17,7 @@ export type InvoiceLineItem = {
   ingredientQuery?: string
   createIngredient?: boolean
   newIngredientName?: string
+  newIngredientBrand?: string
   newIngredientCategory?: string
   newIngredientUnit?: string
 }

@@ -1,7 +1,8 @@
 'use client'
 
+import { useCallback, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from '@/lib/toast'
@@ -38,6 +39,7 @@ export const UNITS = [
 
 const schema = z.object({
   name: z.string().min(1, 'Name is required'),
+  brand: z.string().optional(),
   category: z.string().min(1, 'Category is required'),
   current_price: z.number().positive('Must be positive').optional(),
   base_unit: z.string().min(1, 'Unit is required'),
@@ -48,6 +50,8 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>
 
+export type AutoSaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error'
+
 const field =
   'w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-700 dark:bg-slate-800/60 dark:text-white dark:placeholder-slate-500'
 
@@ -57,6 +61,7 @@ interface IngredientFormProps {
   ingredient: IngredientRow | null
   onSubmittingChange?: (submitting: boolean) => void
   onSaved?: (ingredient: IngredientRow) => void
+  onAutoSaveStatus?: (status: AutoSaveStatus) => void
 }
 
 type IngredientDbRow = {
@@ -75,35 +80,67 @@ type IngredientDbRow = {
   updated_at: string
 }
 
+// Serialize FormData to a stable string for dirty-state comparison.
+function serialize(d: Partial<FormData>): string {
+  return JSON.stringify({
+    name: d.name ?? '',
+    brand: d.brand ?? '',
+    category: d.category ?? '',
+    current_price: d.current_price ?? null,
+    base_unit: d.base_unit ?? '',
+    package_size: d.package_size ?? null,
+    package_unit: d.package_unit ?? '',
+    notes: d.notes ?? '',
+  })
+}
+
 export default function IngredientForm({
   ingredient,
   onSubmittingChange,
   onSaved,
+  onAutoSaveStatus,
 }: IngredientFormProps) {
   const router = useRouter()
+  const isExisting = !!ingredient?.id
+
+  const defaultValues: FormData = {
+    name: ingredient?.name ?? '',
+    brand: ingredient?.brand ?? '',
+    category: ingredient?.category ?? '',
+    current_price: ingredient?.current_price ?? undefined,
+    base_unit: ingredient?.base_unit ?? 'kg',
+    package_size: ingredient?.package_size ?? undefined,
+    package_unit: ingredient?.package_unit ?? '',
+    notes: ingredient?.notes ?? '',
+  }
 
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: {
-      name: ingredient?.name ?? '',
-      category: ingredient?.category ?? '',
-      current_price: ingredient?.current_price ?? undefined,
-      base_unit: ingredient?.base_unit ?? 'kg',
-      package_size: ingredient?.package_size ?? undefined,
-      package_unit: ingredient?.package_unit ?? '',
-      notes: ingredient?.notes ?? '',
-    },
+    defaultValues,
   })
 
-  const onSubmit = async (data: FormData) => {
+  // Tracks the form values as seen at the last successful save.
+  const lastSavedRef = useRef<FormData>(defaultValues)
+
+  // Watch all fields — triggers re-render (and re-runs the debounce effect) on any change.
+  const watched = useWatch({ control }) as FormData
+
+  // ── Core save function ────────────────────────────────────────────────────
+  // silent=true: used by autosave (no toast, reports status via onAutoSaveStatus)
+  // silent=false: used by manual Save button (shows toast)
+  const performSave = useCallback(async (data: FormData, silent: boolean) => {
     onSubmittingChange?.(true)
+    if (silent) onAutoSaveStatus?.('saving')
+
     const supabase = createClient()
     const payload = {
       name: data.name,
+      brand: data.brand?.trim() || null,
       category: data.category,
       current_price: data.current_price ?? null,
       price_unit: data.base_unit,
@@ -125,44 +162,42 @@ export default function IngredientForm({
           .select()
           .single()
         if (error) throw error
-        toast.success('Ingredient updated')
+
+        if (!silent) toast.success('Ingredient updated')
+
         const savedRow = row as IngredientDbRow
 
         if (priceChanged && data.current_price != null) {
-          try {
-            const tenantId = await resolveTenantId()
-            const historyPayload = {
-              ingredient_id: ingredient.id,
-              tenant_id: tenantId,
-              price: data.current_price,
-              unit: data.base_unit,
-              recorded_at: new Date().toISOString().slice(0, 10),
+          // Only insert a price_history entry when the price actually changed
+          // vs the last save (prevents duplicates on non-price autosaves).
+          const lastSavedPrice = lastSavedRef.current.current_price ?? null
+          if (data.current_price !== lastSavedPrice) {
+            try {
+              const tenantId = await resolveTenantId()
+              const historyPayload = {
+                ingredient_id: ingredient.id,
+                tenant_id: tenantId,
+                price: data.current_price,
+                unit: data.base_unit,
+                recorded_at: new Date().toISOString().slice(0, 10),
+              }
+              await supabase.from('ingredient_price_history').insert(historyPayload)
+            } catch {
+              // Best-effort — never blocks the ingredient save
             }
-            console.log('[ingredient] price history payload (update):', historyPayload)
-            const { data: historyData, error: historyError } = await supabase
-              .from('ingredient_price_history')
-              .insert(historyPayload)
-              .select('id, ingredient_id, tenant_id, price, unit, recorded_at')
-              .single()
-            console.log('[ingredient] price history result (update):', historyData)
-            console.log(
-              '[ingredient] price history error (update):',
-              historyError ? JSON.stringify(historyError) : 'null'
-            )
-            if (historyError) throw historyError
-          } catch {
-            // Price history is best-effort — don't fail the ingredient save
           }
         }
 
+        lastSavedRef.current = { ...data }
+        onAutoSaveStatus?.('saved')
         onSaved?.({
           ...savedRow,
           base_unit: savedRow.price_unit ?? data.base_unit,
         } as IngredientRow)
       } else {
-        // Resolve tenant before insert — tenant_id is NOT NULL and RLS-enforced
+        // New ingredient — should never be called via autosave (guarded by isExisting),
+        // but keep the create path for manual Save on /ingredients/new.
         const tenantId = await resolveTenantId()
-
         const { data: row, error } = await supabase
           .from('ingredients')
           .insert({ ...payload, tenant_id: tenantId })
@@ -173,7 +208,6 @@ export default function IngredientForm({
         const newId = (row as IngredientDbRow).id
         toast.success('Ingredient created')
 
-        // Record initial price history entry (best-effort, never blocks save)
         if (data.current_price != null && data.current_price > 0) {
           try {
             const historyPayload = {
@@ -183,18 +217,7 @@ export default function IngredientForm({
               unit: data.base_unit,
               recorded_at: new Date().toISOString().slice(0, 10),
             }
-            console.log('[ingredient] price history payload (create):', historyPayload)
-            const { data: historyData, error: historyError } = await supabase
-              .from('ingredient_price_history')
-              .insert(historyPayload)
-              .select('id, ingredient_id, tenant_id, price, unit, recorded_at')
-              .single()
-            console.log('[ingredient] price history result (create):', historyData)
-            console.log(
-              '[ingredient] price history error (create):',
-              historyError ? JSON.stringify(historyError) : 'null'
-            )
-            if (historyError) throw historyError
+            await supabase.from('ingredient_price_history').insert(historyPayload)
           } catch (e) {
             console.warn('[ingredient] price history insert failed:', e)
           }
@@ -203,11 +226,51 @@ export default function IngredientForm({
         router.push(`/ingredients/${newId}`)
       }
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Unable to save ingredient')
+      if (!silent) toast.error(err instanceof Error ? err.message : 'Unable to save ingredient')
+      onAutoSaveStatus?.('error')
     } finally {
       onSubmittingChange?.(false)
     }
+  }, [ingredient, onSubmittingChange, onSaved, onAutoSaveStatus, router])
+
+  // Ref that always points to the current autosave callback — avoids stale closures
+  // inside the setTimeout below.
+  const autoSaveFnRef = useRef<() => void>(() => {})
+  autoSaveFnRef.current = () => {
+    void handleSubmit((data) => performSave(data, true))()
   }
+
+  // ── Debounced autosave — only for existing ingredients ────────────────────
+  useEffect(() => {
+    if (!isExisting) return
+    if (serialize(watched) === serialize(lastSavedRef.current)) return
+
+    onAutoSaveStatus?.('dirty')
+
+    const timer = setTimeout(() => {
+      autoSaveFnRef.current()
+    }, 2000)
+
+    return () => clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watched, isExisting])
+
+  // ── beforeunload guard — warn if pending changes exist ───────────────────
+  useEffect(() => {
+    if (!isExisting) return
+
+    const handler = (e: BeforeUnloadEvent) => {
+      if (serialize(watched) !== serialize(lastSavedRef.current)) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watched, isExisting])
+
+  const onSubmit = useCallback((data: FormData) => performSave(data, false), [performSave])
 
   const selectClass = cn(field, '[&>option]:bg-white dark:[&>option]:bg-slate-800')
 
@@ -218,6 +281,12 @@ export default function IngredientForm({
         <label className={label}>Name *</label>
         <input {...register('name')} placeholder="e.g. Whole Milk" className={field} />
         {errors.name && <p className="mt-1 text-xs text-red-500">{errors.name.message}</p>}
+      </div>
+
+      {/* Brand */}
+      <div>
+        <label className={label}>Brand <span className="font-normal text-slate-400">(optional)</span></label>
+        <input {...register('brand')} placeholder="e.g. Lurpak, RHM, KTC" className={field} />
       </div>
 
       {/* Category */}

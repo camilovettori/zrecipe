@@ -1,14 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, SlidersHorizontal, Apple } from 'lucide-react'
+import { LayoutGrid, List, Plus, Search, SlidersHorizontal, Apple } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useIngredients, type SortKey } from '@/hooks/useIngredients'
 import IngredientCard from '@/components/ingredients/IngredientCard'
+import IngredientListView, { type TrendData } from '@/components/ingredients/IngredientListView'
 import EmptyState from '@/components/shared/EmptyState'
 import ConfirmDelete from '@/components/shared/ConfirmDelete'
 import { toast } from '@/lib/toast'
+import { createClient } from '@/lib/supabase/client'
+import { cn } from '@/lib/utils'
 
 const CATEGORIES = [
   'all', 'Dairy', 'Flour', 'Sugar', 'Spice', 'Meat', 'Vegetable', 'Fruit', 'Other',
@@ -20,6 +23,8 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'updated', label: 'Last Updated' },
 ]
 
+type ViewMode = 'grid' | 'list'
+
 function SkeletonCard() {
   return (
     <div className="animate-pulse rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-800">
@@ -30,6 +35,20 @@ function SkeletonCard() {
         <div className="h-3 w-20 rounded bg-slate-200 dark:bg-slate-700" />
         <div className="h-3 w-20 rounded bg-slate-200 dark:bg-slate-700" />
       </div>
+    </div>
+  )
+}
+
+function SkeletonListRow() {
+  return (
+    <div className="flex animate-pulse items-center gap-4 border-b border-slate-100 px-4 py-3 dark:border-slate-700">
+      <div className="h-10 w-10 rounded-lg bg-slate-200 dark:bg-slate-700" />
+      <div className="flex-1 space-y-1.5">
+        <div className="h-4 w-40 rounded bg-slate-200 dark:bg-slate-700" />
+        <div className="h-3 w-24 rounded bg-slate-200 dark:bg-slate-700" />
+      </div>
+      <div className="h-4 w-20 rounded bg-slate-200 dark:bg-slate-700" />
+      <div className="hidden h-4 w-16 rounded bg-slate-200 dark:bg-slate-700 md:block" />
     </div>
   )
 }
@@ -51,6 +70,61 @@ export default function IngredientsPage() {
 
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('ingredients-view-mode') as ViewMode) ?? 'grid'
+    }
+    return 'grid'
+  })
+  const [trends, setTrends] = useState<Record<string, TrendData>>({})
+
+  // Fetch price trends when switching to list view (or when ingredients change in list mode)
+  useEffect(() => {
+    if (viewMode !== 'list' || ingredients.length === 0 || loading) return
+
+    const ids = ingredients.map((i) => i.id)
+    const supabase = createClient()
+    supabase
+      .from('ingredient_price_history')
+      .select('ingredient_id, price, recorded_at')
+      .in('ingredient_id', ids)
+      .order('recorded_at', { ascending: false })
+      .then(({ data }) => {
+        if (!data) return
+
+        // Group by ingredient_id, keep the latest 2 per ingredient
+        const grouped = new Map<string, number[]>()
+        for (const row of data) {
+          const arr = grouped.get(row.ingredient_id) ?? []
+          if (arr.length < 2) {
+            arr.push(row.price)
+            grouped.set(row.ingredient_id, arr)
+          }
+        }
+
+        const computed: Record<string, TrendData> = {}
+        for (const [id, prices] of Array.from(grouped.entries())) {
+          if (prices.length < 2 || prices[1] === 0) {
+            computed[id] = { direction: 'flat', pct: 0 }
+            continue
+          }
+          const latest = prices[0]
+          const prev = prices[1]
+          const pct = Math.abs(((latest - prev) / prev) * 100)
+          computed[id] = {
+            direction: latest > prev ? 'up' : latest < prev ? 'down' : 'flat',
+            pct,
+          }
+        }
+        setTrends(computed)
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, loading, ingredients.length])
+
+  const setView = (mode: ViewMode) => {
+    setViewMode(mode)
+    localStorage.setItem('ingredients-view-mode', mode)
+  }
 
   const confirmDelete = async () => {
     if (!deleteTarget) return
@@ -91,7 +165,7 @@ export default function IngredientsPage() {
         </button>
       </div>
 
-      {/* Filters */}
+      {/* Filters + view toggle */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -110,9 +184,7 @@ export default function IngredientsPage() {
           className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 focus:border-emerald-400 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white [&>option]:bg-white dark:[&>option]:bg-slate-800"
         >
           {CATEGORIES.map((c) => (
-            <option key={c} value={c}>
-              {c === 'all' ? 'All Categories' : c}
-            </option>
+            <option key={c} value={c}>{c === 'all' ? 'All Categories' : c}</option>
           ))}
         </select>
 
@@ -124,11 +196,37 @@ export default function IngredientsPage() {
             className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 focus:border-emerald-400 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white [&>option]:bg-white dark:[&>option]:bg-slate-800"
           >
             {SORT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                Sort: {o.label}
-              </option>
+              <option key={o.value} value={o.value}>Sort: {o.label}</option>
             ))}
           </select>
+        </div>
+
+        {/* View mode toggle */}
+        <div className="flex items-center rounded-lg border border-slate-200 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-800">
+          <button
+            onClick={() => setView('grid')}
+            title="Grid view"
+            className={cn(
+              'flex h-8 w-8 items-center justify-center rounded-md transition-colors',
+              viewMode === 'grid'
+                ? 'bg-emerald-600 text-white'
+                : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
+            )}
+          >
+            <LayoutGrid className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => setView('list')}
+            title="List view"
+            className={cn(
+              'flex h-8 w-8 items-center justify-center rounded-md transition-colors',
+              viewMode === 'list'
+                ? 'bg-emerald-600 text-white'
+                : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
+            )}
+          >
+            <List className="h-4 w-4" />
+          </button>
         </div>
       </div>
 
@@ -141,9 +239,15 @@ export default function IngredientsPage() {
 
       {/* Content */}
       {loading ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
-        </div>
+        viewMode === 'grid' ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+            {Array.from({ length: 8 }).map((_, i) => <SkeletonListRow key={i} />)}
+          </div>
+        )
       ) : ingredients.length === 0 ? (
         <EmptyState
           icon={Apple}
@@ -159,7 +263,7 @@ export default function IngredientsPage() {
               : undefined
           }
         />
-      ) : (
+      ) : viewMode === 'grid' ? (
         <motion.div layout className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <AnimatePresence mode="popLayout">
             {ingredients.map((ingredient) => (
@@ -179,6 +283,14 @@ export default function IngredientsPage() {
             ))}
           </AnimatePresence>
         </motion.div>
+      ) : (
+        <IngredientListView
+          ingredients={ingredients}
+          trends={trends}
+          sortBy={sortBy}
+          onSortChange={setSortBy}
+          onDeleteRequest={(id, name) => setDeleteTarget({ id, name })}
+        />
       )}
 
       <ConfirmDelete

@@ -4,7 +4,6 @@ import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { getPackagePricingBasis, normalizePackageUnit } from '@/lib/invoices'
-import { fetchAndSaveIngredientImage } from '@/lib/ingredients/image-fetch'
 
 type SaveItem = {
   id?: string
@@ -18,6 +17,7 @@ type SaveItem = {
   ingredientId?: string | null
   createIngredient?: boolean
   newIngredientName?: string | null
+  newIngredientBrand?: string | null
   newIngredientCategory?: string | null
   newIngredientUnit?: string | null
   ingredientMatch?:
@@ -412,6 +412,7 @@ export async function POST(request: NextRequest) {
         const ingredientPayload = {
           tenant_id: tenantId,
           name: ingredientName,
+          brand: item.newIngredientBrand?.trim() || null,
           category:
             item.newIngredientCategory && item.newIngredientCategory !== 'Other'
               ? item.newIngredientCategory
@@ -446,12 +447,7 @@ export async function POST(request: NextRequest) {
 
         ingredientId = createdIngredient.id
 
-        void fetchAndSaveIngredientImage({
-          ingredientId: createdIngredient.id,
-          ingredientName,
-        }).catch((error) => {
-          console.error('[/api/invoices/save] ingredient image fetch failed:', error)
-        })
+        // Image is now resolved client-side from the local manifest — no auto-fetch needed here.
       }
 
       console.log('[SAVE] Step 6: Creating invoice item...')

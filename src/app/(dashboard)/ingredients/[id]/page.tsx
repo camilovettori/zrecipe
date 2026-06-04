@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, ChefHat, RefreshCw, Save, Trash2 } from 'lucide-react'
+import { ArrowLeft, Camera, Check, ChefHat, Loader2, Save, Trash2, X } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
-import IngredientForm from '@/components/ingredients/IngredientForm'
+import IngredientForm, { type AutoSaveStatus } from '@/components/ingredients/IngredientForm'
 import AllergenPicker from '@/components/ingredients/AllergenPicker'
 import PriceHistoryChart, { type PricePoint } from '@/components/ingredients/PriceHistoryChart'
 import ConfirmDelete from '@/components/shared/ConfirmDelete'
@@ -13,6 +13,7 @@ import PriceChangeBanner from '@/components/ingredients/PriceChangeBanner'
 import { cn } from '@/lib/utils'
 import type { IngredientRow } from '@/hooks/useIngredients'
 import { EU_ALLERGENS, type AllergenStatus, type IngredientAllergen } from '@/lib/allergens'
+import { findIngredientImage } from '@/lib/utils/ingredient-image'
 
 function formatMoney(value: number) {
   return `€${value.toFixed(2)}`
@@ -57,6 +58,32 @@ function PageSkeleton() {
   )
 }
 
+function AutoSaveIndicator({ status }: { status: AutoSaveStatus }) {
+  if (status === 'idle') return null
+  if (status === 'dirty') return (
+    <span className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+      Unsaved
+    </span>
+  )
+  if (status === 'saving') return (
+    <span className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+      <Loader2 className="h-3 w-3 animate-spin" />
+      Saving…
+    </span>
+  )
+  if (status === 'saved') return (
+    <span className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+      <Check className="h-3 w-3" />
+      Saved
+    </span>
+  )
+  if (status === 'error') return (
+    <span className="text-xs text-red-600 dark:text-red-400">Save failed</span>
+  )
+  return null
+}
+
 export default function IngredientDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
@@ -69,69 +96,22 @@ export default function IngredientDetailPage() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [allergenMap, setAllergenMap] = useState<Record<number, AllergenStatus>>({})
-  const [imageRefreshing, setImageRefreshing] = useState(false)
-  const autoImageFetchAttemptedFor = useRef<string | null>(null)
+  const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>('idle')
+  // Manifest image resolved client-side — never saved to DB
+  const [manifestImageUrl, setManifestImageUrl] = useState<string | null>(null)
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  type IngredientDbRow = IngredientRow & {
-    price_unit?: string | null
-  }
+  type IngredientDbRow = IngredientRow & { price_unit?: string | null }
 
-  type FetchImageResponse = {
-    imageUrl?: string | null
-    query?: string | null
-    skipped?: string | null
-    error?: string | null
-  }
+  // Fade 'saved' back to idle after 3 s
+  useEffect(() => {
+    if (autoSaveStatus !== 'saved') return
+    const t = setTimeout(() => setAutoSaveStatus('idle'), 3000)
+    return () => clearTimeout(t)
+  }, [autoSaveStatus])
 
-  const refreshIngredientImage = useCallback(
-    async (target: IngredientRow, force = false, showToast = false) => {
-      if (!target.id) return null
-
-      try {
-        setImageRefreshing(true)
-
-        const response = await fetch('/api/ingredients/fetch-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ingredientId: target.id,
-            ingredientName: target.name,
-            force,
-          }),
-        })
-
-        const payload = (await response.json().catch(() => ({}))) as FetchImageResponse
-
-        if (!response.ok) {
-          throw new Error(payload.error ?? 'Unable to fetch image')
-        }
-
-        if (payload.imageUrl) {
-          setIngredient((current) =>
-            current && current.id === target.id
-              ? { ...current, image_url: payload.imageUrl ?? null }
-              : current
-          )
-          return payload.imageUrl
-        }
-
-        if (showToast) {
-          toast.info(payload.error ?? 'No image found for this ingredient')
-        }
-
-        return null
-      } catch (error: unknown) {
-        if (showToast) {
-          toast.error(error instanceof Error ? error.message : 'Unable to fetch image')
-        }
-        return null
-      } finally {
-        setImageRefreshing(false)
-      }
-    },
-    []
-  )
-
+  // Load ingredient + price history + allergens
   useEffect(() => {
     if (isNew) return
 
@@ -155,20 +135,12 @@ export default function IngredientDetailPage() {
         return
       }
 
-      console.log('[INGREDIENT DETAIL] price history query result:', {
-        ingredientId: id,
-        count: histRes.data?.length ?? 0,
-        error: histRes.error?.message ?? null,
-        rows: histRes.data,
-      })
-
       setIngredient({
         ...(ingRes.data as IngredientDbRow),
         base_unit: (ingRes.data as IngredientDbRow).price_unit ?? 'unit',
       } as IngredientRow)
       setPriceHistory((histRes.data ?? []) as PricePoint[])
 
-      // Hydrate allergen map from API response
       const ingAllergens: IngredientAllergen[] = allergenRes?.[id] ?? []
       const map: Record<number, AllergenStatus> = {}
       for (const { allergenId, status } of ingAllergens) map[allergenId] = status
@@ -178,13 +150,14 @@ export default function IngredientDetailPage() {
     })
   }, [id, isNew, router])
 
+  // Resolve manifest image whenever ingredient name changes (client-side, no DB write)
   useEffect(() => {
-    if (isNew || !ingredient?.id || ingredient.image_url) return
-    if (autoImageFetchAttemptedFor.current === ingredient.id) return
-
-    autoImageFetchAttemptedFor.current = ingredient.id
-    void refreshIngredientImage(ingredient, false, false)
-  }, [ingredient, isNew, refreshIngredientImage])
+    if (!ingredient?.name) return
+    // Only use manifest if no user-uploaded image
+    const userImage = ingredient.image_url?.startsWith('http') ? ingredient.image_url : null
+    if (userImage) { setManifestImageUrl(null); return }
+    findIngredientImage(ingredient.name).then(setManifestImageUrl)
+  }, [ingredient?.name, ingredient?.image_url])
 
   const handleDelete = async () => {
     if (!ingredient) return
@@ -206,7 +179,6 @@ export default function IngredientDetailPage() {
       allergenId: parseInt(id),
       status,
     }))
-    console.log('[allergen save] payload:', { ingredientId: updated.id, allergens })
     try {
       const res = await fetch('/api/ingredients/allergens', {
         method: 'PUT',
@@ -215,10 +187,7 @@ export default function IngredientDetailPage() {
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({})) as { error?: string }
-        console.error('[allergen save] failed:', res.status, body)
         toast.error(body.error ?? 'Allergens could not be saved')
-      } else {
-        console.log('[allergen save] success')
       }
     } catch (err) {
       console.error('[allergen save] network error:', err)
@@ -226,9 +195,54 @@ export default function IngredientDetailPage() {
     }
   }
 
+  // Upload user photo → Supabase storage → save URL to DB
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !ingredient) return
+
+    setUploadingImage(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('ingredientId', ingredient.id)
+
+      const res = await fetch('/api/ingredients/upload-image', { method: 'POST', body: formData })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string }
+        toast.error(err.error ?? 'Upload failed')
+        return
+      }
+
+      const { url } = await res.json() as { url: string }
+      const supabase = createClient()
+      await supabase.from('ingredients').update({ image_url: url }).eq('id', ingredient.id)
+      setIngredient((prev) => prev ? { ...prev, image_url: url } : prev)
+      setManifestImageUrl(null)
+      toast.success('Photo updated')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Upload failed')
+    } finally {
+      setUploadingImage(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }, [ingredient])
+
+  // Remove user-uploaded photo, fall back to manifest
+  const handleRemoveImage = useCallback(async () => {
+    if (!ingredient) return
+    const supabase = createClient()
+    await supabase.from('ingredients').update({ image_url: null }).eq('id', ingredient.id)
+    setIngredient((prev) => prev ? { ...prev, image_url: null } : prev)
+    findIngredientImage(ingredient.name).then(setManifestImageUrl)
+  }, [ingredient])
+
   if (loading) return <PageSkeleton />
 
   const pageTitle = isNew ? 'New Ingredient' : (ingredient?.name ?? 'Ingredient')
+
+  // User-uploaded image wins; manifest image is the fallback; null → placeholder
+  const userImageUrl = ingredient?.image_url?.startsWith('http') ? ingredient.image_url : null
+  const displayImageUrl = userImageUrl ?? manifestImageUrl
 
   return (
     <div className="space-y-6">
@@ -245,6 +259,8 @@ export default function IngredientDetailPage() {
         <h1 className="font-display flex-1 truncate text-xl font-bold text-slate-900 dark:text-white">
           {pageTitle}
         </h1>
+
+        {!isNew && <AutoSaveIndicator status={autoSaveStatus} />}
 
         <button
           form="ingredient-form"
@@ -267,7 +283,7 @@ export default function IngredientDetailPage() {
         )}
       </div>
 
-      {/* Price change banner — shown once per session when price shifted */}
+      {/* Price change banner */}
       {!isNew && ingredient && (
         <PriceChangeBanner ingredientId={id} priceHistory={priceHistory} />
       )}
@@ -280,9 +296,9 @@ export default function IngredientDetailPage() {
             ingredient={ingredient}
             onSubmittingChange={setIsSaving}
             onSaved={handleIngredientSaved}
+            onAutoSaveStatus={setAutoSaveStatus}
           />
 
-          {/* Allergen section — only shown for existing ingredients */}
           {!isNew && (
             <div className="mt-6 border-t border-slate-200 pt-6">
               <h2 className="mb-1 text-sm font-semibold text-slate-900 dark:text-white">
@@ -298,48 +314,70 @@ export default function IngredientDetailPage() {
           )}
         </div>
 
-        {/* Right: price history */}
+        {/* Right: image + price history + details */}
         <div className="space-y-4">
+          {/* ── Image card ─────────────────────────────────────────────── */}
           {!isNew && ingredient && (
-            <div className="relative overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
-              {ingredient.image_url ? (
-                <>
+            <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
+              {displayImageUrl ? (
+                <div className="relative">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={ingredient.image_url}
+                    src={displayImageUrl}
                     alt={ingredient.name}
-                    className="h-56 w-full object-cover"
+                    className="h-52 w-full object-cover"
                   />
-                  <button
-                    type="button"
-                    onClick={() => void refreshIngredientImage(ingredient, true, true)}
-                    disabled={imageRefreshing}
-                    aria-label="Refresh image"
-                    className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 shadow-sm backdrop-blur-sm transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <RefreshCw className={cn('h-3.5 w-3.5 text-slate-700', imageRefreshing && 'animate-spin')} />
-                  </button>
-                </>
-              ) : (
-                <div className="flex h-56 flex-col items-center justify-center gap-3 bg-slate-100 px-6 text-center dark:bg-slate-900">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20">
-                    <ChefHat className="h-7 w-7" />
-                  </div>
-                  <p className="text-sm font-medium text-slate-600 dark:text-slate-300">No image yet</p>
-                  <button
-                    type="button"
-                    onClick={() => void refreshIngredientImage(ingredient, true, true)}
-                    disabled={imageRefreshing}
-                    aria-label="Refresh image"
-                    className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700"
-                  >
-                    <RefreshCw className={cn('h-3.5 w-3.5 text-slate-600 dark:text-slate-300', imageRefreshing && 'animate-spin')} />
-                  </button>
+                  {/* × remove button — only for user uploads */}
+                  {userImageUrl && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveImage}
+                      title="Remove photo"
+                      className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-white/90 shadow-sm transition hover:bg-white"
+                    >
+                      <X className="h-3.5 w-3.5 text-slate-700" />
+                    </button>
+                  )}
+                  {/* Change photo button — overlay for user uploads */}
+                  {userImageUrl && (
+                    <label className="absolute bottom-2 right-2 flex cursor-pointer items-center gap-1.5 rounded-full bg-white/90 px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-white">
+                      <Camera className="h-3 w-3" />
+                      Change
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="sr-only"
+                        onChange={handleFileChange}
+                      />
+                    </label>
+                  )}
                 </div>
+              ) : (
+                // Placeholder — click anywhere to upload
+                <label className="flex h-52 cursor-pointer flex-col items-center justify-center gap-2 bg-slate-50 transition hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800/80">
+                  {uploadingImage ? (
+                    <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+                  ) : (
+                    <>
+                      <ChefHat className="h-8 w-8 text-slate-300 dark:text-slate-600" />
+                      <Camera className="h-5 w-5 text-slate-400" />
+                      <span className="text-sm text-slate-400">Add photo</span>
+                    </>
+                  )}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={handleFileChange}
+                  />
+                </label>
               )}
             </div>
           )}
 
+          {/* Price history chart */}
           <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-800">
             <h2 className="mb-4 text-sm font-semibold text-slate-900 dark:text-white">
               Price History
@@ -350,6 +388,7 @@ export default function IngredientDetailPage() {
             />
           </div>
 
+          {/* Details panel */}
           {!isNew && ingredient && (
             <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-800">
               <h2 className="mb-3 text-sm font-semibold text-slate-900 dark:text-white">
@@ -413,7 +452,6 @@ export default function IngredientDetailPage() {
         </div>
       </div>
 
-      {/* Delete modal */}
       <ConfirmDelete
         open={deleteOpen}
         onClose={() => setDeleteOpen(false)}

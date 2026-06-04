@@ -161,6 +161,21 @@ function SearchableCombobox({
   )
 }
 
+// ── Brand suggestion extractor ────────────────────────────────────────────────
+const GENERIC_FIRST_WORDS = new Set([
+  'the', 'fresh', 'organic', 'pure', 'premium', 'natural', 'whole', 'raw',
+  'free', 'range', 'best', 'top', 'fine', 'extra', 'super', 'new',
+])
+
+function extractBrandSuggestion(description: string): string {
+  const words = description.trim().split(/\s+/).slice(0, 2)
+  for (const word of words) {
+    const clean = word.toLowerCase().replace(/[^a-z]/g, '')
+    if (clean && !GENERIC_FIRST_WORDS.has(clean)) return word
+  }
+  return ''
+}
+
 // ── Description combobox — merged description + ingredient matching ─────────────
 
 function DescriptionCombobox({
@@ -256,14 +271,15 @@ function DescriptionCombobox({
 
   const createIngredient = (name: string) => {
     onUpdate({
-      description:          name,
-      ingredientId:         null,
-      ingredientQuery:      name,
-      ingredientMatch:      { type: 'create', name },
-      createIngredient:     true,
-      newIngredientName:    name,
+      description:           name,
+      ingredientId:          null,
+      ingredientQuery:       name,
+      ingredientMatch:       { type: 'create', name },
+      createIngredient:      true,
+      newIngredientName:     name,
+      newIngredientBrand:    extractBrandSuggestion(name),
       newIngredientCategory: item.newIngredientCategory ?? 'Other',
-      newIngredientUnit:    item.unit,
+      newIngredientUnit:     item.unit,
     })
     setOpen(false)
   }
@@ -340,6 +356,17 @@ function DescriptionCombobox({
           </button>
         ) : null}
       </div>
+
+      {/* Brand suggestion — shown inline when creating a new ingredient */}
+      {isNew && (
+        <input
+          type="text"
+          placeholder="Brand (optional, e.g. Lurpak)"
+          value={item.newIngredientBrand ?? ''}
+          onChange={(e) => onUpdate({ newIngredientBrand: e.target.value })}
+          className="mt-1 h-7 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10"
+        />
+      )}
 
       {open &&
         dropdownStyle &&

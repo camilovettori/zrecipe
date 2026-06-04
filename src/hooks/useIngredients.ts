@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 export interface IngredientRow {
   id: string
   name: string
+  brand: string | null
   category: string | null
   current_price: number | null
   base_unit: string
@@ -24,6 +25,7 @@ export type SortKey = 'name' | 'price' | 'updated'
 type IngredientDbRow = {
   id: string
   name: string
+  brand: string | null
   category: string | null
   current_price: number | null
   price_unit: string | null
@@ -42,6 +44,7 @@ function normalizeIngredientRow(row: IngredientDbRow): IngredientRow {
   return {
     id: row.id,
     name: row.name,
+    brand: row.brand ?? null,
     category: row.category,
     current_price: row.current_price,
     base_unit: row.price_unit ?? '',
@@ -84,7 +87,7 @@ export function useIngredients() {
     const { data, error } = await supabase
       .from('ingredients')
       .select(
-        'id, name, category, current_price, price_unit, package_size, package_unit, notes, image_url, supplier_id, supplier:suppliers!last_supplier_id(name), created_at, updated_at'
+        'id, name, brand, category, current_price, price_unit, package_size, package_unit, notes, image_url, supplier_id, supplier:suppliers!last_supplier_id(name), created_at, updated_at'
       )
       .order('name')
     if (error) setError(error.message)
