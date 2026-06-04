@@ -14,10 +14,6 @@ import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 
-const CATEGORIES = [
-  'all', 'Dairy', 'Flour', 'Sugar', 'Spice', 'Meat', 'Vegetable', 'Fruit', 'Other',
-]
-
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'name', label: 'Name' },
   { value: 'price', label: 'Price' },
@@ -58,6 +54,7 @@ export default function IngredientsPage() {
   const router = useRouter()
   const {
     ingredients,
+    categories,
     loading,
     error,
     deleteIngredient,
@@ -182,7 +179,10 @@ export default function IngredientsPage() {
         <CustomSelect
           value={category}
           onChange={filterByCategory}
-          options={CATEGORIES.map((c) => ({ value: c, label: c === 'all' ? 'All Categories' : c }))}
+          options={[
+            { value: 'all', label: 'All Categories' },
+            ...categories.map((c) => ({ value: c, label: c })),
+          ]}
         />
 
         <div className="flex items-center gap-2">

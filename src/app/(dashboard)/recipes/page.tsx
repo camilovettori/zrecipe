@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { ChefHat, Grid2X2, LayoutList, Lock, Plus, Search } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import RecipeCard from '@/components/recipes/RecipeCard'
-import { RECIPE_CATEGORIES, useRecipes } from '@/hooks/useRecipes'
+import { useRecipes } from '@/hooks/useRecipes'
 import { useSubscription } from '@/hooks/useSubscription'
 import { EU_ALLERGENS } from '@/lib/allergens'
 import { cn } from '@/lib/utils'
@@ -76,7 +76,14 @@ export default function RecipesPage() {
   const [excludeRecipeIds, setExcludeRecipeIds] = useState<Set<string>>(new Set())
   const [view, setView] = useState<ViewMode>('grid')
   const [sortBy, setSortBy] = useState<SortKey>('margin_desc')
-  const categoryOptions = ['all', 'sub-ingredients', ...RECIPE_CATEGORIES]
+  const categoryOptions = useMemo(
+    () => [
+      'all',
+      'sub-ingredients',
+      ...Array.from(new Set(recipes.map((r) => r.category).filter(Boolean))).sort(),
+    ],
+    [recipes]
+  )
 
   const atRecipeLimit = !hasFullAccess && recipes.length >= limits.maxRecipes
 

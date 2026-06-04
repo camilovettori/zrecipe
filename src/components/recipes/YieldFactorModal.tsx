@@ -56,7 +56,7 @@ export function YieldFactorModal({ open, onClose }: Props) {
                         <tr className="text-xs text-slate-400">
                           <th className="pb-1 text-left font-medium">Ingredient</th>
                           <th className="w-16 pb-1 text-right font-medium">Yield</th>
-                          <th className="pb-1 pl-4 text-left font-medium">What's removed</th>
+                          <th className="pb-1 pl-4 text-left font-medium">What&apos;s removed</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50">

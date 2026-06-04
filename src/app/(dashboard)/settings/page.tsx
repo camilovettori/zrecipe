@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useState, type ComponentType } from 'react'
 import * as Tabs from '@radix-ui/react-tabs'
 import {
-  Building2,
-  CheckCircle2,
-  CreditCard,
   AlertTriangle,
+  Building2,
+  Check,
+  CreditCard,
   KeyRound,
   Loader2,
   Mail,
@@ -26,7 +26,7 @@ import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
 import { clearTenantCache, resolveTenantContext } from '@/hooks/useTenant'
 import { TRIAL_PERIOD_DAYS, getEffectiveSubscriptionStatus } from '@/lib/tenant'
-import { FREE_LIMITS, PRO_LIMITS } from '@/lib/subscription/limits'
+import { FREE_LIMITS } from '@/lib/subscription/limits'
 import { cn } from '@/lib/utils'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 import { format } from 'date-fns'
@@ -41,6 +41,7 @@ type TenantSettings = {
   stripe_customer_id: string | null
   subscription_current_period_end: string | null
   subscription_trial_end: string | null
+  subscription_cancel_at: string | null
   created_at: string
 }
 
@@ -124,235 +125,6 @@ function TrialingCard({
   )
 }
 
-function ActiveCard({
-  tenant,
-  onManage,
-  busy,
-}: {
-  tenant: TenantSettings
-  onManage: () => void
-  busy: boolean
-}) {
-  return (
-    <div className="overflow-hidden rounded-2xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white">
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            Active
-          </div>
-          <h2 className="mt-3 text-2xl font-bold text-slate-900">ZRecipe Pro â€" Active</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            {tenant.subscription_current_period_end
-              ? `Next billing date: ${fmt(tenant.subscription_current_period_end)}`
-              : 'Your subscription is active and all features are unlocked.'}
-          </p>
-        </div>
-        <CheckCircle2 className="h-10 w-10 shrink-0 text-emerald-500" />
-      </div>
-      <button
-        onClick={onManage}
-        disabled={busy}
-        className="mt-5 inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-white px-5 py-2.5 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-60"
-      >
-        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-        Manage Subscription
-      </button>
-    </div>
-  )
-}
-
-function InactiveCard({
-  status,
-  onReactivate,
-  busy,
-}: {
-  status: string
-  onReactivate: () => void
-  busy: boolean
-}) {
-  const isPastDue = status === 'past_due'
-  return (
-    <div className={cn(
-      'overflow-hidden rounded-2xl border p-6 shadow-sm',
-      isPastDue
-        ? 'border-amber-200 bg-amber-50'
-        : 'border-red-200 bg-red-50'
-    )}>
-      <div className="flex items-start justify-between">
-        <div>
-          <div className={cn(
-            'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wider',
-            isPastDue ? 'bg-amber-600 text-white' : 'bg-red-600 text-white'
-          )}>
-            <X className="h-3.5 w-3.5" />
-            {isPastDue ? 'Payment Failed' : 'Subscription Ended'}
-          </div>
-          <h2 className="mt-3 text-2xl font-bold text-slate-900">
-            {isPastDue ? 'Your payment failed' : 'Your subscription has ended'}
-          </h2>
-          <p className="mt-1 text-sm text-slate-500">
-            {isPastDue
-              ? 'Update your payment method to restore full access.'
-              : 'Reactivate your plan to unlock all features again.'}
-          </p>
-        </div>
-      </div>
-      <button
-        onClick={onReactivate}
-        disabled={busy}
-        className={cn(
-          'mt-5 inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60',
-          isPastDue ? 'bg-amber-600 hover:bg-amber-500' : 'bg-emerald-600 hover:bg-emerald-500'
-        )}
-      >
-        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-        {isPastDue ? 'Update Payment Method' : 'Reactivate Subscription'}
-      </button>
-    </div>
-  )
-}
-
-// â"€â"€ Plan comparison â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-
-const FREE_FEATURES = [
-  { text: `${FREE_LIMITS.maxRecipes} recipes maximum`, included: false },
-  { text: 'No invoice import', included: false },
-  { text: 'Cannot delete recipes', included: false },
-  { text: `${FREE_LIMITS.aiRecipeIdeasPerMonth} AI recipe ideas / month`, included: false },
-  { text: `${FREE_LIMITS.aiInvoiceExtractsPerMonth} AI invoice extractions / month`, included: false },
-  { text: 'No PDF export with costs', included: false },
-  { text: 'Basic recipe costing', included: true },
-  { text: 'Ingredient management', included: true },
-  { text: 'Supplier tracking', included: true },
-]
-
-const PRO_FEATURES = [
-  { text: 'Unlimited recipes', included: true },
-  { text: 'Invoice import (PDF, CSV) with AI extraction', included: true },
-  { text: 'Full recipe management (create, edit, delete)', included: true },
-  { text: `${PRO_LIMITS.aiRecipeIdeasPerMonth} AI recipe ideas / month`, included: true },
-  { text: 'Unlimited AI invoice extractions', included: true },
-  { text: 'PDF export (full report & kitchen card)', included: true },
-  { text: 'Price history tracking', included: true },
-  { text: 'Sub-recipe support', included: true },
-  { text: 'Priority support', included: true },
-]
-
-function FeatureRow({
-  text,
-  included,
-  variant,
-}: {
-  text: string
-  included: boolean
-  variant: 'current-free' | 'trial-free' | 'pro'
-}) {
-  const warningOnly = variant === 'trial-free' && !included
-
-  return (
-    <li className="flex items-center gap-2.5 py-2 text-sm">
-      {included ? (
-        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
-      ) : warningOnly ? (
-        <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
-      ) : (
-        <X className="h-4 w-4 shrink-0 text-slate-300" />
-      )}
-      <span
-        className={
-          included
-            ? 'text-slate-700'
-            : warningOnly
-              ? 'text-slate-600'
-              : 'text-slate-400 line-through'
-        }
-      >
-        {text}
-      </span>
-    </li>
-  )
-}
-
-function PlanComparison({
-  onUpgrade,
-  busy,
-  isTrial,
-}: {
-  onUpgrade: () => void
-  busy: boolean
-  isTrial: boolean
-}) {
-  const freeTitle = isTrial ? 'After trial ends' : 'Your current plan'
-  const freeLabel = isTrial ? "What you'll lose when trial ends" : 'Free plan'
-  const freeCardClass = isTrial
-    ? 'border-amber-200 bg-amber-50/70'
-    : 'border-emerald-200 bg-emerald-50'
-  const proCardClass = isTrial
-    ? 'border-emerald-500 bg-white shadow-md shadow-emerald-100'
-    : 'border-slate-200 bg-slate-50'
-  const proBadge = isTrial ? 'Your current plan' : 'Recommended'
-  const ctaLabel = isTrial ? 'Subscribe to keep Pro access' : 'Upgrade to Pro'
-
-  return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      <div className={cn('rounded-2xl p-5 shadow-sm', freeCardClass)}>
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">
-          {freeLabel}
-        </p>
-        <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-slate-600 shadow-sm">
-          {isTrial ? (
-            <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-          ) : (
-            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-          )}
-          {freeTitle}
-        </div>
-        <p className={cn('mt-2 text-2xl font-bold', isTrial ? 'text-slate-700' : 'text-emerald-700')}>
-          €0
-        </p>
-        <p className="text-sm text-slate-500">/month</p>
-        {isTrial && (
-          <p className="mt-3 text-xs font-medium uppercase tracking-widest text-amber-700">
-            What you&apos;ll lose when trial ends
-          </p>
-        )}
-        <ul className="mt-4 divide-y divide-slate-200">
-          {FREE_FEATURES.map((f) => (
-            <FeatureRow
-              key={f.text}
-              {...f}
-              variant={isTrial ? 'trial-free' : 'current-free'}
-            />
-          ))}
-        </ul>
-      </div>
-
-      <div className={cn('rounded-2xl border-2 p-5', proCardClass)}>
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold uppercase tracking-widest text-emerald-600">Pro</p>
-          <span className="rounded-full bg-emerald-600 px-2.5 py-0.5 text-xs font-semibold text-white">
-            {proBadge}
-          </span>
-        </div>
-        <p className="mt-1 text-2xl font-bold text-slate-900">€25</p>
-        <p className="text-sm text-slate-500">/month</p>
-        <ul className="mt-4 divide-y divide-slate-100">
-          {PRO_FEATURES.map((f) => (
-            <FeatureRow key={f.text} {...f} variant="pro" />
-          ))}
-        </ul>
-        <button
-          onClick={onUpgrade}
-          disabled={busy}
-          className="mt-5 w-full rounded-full bg-emerald-600 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-60"
-        >
-          {busy ? 'Redirecting…' : ctaLabel}
-        </button>
-      </div>
-    </div>
-  )
-}
 // â"€â"€ Usage stat card â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function UsageStat({
@@ -392,7 +164,7 @@ function UsageStat({
             />
           </div>
           {atLimit && (
-            <p className="mt-1 text-xs text-red-600 font-medium">Limit reached â€" upgrade to add more</p>
+            <p className="mt-1 text-xs text-red-600 font-medium">Limit reached &mdash; upgrade to add more</p>
           )}
         </div>
       )}
@@ -412,6 +184,8 @@ export default function SettingsPage() {
   const [savingAccount, setSavingAccount] = useState(false)
   const [savingPassword, setSavingPassword] = useState(false)
   const [billingBusy, setBillingBusy] = useState(false)
+  const [isCancelling, setIsCancelling] = useState(false)
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false)
   const [checkoutState, setCheckoutState] = useState<'idle' | 'polling' | 'confirmed' | 'timeout'>('idle')
   const [accountName, setAccountName] = useState('')
   const [businessType, setBusinessType] = useState('')
@@ -439,7 +213,6 @@ export default function SettingsPage() {
     return getEffectiveSubscriptionStatus(tenant.subscription_status, tenant.created_at)
   }, [tenant])
 
-  const isTrial = subStatus === 'trialing'
   const hasFullAccess = subStatus === 'active' || subStatus === 'trialing'
 
   // â"€â"€ URL params: tab + notice toasts â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -560,6 +333,7 @@ export default function SettingsPage() {
           stripe_customer_id:             ctx.tenant.stripeCustomerId ?? null,
           subscription_current_period_end: ctx.tenant.subscriptionCurrentPeriodEnd ?? null,
           subscription_trial_end:         ctx.tenant.subscriptionTrialEnd ?? null,
+          subscription_cancel_at:         ctx.tenant.subscriptionCancelAt ?? null,
           created_at:                     ctx.tenant.createdAt,
         }
 
@@ -664,6 +438,44 @@ export default function SettingsPage() {
       window.location.assign(payload.url)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Unable to open billing page')
+    } finally {
+      setBillingBusy(false)
+    }
+  }
+
+  const handleCancelSubscription = async () => {
+    if (!showCancelConfirm) {
+      setShowCancelConfirm(true)
+      return
+    }
+    setIsCancelling(true)
+    try {
+      const res = await fetch('/api/billing/cancel', { method: 'POST' })
+      const data = await res.json() as { error?: string; cancel_at?: string }
+      if (!res.ok) throw new Error(data.error)
+      const cancelDate = data.cancel_at
+        ? new Date(data.cancel_at).toLocaleDateString('en-IE', { day: 'numeric', month: 'long', year: 'numeric' })
+        : ''
+      toast.success(`Subscription cancelled. Access continues until ${cancelDate}.`)
+      setShowCancelConfirm(false)
+      setTenant((t) => t ? { ...t, subscription_cancel_at: data.cancel_at ?? null } : t)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to cancel subscription')
+    } finally {
+      setIsCancelling(false)
+    }
+  }
+
+  const handleReactivate = async () => {
+    setBillingBusy(true)
+    try {
+      const res = await fetch('/api/billing/reactivate', { method: 'POST' })
+      const data = await res.json() as { error?: string }
+      if (!res.ok) throw new Error(data.error)
+      toast.success('Subscription reactivated!')
+      setTenant((t) => t ? { ...t, subscription_cancel_at: null } : t)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to reactivate subscription')
     } finally {
       setBillingBusy(false)
     }
@@ -1028,34 +840,198 @@ export default function SettingsPage() {
             </div>
           )}
 
-            {/* Section 1 â€" Subscription status */}
-            {tenant && (
-              <>
-                {subStatus === 'trialing' && (
-                  <TrialingCard tenant={tenant} onSubscribe={() => handleBillingAction(true)} busy={billingBusy} />
-                )}
-                {subStatus === 'active' && (
-                  <ActiveCard tenant={tenant} onManage={() => handleBillingAction()} busy={billingBusy} />
-                )}
-                {(subStatus === 'canceled' || subStatus === 'past_due' || subStatus === 'inactive') && (
-                  <InactiveCard status={subStatus} onReactivate={() => handleBillingAction(true)} busy={billingBusy} />
-                )}
-              </>
+            {/* Trialing banner */}
+            {tenant && subStatus === 'trialing' && (
+              <TrialingCard tenant={tenant} onSubscribe={() => handleBillingAction(true)} busy={billingBusy} />
             )}
 
-            {/* Section 2 â€" Plan comparison (only for non-active) */}
-            {subStatus !== 'active' && (
-              <section>
-                <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-slate-400">
-                  Compare Plans
-                </h3>
-                <PlanComparison
-                  onUpgrade={() => handleBillingAction(true)}
-                  busy={billingBusy}
-                  isTrial={isTrial}
-                />
-              </section>
+            {/* Cancellation scheduled banner */}
+            {tenant?.subscription_cancel_at && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-amber-800">Subscription cancellation scheduled</p>
+                  <p className="text-xs text-amber-600 mt-0.5">
+                    Your access continues until{' '}
+                    <strong>
+                      {new Date(tenant.subscription_cancel_at).toLocaleDateString('en-IE', {
+                        day: 'numeric', month: 'long', year: 'numeric',
+                      })}
+                    </strong>
+                    . After that, your account will switch to the free plan.
+                  </p>
+                  <button
+                    onClick={handleReactivate}
+                    disabled={billingBusy}
+                    className="text-xs text-emerald-600 font-medium mt-1 hover:underline disabled:opacity-50"
+                  >
+                    Reactivate subscription →
+                  </button>
+                </div>
+              </div>
             )}
+
+            {/* Plan comparison */}
+            <div className="grid grid-cols-2 gap-4">
+
+              {/* FREE card */}
+              <div className="border border-gray-200 rounded-2xl p-6 bg-gray-50">
+                <div className="mb-4">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Free</span>
+                  <div className="flex items-baseline gap-1 mt-1">
+                    <span className="text-3xl font-bold text-gray-800">€0</span>
+                    <span className="text-gray-400 text-sm">/month</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">After your trial ends</p>
+                </div>
+                <ul className="space-y-2.5">
+                  {[
+                    { text: '5 recipes maximum',       ok: false },
+                    { text: '20 ingredients',          ok: true  },
+                    { text: 'Basic recipe costing',    ok: true  },
+                    { text: 'Supplier tracking',       ok: true  },
+                    { text: 'Invoice import',          ok: false },
+                    { text: 'PDF export',              ok: false },
+                    { text: 'AI recipe ideas',         ok: false },
+                    { text: 'Yield factor calculator', ok: false },
+                    { text: 'VAT & waste tracking',    ok: false },
+                    { text: 'Team members',            ok: false },
+                  ].map((item, i) => (
+                    <li key={i} className="flex items-center gap-2.5">
+                      {item.ok
+                        ? <Check className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                        : <X className="w-4 h-4 text-gray-300 flex-shrink-0" />}
+                      <span className={cn('text-sm', item.ok ? 'text-gray-700' : 'text-gray-400')}>
+                        {item.text}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* PRO card */}
+              <div className="border-2 border-emerald-400 rounded-2xl p-6 bg-white relative">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                  <span className={cn(
+                    'text-xs font-semibold px-3 py-1 rounded-full',
+                    subStatus === 'active'
+                      ? 'bg-emerald-500 text-white'
+                      : 'bg-emerald-100 text-emerald-700'
+                  )}>
+                    {subStatus === 'active' ? '✓ Your current plan' : 'Recommended'}
+                  </span>
+                </div>
+
+                <div className="mb-4 mt-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-emerald-600">Pro</span>
+                  <div className="flex items-baseline gap-1 mt-1">
+                    <span className="text-3xl font-bold text-gray-900">€25</span>
+                    <span className="text-gray-400 text-sm">/month</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Everything you need to run a profitable kitchen</p>
+                </div>
+
+                <ul className="space-y-2.5 mb-6">
+                  {[
+                    'Unlimited recipes',
+                    'Unlimited ingredients',
+                    'Invoice import (PDF & CSV)',
+                    'PDF export — kitchen card & cost report',
+                    '50 AI recipe ideas / month',
+                    'Unlimited AI invoice extractions',
+                    'Yield factor calculator (USDA reference)',
+                    'VAT calculator + waste & overhead tracking',
+                    'Team members (up to 5)',
+                    'Priority support',
+                  ].map((item, i) => (
+                    <li key={i} className="flex items-center gap-2.5">
+                      <Check className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                      <span className="text-sm text-gray-700">{item}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                {subStatus === 'trialing' && (
+                  <button
+                    onClick={() => handleBillingAction(true)}
+                    disabled={billingBusy}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-semibold text-sm transition-colors disabled:opacity-50"
+                  >
+                    {billingBusy ? 'Redirecting…' : 'Subscribe — €25/month'}
+                  </button>
+                )}
+
+                {subStatus === 'active' && !tenant?.subscription_cancel_at && (
+                  <>
+                    {showCancelConfirm ? (
+                      <div className="border border-red-200 rounded-xl p-4 bg-red-50">
+                        <p className="text-sm font-medium text-red-700 mb-1">Cancel your subscription?</p>
+                        <p className="text-xs text-red-500 mb-3">
+                          You&apos;ll keep full access until the end of your current billing period. No refunds for partial months.
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setShowCancelConfirm(false)}
+                            className="flex-1 border border-gray-200 text-gray-600 py-2 rounded-lg text-sm hover:bg-gray-50"
+                          >
+                            Keep subscription
+                          </button>
+                          <button
+                            onClick={handleCancelSubscription}
+                            disabled={isCancelling}
+                            className="flex-1 bg-red-500 hover:bg-red-600 text-white py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+                          >
+                            {isCancelling ? 'Cancelling...' : 'Yes, cancel'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          onClick={handleCancelSubscription}
+                          className="w-full border border-red-200 text-red-500 hover:bg-red-50 py-3 rounded-xl font-medium text-sm transition-colors"
+                        >
+                          Cancel subscription
+                        </button>
+                        <p className="text-xs text-gray-400 text-center mt-2">
+                          Access continues until end of billing period
+                        </p>
+                      </>
+                    )}
+                  </>
+                )}
+
+                {subStatus === 'active' && tenant?.subscription_cancel_at && (
+                  <button
+                    onClick={handleReactivate}
+                    disabled={billingBusy}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-semibold text-sm transition-colors disabled:opacity-50"
+                  >
+                    {billingBusy ? 'Reactivating…' : 'Reactivate subscription'}
+                  </button>
+                )}
+
+                {subStatus === 'past_due' && (
+                  <button
+                    onClick={() => handleBillingAction(false)}
+                    disabled={billingBusy}
+                    className="w-full bg-amber-500 hover:bg-amber-600 text-white py-3 rounded-xl font-semibold text-sm transition-colors disabled:opacity-50"
+                  >
+                    {billingBusy ? 'Redirecting…' : 'Update payment method'}
+                  </button>
+                )}
+
+                {(subStatus === 'canceled' || subStatus === 'inactive') && (
+                  <button
+                    onClick={() => handleBillingAction(true)}
+                    disabled={billingBusy}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-semibold text-sm transition-colors disabled:opacity-50"
+                  >
+                    {billingBusy ? 'Redirecting…' : 'Reactivate — €25/month'}
+                  </button>
+                )}
+              </div>
+            </div>
 
             {/* Section 3 â€" Usage stats */}
             <section>

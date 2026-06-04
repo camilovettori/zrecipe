@@ -109,6 +109,9 @@ export function useIngredients() {
     }),
     sortBy
   )
+  const categories = Array.from(
+    new Set(all.map((i) => i.category).filter((cat): cat is string => Boolean(cat)))
+  ).sort()
 
   const createIngredient = async (
     data: Omit<IngredientRow, 'id' | 'supplier' | 'created_at' | 'updated_at'>
@@ -154,6 +157,7 @@ export function useIngredients() {
 
   return {
     ingredients,
+    categories,
     loading,
     error,
     refetch: fetch,

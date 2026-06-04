@@ -1,10 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { Pencil } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
@@ -20,6 +21,11 @@ export const CATEGORIES = [
   'Meat',
   'Vegetable',
   'Fruit',
+  'Produce',
+  'Bakery',
+  'Condiments',
+  'Beverages',
+  'Eggs',
   'Other',
 ]
 
@@ -103,6 +109,9 @@ export default function IngredientForm({
 }: IngredientFormProps) {
   const router = useRouter()
   const isExisting = !!ingredient?.id
+
+  const [categoryMode, setCategoryMode] = useState<'select' | 'custom'>('select')
+  const [customCategoryInput, setCustomCategoryInput] = useState('')
 
   const defaultValues: FormData = {
     name: ingredient?.name ?? '',
@@ -277,7 +286,15 @@ export default function IngredientForm({
 
   const onSubmit = useCallback((data: FormData) => performSave(data, false), [performSave])
 
-  const selectClass = cn(field, '[&>option]:bg-white dark:[&>option]:bg-slate-800')
+  const isCustomCategory = categoryValue && !CATEGORIES.includes(categoryValue)
+
+  const confirmCustomCategory = () => {
+    const trimmed = customCategoryInput.trim()
+    if (!trimmed) return
+    setValue('category', trimmed, { shouldValidate: true })
+    setCategoryMode('select')
+    setCustomCategoryInput('')
+  }
 
   return (
     <form id="ingredient-form" onSubmit={handleSubmit(onSubmit)} className="space-y-5">
@@ -296,14 +313,68 @@ export default function IngredientForm({
 
       {/* Category */}
       <div>
-        <label className={label}>Category *</label>
-        <CustomSelect
-          value={categoryValue}
-          onChange={(v) => setValue('category', v, { shouldValidate: true })}
-          placeholder="Select category…"
-          options={CATEGORIES.map((c) => ({ value: c, label: c }))}
-          error={errors.category?.message}
-        />
+        <label className={label}>
+          Category *
+          {isCustomCategory && categoryMode === 'select' && (
+            <button
+              type="button"
+              onClick={() => { setCustomCategoryInput(categoryValue); setCategoryMode('custom') }}
+              className="ml-1 text-gray-400 hover:text-emerald-600 transition-colors"
+              title="Edit custom category"
+            >
+              <Pencil className="w-3 h-3 inline" />
+            </button>
+          )}
+        </label>
+        {categoryMode === 'select' ? (
+          <CustomSelect
+            value={isCustomCategory ? '__custom__' : categoryValue}
+            onChange={(v) => {
+              if (v === '__create__') {
+                setCategoryMode('custom')
+                setCustomCategoryInput('')
+              } else {
+                setValue('category', v, { shouldValidate: true })
+              }
+            }}
+            placeholder="Select category…"
+            options={[
+              ...CATEGORIES.map((c) => ({ value: c, label: c })),
+              ...(isCustomCategory ? [{ value: '__custom__', label: categoryValue }] : []),
+              { value: '__create__', label: '+ Create category...' },
+            ]}
+            error={errors.category?.message}
+          />
+        ) : (
+          <div className="flex gap-2">
+            <input
+              autoFocus
+              type="text"
+              value={customCategoryInput}
+              onChange={(e) => setCustomCategoryInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); confirmCustomCategory() }
+                if (e.key === 'Escape') setCategoryMode('select')
+              }}
+              placeholder="Category name..."
+              className="flex-1 border border-emerald-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-100"
+            />
+            <button
+              type="button"
+              onClick={confirmCustomCategory}
+              className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium"
+            >
+              ✓
+            </button>
+            <button
+              type="button"
+              onClick={() => setCategoryMode('select')}
+              className="px-3 py-2 border border-gray-200 text-gray-500 rounded-lg text-sm"
+            >
+              ✕
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Price + Unit */}

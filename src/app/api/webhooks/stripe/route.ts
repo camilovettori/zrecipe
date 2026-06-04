@@ -96,7 +96,21 @@ export async function POST(request: NextRequest) {
           typeof subscription.customer === 'string' ? subscription.customer : null
 
         if (customerId) {
+          const cancelAtPeriodEnd = subscription.cancel_at_period_end
+          const cancelAt = subscription.cancel_at
+          const admin = createAdminClient()
+          const tenants = admin.from('tenants') as unknown as TenantsTable
+
           await handleSubscriptionEvent(subscription, subscription.status, customerId)
+
+          // Track scheduled cancellation date separately
+          await tenants
+            .update({
+              subscription_cancel_at: cancelAtPeriodEnd && cancelAt
+                ? new Date(cancelAt * 1000).toISOString()
+                : null,
+            })
+            .eq('stripe_customer_id', customerId)
         }
 
         break
@@ -108,6 +122,12 @@ export async function POST(request: NextRequest) {
 
         if (customerId) {
           await handleSubscriptionEvent(subscription, 'canceled', customerId)
+          // Clear any pending cancellation date
+          const admin = createAdminClient()
+          const tenants = admin.from('tenants') as unknown as TenantsTable
+          await tenants
+            .update({ subscription_cancel_at: null })
+            .eq('stripe_customer_id', customerId)
         }
 
         break

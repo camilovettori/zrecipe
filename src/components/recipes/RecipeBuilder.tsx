@@ -35,7 +35,6 @@ import {
   type RecipeRecord,
   type RecipeStepDraft,
   RECIPE_CATEGORIES,
-  RECIPE_UNITS,
   useRecipes,
 } from '@/hooks/useRecipes'
 import type { IngredientLookup } from '@/hooks/useInvoices'

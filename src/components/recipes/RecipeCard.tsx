@@ -20,6 +20,8 @@ export default function RecipeCard({
 }) {
   const profitPerUnit = recipe.cost.sellingPrice - recipe.cost.costPerUnit
   const hasPrice = recipe.cost.sellingPrice > 0
+  const yieldQuantity = Math.max(1, recipe.yieldQuantity ?? 1)
+  const displayedProfit = recipe.cost.isBatch ? profitPerUnit * yieldQuantity : profitPerUnit
 
   return (
     <motion.div
@@ -77,21 +79,27 @@ export default function RecipeCard({
         {/* 2×2 cost grid */}
         <div className="grid grid-cols-2 gap-1.5">
           <div className="rounded-lg bg-gray-50 p-2 text-center">
-            <div className="text-[10px] text-gray-400">Total cost</div>
+            <div className="text-[10px] text-gray-400">
+              {recipe.cost.isBatch ? 'Batch cost' : 'Total cost'}
+            </div>
             <div className="mt-0.5 text-sm font-semibold text-gray-700">
               €{recipe.cost.totalCost.toFixed(2)}
             </div>
           </div>
           <div className="rounded-lg bg-gray-50 p-2 text-center">
-            <div className="text-[10px] text-gray-400">Selling price</div>
+            <div className="text-[10px] text-gray-400">
+              {recipe.cost.isBatch ? 'Price / unit' : 'Selling price'}
+            </div>
             <div className="mt-0.5 text-sm font-semibold text-gray-700">
               {hasPrice ? `€${recipe.cost.sellingPrice.toFixed(2)}` : '—'}
             </div>
           </div>
           <div className={cn('rounded-lg p-2 text-center', hasPrice && profitPerUnit > 0 ? 'bg-emerald-50' : hasPrice ? 'bg-red-50' : 'bg-gray-50')}>
-            <div className="text-[10px] text-gray-400">Profit / unit</div>
+            <div className="text-[10px] text-gray-400">
+              {recipe.cost.isBatch ? `Profit (${yieldQuantity} units)` : 'Profit / unit'}
+            </div>
             <div className={cn('mt-0.5 text-sm font-semibold', !hasPrice ? 'text-gray-400' : profitPerUnit > 0 ? 'text-emerald-600' : 'text-red-500')}>
-              {hasPrice ? `${profitPerUnit >= 0 ? '+' : ''}€${profitPerUnit.toFixed(2)}` : '—'}
+              {hasPrice ? `${displayedProfit >= 0 ? '+' : ''}€${displayedProfit.toFixed(2)}` : '—'}
             </div>
           </div>
           <div className="rounded-lg bg-gray-50 p-2 text-center">

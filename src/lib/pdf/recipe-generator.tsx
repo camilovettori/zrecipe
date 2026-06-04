@@ -10,12 +10,43 @@ import {
 import type { RecipeRecord, RecipeIngredientDraft } from '@/hooks/useRecipes'
 import type { RecipeAllergenSummary } from '@/lib/allergens'
 
-export type PrintMode = 'kitchen' | 'label'
+export type PrintMode = 'kitchen' | 'cost' | 'label'
+
+type PdfTenant = {
+  labor_hourly_rate?: number | null
+  name?: string | null
+}
+
+type RecipePdfOptions = {
+  includesCosts?: boolean
+  tenant?: PdfTenant | null
+  businessName?: string
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmt(value: number) {
   return `€${value.toFixed(2)}`
+}
+
+async function getImageAsBase64(url: string): Promise<string | null> {
+  try {
+    if (typeof window === 'undefined' || typeof FileReader === 'undefined') return null
+
+    const resolvedUrl = new URL(url, window.location.origin).toString()
+    const response = await fetch(resolvedUrl)
+    if (!response.ok) return null
+
+    const blob = await response.blob()
+    return await new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(reader.result as string)
+      reader.onerror = () => resolve(null)
+      reader.readAsDataURL(blob)
+    })
+  } catch {
+    return null
+  }
 }
 
 function lineCost(item: RecipeIngredientDraft) {
@@ -28,6 +59,51 @@ function ingHasContains(ing: RecipeIngredientDraft) {
 
 function ingHasMayContain(ing: RecipeIngredientDraft) {
   return ing.allergens?.some((a) => a.status === 'may_contain') ?? false
+}
+
+function calculatePdfCosts(recipe: RecipeRecord, tenant?: PdfTenant | null) {
+  const ingredientCost = Number(
+    recipe.ingredients.reduce((sum, item) => sum + lineCost(item), 0).toFixed(2)
+  )
+  const laborRate = Number(tenant?.labor_hourly_rate ?? 15)
+  const prepTimeMinutes = Number(recipe.prepTimeMinutes ?? 0)
+  const laborCost =
+    recipe.laborMode === 'time'
+      ? Number(((prepTimeMinutes / 60) * laborRate).toFixed(2))
+      : Number(recipe.laborCost ?? 0)
+  const overheadCost =
+    recipe.overheadMode === 'percent'
+      ? Number((ingredientCost * ((recipe.overheadPercent ?? 0) / 100)).toFixed(2))
+      : Number(recipe.overheadCost ?? 0)
+  const subtotal = Number((ingredientCost + laborCost + overheadCost).toFixed(2))
+  const wastePercent = Number(recipe.wastePercent ?? 0)
+  const wasteCost = Number((subtotal * (wastePercent / 100)).toFixed(2))
+  const totalCost = Number((subtotal + wasteCost).toFixed(2))
+  const isBatch = recipe.yieldUnit?.toLowerCase() === 'batch'
+  const yieldQty = Number(recipe.yieldQuantity ?? 1)
+  const costPerUnit = isBatch && yieldQty > 0
+    ? Number((totalCost / yieldQty).toFixed(4))
+    : totalCost
+  const sellingPrice = Number(recipe.sellingPrice ?? recipe.cost.sellingPrice ?? 0)
+  const margin = sellingPrice > 0
+    ? Number((((sellingPrice - costPerUnit) / sellingPrice) * 100).toFixed(1))
+    : 0
+
+  return {
+    ingredientCost,
+    laborCost,
+    laborRate,
+    overheadCost,
+    subtotal,
+    wasteCost,
+    wastePercent,
+    totalCost,
+    isBatch,
+    yieldQty,
+    costPerUnit,
+    sellingPrice,
+    margin,
+  }
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
@@ -387,12 +463,12 @@ function AllergenDeclaration({
     <View>
       {allergens.contains.length > 0 && (
         <Text style={st.allergenContains}>
-          {'● CONTAINS: ' + allergens.contains.map((a) => a.name.toUpperCase()).join(', ')}
+          CONTAINS: {allergens.contains.map((a) => a.name.toUpperCase()).join(', ')}
         </Text>
       )}
       {allergens.mayContain.length > 0 && (
         <Text style={st.allergenMay}>
-          {'○ May contain: ' + allergens.mayContain.map((a) => a.name.toUpperCase()).join(', ')}
+          May contain: {allergens.mayContain.map((a) => a.name.toUpperCase()).join(', ')}
         </Text>
       )}
     </View>
@@ -401,16 +477,51 @@ function AllergenDeclaration({
 
 // ── FORMAT 1: Kitchen Card (A4) ────────────────────────────────────────────────
 
+function CostRow({
+  label,
+  value,
+  bold = false,
+  valueColor,
+}: {
+  label: string
+  value: string
+  bold?: boolean
+  valueColor?: string
+}) {
+  return (
+    <View style={kitchen.costRow}>
+      <Text style={bold ? [kitchen.costLabel, { fontFamily: 'Helvetica-Bold', color: C.text }] : kitchen.costLabel}>
+        {label}
+      </Text>
+      <Text
+        style={[
+          kitchen.costValue,
+          ...(bold ? [{ fontFamily: 'Helvetica-Bold' }] : []),
+          ...(valueColor ? [{ color: valueColor }] : []),
+        ]}
+      >
+        {value}
+      </Text>
+    </View>
+  )
+}
+
 function KitchenCardDocument({
   recipe,
   allergens,
+  imageBase64,
+  includesCosts,
+  tenant,
 }: {
   recipe: RecipeRecord
   allergens: RecipeAllergenSummary
+  imageBase64: string | null
+  includesCosts: boolean
+  tenant?: PdfTenant | null
 }) {
-  const totalIngredientCost = recipe.ingredients.reduce((s, i) => s + lineCost(i), 0)
-  const costPerPortion = recipe.yieldQuantity > 0 ? recipe.cost.totalCost / recipe.yieldQuantity : null
+  const pdfCosts = calculatePdfCosts(recipe, tenant)
   const date = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+  const marginColor = pdfCosts.margin >= 40 ? C.emerald : pdfCosts.margin >= 20 ? C.amber : C.red
 
   return (
     <Document>
@@ -437,8 +548,8 @@ function KitchenCardDocument({
         </View>
 
         {/* ── Image ── */}
-        {recipe.imageUrl && (
-          <PdfImage src={recipe.imageUrl} style={kitchen.image} />
+        {imageBase64 && (
+          <PdfImage src={imageBase64} style={kitchen.image} />
         )}
 
         {/* ── Description ── */}
@@ -455,8 +566,18 @@ function KitchenCardDocument({
           <View style={[kitchen.tRow, kitchen.tHead]}>
             <Text style={[kitchen.tCell, kitchen.tHeadText, { flex: 3 }]}>Ingredient</Text>
             <Text style={[kitchen.tCell, kitchen.tHeadText, { flex: 1, textAlign: 'right' }]}>Qty</Text>
-            <Text style={[kitchen.tCell, kitchen.tHeadText, { flex: 1 }]}>Unit</Text>
-            <Text style={[kitchen.tCell, kitchen.tHeadText, kitchen.tCellLast, { flex: 1.2, textAlign: 'right' }]}>Cost</Text>
+            <Text
+              style={
+                includesCosts
+                  ? [kitchen.tCell, kitchen.tHeadText, { flex: 1 }]
+                  : [kitchen.tCell, kitchen.tHeadText, kitchen.tCellLast, { flex: 1 }]
+              }
+            >
+              Unit
+            </Text>
+            {includesCosts && (
+              <Text style={[kitchen.tCell, kitchen.tHeadText, kitchen.tCellLast, { flex: 1.2, textAlign: 'right' }]}>Cost</Text>
+            )}
           </View>
 
           {/* Rows */}
@@ -472,33 +593,45 @@ function KitchenCardDocument({
               <View key={ing.id} style={kitchen.tRow}>
                 <View style={[kitchen.tCell, { flex: 3, flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
                   <Text style={nameStyle}>{displayName}</Text>
-                  {isAllergen && <Text style={{ fontSize: 7, color: C.red }}>⚠</Text>}
+                  {isAllergen && <Text style={{ fontSize: 7, color: C.red }}>!</Text>}
                   {isMay && <Text style={{ fontSize: 7, color: C.amber }}>~</Text>}
                 </View>
                 <Text style={[kitchen.tCell, kitchen.tNum, { flex: 1 }]}>{ing.quantity}</Text>
-                <Text style={[kitchen.tCell, kitchen.tIngNormal, { flex: 1 }]}>{ing.unit}</Text>
-                <Text style={[kitchen.tCell, kitchen.tCellLast, kitchen.tNum, { flex: 1.2 }]}>
-                  {fmt(lineCost(ing))}
+                <Text
+                  style={
+                    includesCosts
+                      ? [kitchen.tCell, kitchen.tIngNormal, { flex: 1 }]
+                      : [kitchen.tCell, kitchen.tIngNormal, kitchen.tCellLast, { flex: 1 }]
+                  }
+                >
+                  {ing.unit}
                 </Text>
+                {includesCosts && (
+                  <Text style={[kitchen.tCell, kitchen.tCellLast, kitchen.tNum, { flex: 1.2 }]}>
+                    {fmt(lineCost(ing))}
+                  </Text>
+                )}
               </View>
             )
           })}
 
           {/* Total row */}
-          <View style={[kitchen.tRow, kitchen.tTotalRow]}>
-            <Text style={[kitchen.tCell, kitchen.tTotalLabel, { flex: 3 }]}>Total ingredient cost</Text>
-            <Text style={[kitchen.tCell, { flex: 1 }]} />
-            <Text style={[kitchen.tCell, { flex: 1 }]} />
-            <Text style={[kitchen.tCell, kitchen.tCellLast, kitchen.tTotalVal, { flex: 1.2 }]}>
-              {fmt(totalIngredientCost)}
-            </Text>
-          </View>
+          {includesCosts && (
+            <View style={[kitchen.tRow, kitchen.tTotalRow]}>
+              <Text style={[kitchen.tCell, kitchen.tTotalLabel, { flex: 3 }]}>Total ingredient cost</Text>
+              <Text style={[kitchen.tCell, { flex: 1 }]} />
+              <Text style={[kitchen.tCell, { flex: 1 }]} />
+              <Text style={[kitchen.tCell, kitchen.tCellLast, kitchen.tTotalVal, { flex: 1.2 }]}>
+                {fmt(pdfCosts.ingredientCost)}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* ── Allergen declaration ── */}
         <Text style={kitchen.sectionTitle}>Allergen Information (EU Reg. 1169/2011)</Text>
         <View style={kitchen.allergenBox}>
-          <Text style={kitchen.allergenTitle}>⚠ Allergen Declaration</Text>
+          <Text style={kitchen.allergenTitle}>Allergen Declaration</Text>
           <AllergenDeclaration allergens={allergens} st={kitchen} />
           {(allergens.contains.length > 0 || allergens.mayContain.length > 0) && (
             <Text style={{ fontSize: 7.5, color: C.muted, marginTop: 5 }}>
@@ -522,48 +655,58 @@ function KitchenCardDocument({
         )}
 
         {/* ── Cost summary ── */}
-        <Text style={kitchen.sectionTitle}>Cost Summary</Text>
-        <View style={kitchen.costBox}>
-          <View style={kitchen.costRow}>
-            <Text style={kitchen.costLabel}>Ingredient cost</Text>
-            <Text style={kitchen.costValue}>{fmt(recipe.cost.ingredientCost)}</Text>
-          </View>
-          <View style={kitchen.costRow}>
-            <Text style={kitchen.costLabel}>Labor cost</Text>
-            <Text style={kitchen.costValue}>{fmt(recipe.cost.laborCost)}</Text>
-          </View>
-          <View style={kitchen.costRow}>
-            <Text style={kitchen.costLabel}>Overhead</Text>
-            <Text style={kitchen.costValue}>{fmt(recipe.cost.overheadCost)}</Text>
-          </View>
-          <View style={kitchen.costDivider} />
-          <View style={kitchen.costTotal}>
-            <Text style={kitchen.costTotalLabel}>Total cost</Text>
-            <Text style={kitchen.costTotalValue}>{fmt(recipe.cost.totalCost)}</Text>
-          </View>
-          {costPerPortion != null && (
-            <View style={kitchen.costRow}>
-              <Text style={kitchen.costLabel}>Cost per {recipe.yieldUnit}</Text>
-              <Text style={kitchen.costValue}>{fmt(costPerPortion)}</Text>
+        {includesCosts && (
+          <>
+            <Text style={kitchen.sectionTitle}>Cost Summary</Text>
+            <View style={kitchen.costBox}>
+              <CostRow label="Ingredient cost" value={fmt(pdfCosts.ingredientCost)} />
+              <CostRow
+                label={
+                  recipe.laborMode === 'time'
+                    ? `Labor (${recipe.prepTimeMinutes}min x ${fmt(pdfCosts.laborRate)}/hr)`
+                    : 'Labor cost'
+                }
+                value={fmt(pdfCosts.laborCost)}
+              />
+              <CostRow
+                label={
+                  recipe.overheadMode === 'percent'
+                    ? `Overhead (${recipe.overheadPercent}% of ingredients)`
+                    : 'Overhead'
+                }
+                value={fmt(pdfCosts.overheadCost)}
+              />
+              {pdfCosts.wastePercent > 0 && (
+                <CostRow
+                  label={`Waste (${pdfCosts.wastePercent}%)`}
+                  value={`+${fmt(pdfCosts.wasteCost)}`}
+                />
+              )}
+              <View style={kitchen.costDivider} />
+              <CostRow label="Total cost" value={fmt(pdfCosts.totalCost)} bold />
+              {pdfCosts.isBatch && pdfCosts.yieldQty > 1 && (
+                <CostRow
+                  label={`Cost per unit (/ ${pdfCosts.yieldQty})`}
+                  value={`\u20ac${pdfCosts.costPerUnit.toFixed(3)}`}
+                />
+              )}
+              <CostRow label="Selling price" value={fmt(pdfCosts.sellingPrice)} />
+              <CostRow
+                label="Margin"
+                value={`${pdfCosts.margin.toFixed(1)}%`}
+                valueColor={marginColor}
+                bold
+              />
             </View>
-          )}
-          <View style={kitchen.costRow}>
-            <Text style={kitchen.costLabel}>Selling price</Text>
-            <Text style={kitchen.costValue}>{fmt(recipe.cost.sellingPrice)}</Text>
-          </View>
-          <View style={kitchen.costDivider} />
-          <View style={kitchen.costMargin}>
-            <Text style={kitchen.costTotalLabel}>Margin</Text>
-            <Text style={kitchen.costMarginValue}>{recipe.cost.marginPercent.toFixed(1)}%</Text>
-          </View>
-        </View>
+          </>
+        )}
 
         {/* ── Footer ── */}
         <View style={kitchen.footer}>
           <Text style={kitchen.footerText}>Generated by ZRecipe</Text>
           <Text style={kitchen.footerText}>
             {recipe.prepTimeMinutes > 0 ? `Prep: ${recipe.prepTimeMinutes} min` : ''}
-            {recipe.prepTimeMinutes > 0 && recipe.cookTimeMinutes > 0 ? '  ·  ' : ''}
+            {recipe.prepTimeMinutes > 0 && recipe.cookTimeMinutes > 0 ? '  |  ' : ''}
             {recipe.cookTimeMinutes > 0 ? `Cook: ${recipe.cookTimeMinutes} min` : ''}
           </Text>
           <Text style={kitchen.footerText}>{date}</Text>
@@ -653,7 +796,7 @@ function ProductLabelDocument({
           Allergens are indicated in BOLD in the ingredients list.
         </Text>
         <Text style={[label.legalNote, { marginTop: 4 }]}>
-          Generated by ZRecipe · {date}
+          Generated by ZRecipe - {date}
         </Text>
       </Page>
     </Document>
@@ -666,15 +809,24 @@ export async function generateRecipePdf(
   recipe: RecipeRecord,
   mode: PrintMode,
   allergens?: RecipeAllergenSummary,
-  businessName = 'ZRecipe'
+  options: RecipePdfOptions = {}
 ) {
   const allergy = allergens ?? { contains: [], mayContain: [] }
+  const includesCosts = options.includesCosts ?? mode === 'cost'
+  const businessName = options.businessName ?? options.tenant?.name ?? 'ZRecipe'
+  const imageBase64 = recipe.imageUrl ? await getImageAsBase64(recipe.imageUrl) : null
 
   const doc =
     mode === 'label' ? (
       <ProductLabelDocument recipe={recipe} allergens={allergy} businessName={businessName} />
     ) : (
-      <KitchenCardDocument recipe={recipe} allergens={allergy} />
+      <KitchenCardDocument
+        recipe={recipe}
+        allergens={allergy}
+        imageBase64={imageBase64}
+        includesCosts={includesCosts}
+        tenant={options.tenant}
+      />
     )
 
   const blob = await pdf(doc).toBlob()

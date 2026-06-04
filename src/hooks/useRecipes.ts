@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { convertUnit } from '@/lib/utils/unit-converter'
+import { calculateCost } from '@/lib/utils/cost-calculator'
 import { type IngredientLookup } from '@/hooks/useInvoices'
 import { resolveTenantId } from '@/hooks/useTenant'
 import { type IngredientAllergen, type AllergenStatus } from '@/lib/allergens'
@@ -69,6 +70,8 @@ export interface RecipeSummary {
   name: string
   description: string
   category: string
+  yieldQuantity: number
+  yieldUnit: string
   imageUrl: string | null
   ingredientCount: number
   updatedAt: string
@@ -244,49 +247,41 @@ export function calculateRecipeCost(
     yieldUnit?: string
   }
 ): RecipeCostSummary {
-  const ingredientCost = Number(
-    ingredients.reduce((sum, item) => sum + ingredientLineCost(item), 0).toFixed(2)
-  )
-
-  // Labor — fixed value or time-based
-  const effectiveLaborCost =
-    opts?.laborMode === 'time' && opts.laborHourlyRate && opts.laborHourlyRate > 0
-      ? Number(((opts.prepTimeMinutes ?? 0) / 60 * opts.laborHourlyRate).toFixed(2))
-      : laborCost
-
-  // Overhead — fixed value or % of ingredients
-  const effectiveOverheadCost =
-    opts?.overheadMode === 'percent' && opts.overheadPercent && opts.overheadPercent > 0
-      ? Number((ingredientCost * (opts.overheadPercent / 100)).toFixed(2))
-      : overheadCost
-
-  const subtotal = Number((ingredientCost + effectiveLaborCost + effectiveOverheadCost).toFixed(2))
-  const wasteCost = Number((subtotal * ((opts?.wastePercent ?? 0) / 100)).toFixed(2))
-  const totalCost = Number((subtotal + wasteCost).toFixed(2))
-
-  const isBatch = (opts?.yieldUnit ?? '').toLowerCase() === 'batch'
-  const effectiveQty = isBatch && (opts?.yieldQuantity ?? 0) > 0 ? (opts!.yieldQuantity ?? 1) : 1
-  const costPerUnit = Number((totalCost / effectiveQty).toFixed(4))
-
-  const marginPercent =
-    sellingPrice > 0
-      ? Number((((sellingPrice - costPerUnit) / sellingPrice) * 100).toFixed(1))
-      : 0
-  const foodCostPercentage =
-    sellingPrice > 0 ? Number(((costPerUnit / sellingPrice) * 100).toFixed(1)) : 0
+  const costs = calculateCost({
+    ingredients: ingredients.map((item) => ({
+      quantity: item.quantity,
+      unit: item.unit,
+      yield_percent: item.yield_percent ?? 100,
+      current_price: item.currentPrice ?? 0,
+      price_unit: item.priceUnit ?? item.unit,
+    })),
+    laborMode: opts?.laborMode ?? 'fixed',
+    laborCostFixed: laborCost,
+    prepTimeMinutes: opts?.prepTimeMinutes ?? 0,
+    laborHourlyRate: opts?.laborHourlyRate ?? 15,
+    overheadMode: opts?.overheadMode ?? 'fixed',
+    overheadCostFixed: overheadCost,
+    overheadPercent: opts?.overheadPercent ?? 0,
+    wastePercent: opts?.wastePercent ?? 0,
+    sellingPrice,
+    yieldQty: opts?.yieldQuantity ?? 1,
+    yieldUnit: opts?.yieldUnit ?? 'unit',
+    vatEnabled: false,
+    vatRate: 0,
+  })
 
   return {
-    ingredientCost,
-    laborCost: effectiveLaborCost,
-    overheadCost: effectiveOverheadCost,
-    wasteCost,
-    subtotal,
-    totalCost,
-    costPerUnit,
-    isBatch,
-    sellingPrice,
-    marginPercent,
-    foodCostPercentage,
+    ingredientCost: costs.ingredientCost,
+    laborCost: costs.laborCost,
+    overheadCost: costs.overheadCost,
+    wasteCost: costs.wasteCost,
+    subtotal: costs.subtotal,
+    totalCost: costs.totalCost,
+    costPerUnit: costs.costPerUnit,
+    isBatch: costs.isBatch,
+    sellingPrice: costs.sellingPrice,
+    marginPercent: costs.margin,
+    foodCostPercentage: costs.foodCostPercent,
   }
 }
 
@@ -305,7 +300,21 @@ function buildRecipeRecordFromInput(
     ...item,
     lineCost: calculateLineCost(item),
   }))
-  const cost = calculateRecipeCost(ingredients, input.laborCost, input.overheadCost, input.sellingPrice)
+  const cost = calculateRecipeCost(
+    ingredients,
+    input.laborCost,
+    input.overheadCost,
+    input.sellingPrice,
+    {
+      laborMode: input.laborMode,
+      prepTimeMinutes: input.prepTimeMinutes,
+      overheadMode: input.overheadMode,
+      overheadPercent: input.overheadPercent,
+      wastePercent: input.wastePercent,
+      yieldQuantity: input.yieldQuantity,
+      yieldUnit: input.yieldUnit,
+    }
+  )
 
   return {
     id,
@@ -335,7 +344,7 @@ function buildRecipeRecordFromInput(
   }
 }
 
-function mapRecipeRow(row: DBRecipeRow): RecipeRecord {
+function mapRecipeRow(row: DBRecipeRow, laborHourlyRate = 15): RecipeRecord {
   const recipeIngredients = Array.isArray(row.recipe_ingredients)
     ? row.recipe_ingredients
     : row.recipe_ingredients
@@ -400,6 +409,7 @@ function mapRecipeRow(row: DBRecipeRow): RecipeRecord {
       overheadPercent,
       wastePercent,
       prepTimeMinutes,
+      laborHourlyRate,
       yieldQuantity: Number(row.yield_quantity ?? 0),
       yieldUnit: row.yield_unit ?? 'portion',
     }
@@ -433,13 +443,15 @@ function mapRecipeRow(row: DBRecipeRow): RecipeRecord {
   }
 }
 
-function mapSummary(row: DBRecipeRow): RecipeSummary {
-  const recipe = mapRecipeRow(row)
+function mapSummary(row: DBRecipeRow, laborHourlyRate = 15): RecipeSummary {
+  const recipe = mapRecipeRow(row, laborHourlyRate)
   return {
     id: recipe.id,
     name: recipe.name,
     description: recipe.description,
     category: recipe.category,
+    yieldQuantity: recipe.yieldQuantity,
+    yieldUnit: recipe.yieldUnit,
     imageUrl: recipe.imageUrl,
     ingredientCount: recipe.ingredients.length,
     updatedAt: recipe.updatedAt,
@@ -462,6 +474,17 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
       const supabase = createClient()
       const tenantId = await resolveTenantId()
       console.log('[refreshRecipes] tenantId:', tenantId)
+      const { data: tenantData, error: tenantError } = await supabase
+        .from('tenants')
+        .select('labor_hourly_rate')
+        .eq('id', tenantId)
+        .maybeSingle()
+
+      if (tenantError) {
+        console.warn('[refreshRecipes] tenant settings error:', tenantError.message)
+      }
+
+      const laborHourlyRate = Number(tenantData?.labor_hourly_rate ?? 15)
       const { data, error: fetchError } = await supabase
         .from('recipes')
         .select(
@@ -471,6 +494,11 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
             name,
             description,
             category,
+            instructions,
+            yield_quantity,
+            yield_unit,
+            prep_time_minutes,
+            cook_time_minutes,
             labor_cost,
             labor_mode,
             overhead_cost,
@@ -479,14 +507,24 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
             waste_percent,
             selling_price,
             image_url,
+            is_active,
             is_sub_ingredient,
             sub_ingredient_unit,
             sub_ingredient_cost_per_unit,
             recipe_ingredients!recipe_ingredients_recipe_id_fkey (
+              id,
+              recipe_id,
+              ingredient_id,
+              sub_recipe_id,
               quantity,
               unit,
+              notes,
+              sort_order,
               yield_percent,
+              yield_override,
               ingredient:ingredients (
+                id,
+                name,
                 current_price,
                 price_unit
               )
@@ -496,6 +534,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           `
         )
         .eq('tenant_id', tenantId)
+        .eq('is_active', true)
         .order('updated_at', { ascending: false })
 
       if (fetchError) {
@@ -509,7 +548,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
       }
 
       console.log('[refreshRecipes] OK, rows:', data?.length ?? 0)
-      setRecipes((data as unknown as DBRecipeRow[] | null)?.map(mapSummary) ?? [])
+      setRecipes((data as unknown as DBRecipeRow[] | null)?.map((row) => mapSummary(row, laborHourlyRate)) ?? [])
     } catch (err) {
       console.error('[refreshRecipes] caught:', err)
       setError(err instanceof Error ? err.message : 'Failed to load recipes')
@@ -607,7 +646,16 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
         input.ingredients.map((item) => ({ ...item, lineCost: calculateLineCost(item) })),
         input.laborCost,
         input.overheadCost,
-        input.sellingPrice
+        input.sellingPrice,
+        {
+          laborMode: input.laborMode,
+          prepTimeMinutes: input.prepTimeMinutes,
+          overheadMode: input.overheadMode,
+          overheadPercent: input.overheadPercent,
+          wastePercent: input.wastePercent,
+          yieldQuantity: input.yieldQuantity,
+          yieldUnit: input.yieldUnit,
+        }
       )
       const subIngredientCostPerUnit =
         input.isSubIngredient && input.yieldQuantity > 0

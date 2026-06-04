@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: tenant, error: tenantError } = await (admin.from('tenants') as any)
       .select(
-        'id, name, slug, created_at, plan, business_type, owner_email, subscription_status, stripe_customer_id, subscription_current_period_end, subscription_trial_end'
+        'id, name, slug, created_at, plan, business_type, owner_email, subscription_status, stripe_customer_id, subscription_current_period_end, subscription_trial_end, subscription_cancel_at'
       )
       .eq('id', member.tenant_id)
       .limit(1)
@@ -130,6 +130,7 @@ export async function GET(request: NextRequest) {
         stripeCustomerId:             tenant.stripe_customer_id ?? null,
         subscriptionCurrentPeriodEnd: tenant.subscription_current_period_end ?? null,
         subscriptionTrialEnd:         tenant.subscription_trial_end ?? null,
+        subscriptionCancelAt:         tenant.subscription_cancel_at ?? null,
       },
     })
   } catch (err) {

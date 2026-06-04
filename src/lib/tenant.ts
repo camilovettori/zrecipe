@@ -22,6 +22,7 @@ export interface TenantContext {
     stripeCustomerId?: string | null
     subscriptionCurrentPeriodEnd?: string | null
     subscriptionTrialEnd?: string | null
+    subscriptionCancelAt?: string | null
   }
 }
 
@@ -66,7 +67,7 @@ export async function getTenantContext(
   const { data: tenant, error: tenantError } = await supabase
     .from('tenants')
     .select(
-      'id, name, slug, created_at, plan, business_type, owner_email, subscription_status, stripe_customer_id, subscription_current_period_end, subscription_trial_end'
+      'id, name, slug, created_at, plan, business_type, owner_email, subscription_status, stripe_customer_id, subscription_current_period_end, subscription_trial_end, subscription_cancel_at'
     )
     .eq('id', member.tenant_id)
     .limit(1)
@@ -91,6 +92,7 @@ export async function getTenantContext(
       stripeCustomerId: tenant.stripe_customer_id ?? null,
       subscriptionCurrentPeriodEnd: tenant.subscription_current_period_end ?? null,
       subscriptionTrialEnd: tenant.subscription_trial_end ?? null,
+      subscriptionCancelAt: tenant.subscription_cancel_at ?? null,
     },
   }
 }

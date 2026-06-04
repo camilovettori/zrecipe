@@ -2,11 +2,17 @@
 
 import { useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { X, UtensilsCrossed, Loader2, Tag } from 'lucide-react'
+import { X, UtensilsCrossed, Loader2, Tag, FileText } from 'lucide-react'
 import { toast } from '@/lib/toast'
+import { createClient } from '@/lib/supabase/client'
 import type { RecipeRecord } from '@/hooks/useRecipes'
 import { generateRecipePdf, type PrintMode } from '@/lib/pdf/recipe-generator'
 import type { RecipeAllergenSummary } from '@/lib/allergens'
+
+type PdfTenant = {
+  labor_hourly_rate: number | null
+  name: string | null
+}
 
 export default function PrintOptionsModal({
   open,
@@ -21,12 +27,45 @@ export default function PrintOptionsModal({
 }) {
   const [printing, setPrinting] = useState<PrintMode | null>(null)
 
+  const loadTenantForPdf = async (): Promise<PdfTenant | null> => {
+    const supabase = createClient()
+    const { data: userData } = await supabase.auth.getUser()
+    const user = userData.user
+    if (!user) return null
+
+    const { data: tenantUser } = await supabase
+      .from('tenant_users')
+      .select('tenant_id')
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    if (!tenantUser?.tenant_id) return null
+
+    const { data: tenant } = await supabase
+      .from('tenants')
+      .select('labor_hourly_rate, name')
+      .eq('id', tenantUser.tenant_id)
+      .maybeSingle()
+
+    return tenant ?? null
+  }
+
   const handlePrint = async (mode: PrintMode) => {
     if (!recipe) return
     try {
       setPrinting(mode)
-      await generateRecipePdf(recipe, mode, allergens)
-      toast.success(mode === 'label' ? 'Product label downloaded' : 'Kitchen card downloaded')
+      const tenant = await loadTenantForPdf()
+      await generateRecipePdf(recipe, mode, allergens, {
+        includesCosts: mode === 'cost',
+        tenant,
+      })
+      toast.success(
+        mode === 'label'
+          ? 'Product label downloaded'
+          : mode === 'cost'
+            ? 'Cost report downloaded'
+            : 'Kitchen card downloaded'
+      )
       onClose()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to generate PDF')
@@ -57,7 +96,7 @@ export default function PrintOptionsModal({
             </Dialog.Description>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
             {/* Kitchen Card */}
             <button
               type="button"
@@ -73,7 +112,27 @@ export default function PrintOptionsModal({
               <div>
                 <p className="font-semibold text-slate-900">Kitchen Card</p>
                 <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                  Full professional card with ingredient costs, cost summary, allergen declaration (EU Reg. 1169/2011), and method steps.
+                  Kitchen-ready card with recipe photo, yield, ingredients, method steps, and allergen declaration.
+                </p>
+              </div>
+            </button>
+
+            {/* Cost Report */}
+            <button
+              type="button"
+              onClick={() => handlePrint('cost')}
+              disabled={printing !== null}
+              className="group flex flex-col gap-3 rounded-2xl border border-slate-200 p-5 text-left transition hover:border-blue-300 hover:bg-blue-50/40 disabled:opacity-60"
+            >
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-blue-600 transition group-hover:bg-blue-200">
+                {printing === 'cost'
+                  ? <Loader2 className="h-5 w-5 animate-spin" />
+                  : <FileText className="h-5 w-5" />}
+              </div>
+              <div>
+                <p className="font-semibold text-slate-900">Cost Report</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                  Includes ingredient costs, labor, overhead, waste, selling price, and margin summary.
                 </p>
               </div>
             </button>
