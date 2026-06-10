@@ -95,7 +95,6 @@ export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState<'overview' | 'trends' | 'print'>('overview')
   const [loading, setLoading] = useState(true)
   const [tenantName, setTenantName] = useState('')
-  const [laborHourlyRate, setLaborHourlyRate] = useState(15)
   const [recipes, setRecipes] = useState<RecipeWithCost[]>([])
   const [invoices, setInvoices] = useState<InvoiceRow[]>([])
   const [priceHistory, setPriceHistory] = useState<PriceHistoryRow[]>([])
@@ -150,7 +149,6 @@ export default function ReportsPage() {
       ])
 
       const lhr = Number((tenantRes.data as { labor_hourly_rate?: number } | null)?.labor_hourly_rate ?? 15)
-      setLaborHourlyRate(lhr)
       setTenantName((tenantRes.data as { name?: string } | null)?.name ?? '')
 
       const rawRecipes = (recipesRes.data ?? []) as unknown as RecipeRow[]
@@ -1028,51 +1026,3 @@ function PrintTab({
 }
 
 // ── Summary Card ─────────────────────────────────────────────────────────────
-
-type CardColor = 'emerald' | 'amber' | 'red' | 'gray'
-
-function SummaryCard({
-  label,
-  value,
-  sub,
-  icon: Icon,
-  color,
-}: {
-  label: string
-  value: string
-  sub?: string
-  icon: React.ElementType
-  color: CardColor
-}) {
-  const iconBg: Record<CardColor, string> = {
-    emerald: 'bg-emerald-100',
-    amber: 'bg-amber-100',
-    red: 'bg-red-100',
-    gray: 'bg-slate-100',
-  }
-  const iconColor: Record<CardColor, string> = {
-    emerald: 'text-emerald-600',
-    amber: 'text-amber-600',
-    red: 'text-red-500',
-    gray: 'text-slate-500',
-  }
-  const valueColor: Record<CardColor, string> = {
-    emerald: 'text-emerald-700',
-    amber: 'text-amber-600',
-    red: 'text-red-500',
-    gray: 'text-slate-800',
-  }
-
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-3 flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{label}</span>
-        <div className={cn('flex h-8 w-8 items-center justify-center rounded-lg', iconBg[color])}>
-          <Icon className={cn('h-4 w-4', iconColor[color])} />
-        </div>
-      </div>
-      <p className={cn('text-2xl font-black', valueColor[color])}>{value}</p>
-      {sub && <p className="mt-0.5 text-xs text-slate-400">{sub}</p>}
-    </div>
-  )
-}
