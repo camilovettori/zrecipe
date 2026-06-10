@@ -1610,8 +1610,8 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                 onChange={(e) => updateRecipeField('isSubIngredient', e.target.checked)}
                 className="h-4 w-4 rounded border-slate-300 text-emerald-600 outline-none focus:ring-emerald-500"
               />
-              <span className="text-sm font-medium text-slate-700">Available as sub-ingredient</span>
-              <span className="text-xs text-slate-400">(usable inside other recipes)</span>
+              <span className="text-sm font-medium text-slate-700">Sub-Recipe</span>
+              <span className="text-xs text-slate-400">(use as an ingredient in other recipes)</span>
             </label>
 
             {recipe.isSubIngredient && (

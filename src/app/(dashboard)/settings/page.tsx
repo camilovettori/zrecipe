@@ -891,10 +891,11 @@ export default function SettingsPage() {
                     { text: 'Basic recipe costing',    ok: true  },
                     { text: 'Supplier tracking',       ok: true  },
                     { text: 'Invoice import',          ok: false },
-                    { text: 'PDF export',              ok: false },
-                    { text: 'AI recipe ideas',         ok: false },
                     { text: 'Yield factor calculator', ok: false },
-                    { text: 'VAT & waste tracking',    ok: false },
+                    { text: 'Batch costing',           ok: false },
+                    { text: 'Label printing',          ok: false },
+                    { text: 'AI insights & reports',   ok: false },
+                    { text: 'PDF export',              ok: false },
                     { text: 'Team members',            ok: false },
                   ].map((item, i) => (
                     <li key={i} className="flex items-center gap-2.5">
@@ -928,19 +929,23 @@ export default function SettingsPage() {
                     <span className="text-3xl font-bold text-gray-900">€25</span>
                     <span className="text-gray-400 text-sm">/month</span>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">Everything you need to run a profitable kitchen</p>
+                  <p className="text-xs text-gray-500 mt-1">Complete recipe costing, label printing &amp; AI insights</p>
                 </div>
 
                 <ul className="space-y-2.5 mb-6">
                   {[
                     'Unlimited recipes',
                     'Unlimited ingredients',
-                    'Invoice import (PDF & CSV)',
-                    'PDF export — kitchen card & cost report',
-                    '50 AI recipe ideas / month',
-                    'Unlimited AI invoice extractions',
+                    'Invoice import (PDF & CSV) with AI extraction',
+                    'Full recipe costing with batch support',
                     'Yield factor calculator (USDA reference)',
                     'VAT calculator + waste & overhead tracking',
+                    'Product label printing (Brother, Dymo, A4)',
+                    'EU allergen compliance (Reg. 1169/2011)',
+                    'AI-powered business insights',
+                    'Reports & analytics dashboard',
+                    'PDF export — kitchen card & cost report',
+                    '50 AI recipe ideas / month',
                     'Team members (up to 5)',
                     'Priority support',
                   ].map((item, i) => (

@@ -4,16 +4,16 @@ import Link from 'next/link'
 import Image from 'next/image'
 import type { ReactNode } from 'react'
 import {
-  FileText, BarChart2, ShieldCheck, Camera, Printer,
-  Package, DollarSign, ArrowRight, Globe,
+  FileText, BarChart3, ShieldCheck, Camera, Printer,
+  ChefHat, Tag, ArrowRight, Globe,
 } from 'lucide-react'
 import LiveCostingCard from './LiveCostingCard'
 
 const FEATURES = {
   login: [
-    { Icon: FileText,    text: 'AI invoice imports' },
-    { Icon: BarChart2,   text: 'Accurate food cost calculations' },
-    { Icon: ShieldCheck, text: 'EU allergen & labeling compliance' },
+    { Icon: FileText,  text: 'AI invoice imports' },
+    { Icon: BarChart3, text: 'Yield factor & batch costing' },
+    { Icon: Tag,       text: 'EU allergen labels & printing' },
   ],
   signup: [
     { Icon: ShieldCheck, text: 'See your true food cost on every dish — instantly' },
@@ -31,7 +31,7 @@ const COPY = {
     eyebrow: 'FOOD COSTING SOFTWARE',
     headlineMain: 'Know the true cost of',
     headlineAccent: 'every plate.',
-    subtitle: 'ZRecipe turns invoices and ingredients into instant food-cost intelligence for bakeries, restaurants, and food businesses.',
+    subtitle: 'ZRecipe turns invoices into instant food-cost intelligence. Recipe costing, label printing, and AI insights for bakeries, restaurants, and food businesses.',
   },
   signup: {
     eyebrow: '14-DAY FREE TRIAL · NO CARD REQUIRED',
@@ -48,17 +48,17 @@ const COPY = {
 }
 
 const WORKFLOW = [
-  { Icon: Package,    label: 'Ingredients', sub: 'Add & manage' },
-  { Icon: DollarSign, label: 'Cost',        sub: 'Real-time pricing' },
-  { Icon: BarChart2,  label: 'Margin',      sub: 'Track profitability' },
-  { Icon: FileText,   label: 'PDF',         sub: 'Export & share' },
+  { Icon: ChefHat,   label: 'Recipes',  sub: 'Batch & sub-recipe costing' },
+  { Icon: BarChart3, label: 'Reports',  sub: 'AI insights & analytics' },
+  { Icon: Tag,       label: 'Labels',   sub: 'EU compliant printing' },
+  { Icon: FileText,  label: 'Invoices', sub: 'AI-powered extraction' },
 ]
 
 const TRUST = [
   { Icon: ShieldCheck, text: 'GDPR-compliant' },
   { Icon: Globe,       text: 'EU-hosted' },
-  { Icon: DollarSign,  text: '€25/month after trial' },
-  { Icon: Package,     text: 'No credit card' },
+  { Icon: Tag,         text: 'EU allergen compliant' },
+  { Icon: ShieldCheck, text: 'No credit card' },
 ]
 
 interface AuthSplitShellProps {

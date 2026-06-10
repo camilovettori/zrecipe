@@ -1,9 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Tag, Search, Plus, Minus, Trash2, Printer, Eye, Pencil } from 'lucide-react'
+import { Tag, Search, Plus, Minus, Trash2, Printer, Eye, Pencil, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
+import { EU_ALLERGENS } from '@/lib/allergens'
+import type { IngredientAllergen } from '@/lib/allergens'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,14 +33,18 @@ interface LabelItem {
   isEditing: boolean
 }
 
+interface EditingLabel {
+  recipeId: string
+  recipeName: string
+  quantity: number
+  labelData: LabelData
+}
+
 type RecipeResult = {
   id: string
   name: string
   category: string | null
   storage_instructions: string | null
-  recipe_ingredients: Array<{
-    ingredient: { name: string } | null
-  }>
 }
 
 const LABEL_SIZES = [
@@ -51,12 +57,12 @@ const LABEL_SIZES = [
 ]
 
 const SIZE_MAP: Record<string, { w: number; h: number }> = {
-  '62x29':   { w: 62,    h: 29 },
-  '62x100':  { w: 62,    h: 100 },
-  '89x36':   { w: 89,    h: 36 },
-  '101x152': { w: 101,   h: 152 },
-  'a4-grid': { w: 63.5,  h: 38.1 },
-  'custom':  { w: 62,    h: 100 },
+  '62x29':   { w: 62,   h: 29 },
+  '62x100':  { w: 62,   h: 100 },
+  '89x36':   { w: 89,   h: 36 },
+  '101x152': { w: 101,  h: 152 },
+  'a4-grid': { w: 63.5, h: 38.1 },
+  'custom':  { w: 62,   h: 100 },
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────────
@@ -65,6 +71,7 @@ export default function LabelsPage() {
   const [labelQueue, setLabelQueue] = useState<LabelItem[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<RecipeResult[]>([])
+  const [editingNewLabel, setEditingNewLabel] = useState<EditingLabel | null>(null)
   const [labelSize, setLabelSize] = useState('62x100')
   const [printerType, setPrinterType] = useState<'roll' | 'sheet'>('roll')
   const [labelsPerRow, setLabelsPerRow] = useState(3)
@@ -81,19 +88,13 @@ export default function LabelsPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       const { data: memberRow } = await supabase
-        .from('tenant_users')
-        .select('tenant_id')
-        .eq('user_id', user.id)
-        .limit(1)
-        .maybeSingle()
+        .from('tenant_users').select('tenant_id')
+        .eq('user_id', user.id).limit(1).maybeSingle()
       const tid = (memberRow as { tenant_id: string } | null)?.tenant_id
       if (!tid) return
       setTenantId(tid)
       const { data: tenantData } = await supabase
-        .from('tenants')
-        .select('name')
-        .eq('id', tid)
-        .single()
+        .from('tenants').select('name').eq('id', tid).single()
       if ((tenantData as { name?: string } | null)?.name) {
         setTenantName((tenantData as { name: string }).name)
       }
@@ -103,33 +104,62 @@ export default function LabelsPage() {
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
-  const handleSearch = useCallback(async (query: string) => {
+  // Simple search — no joins, no allergens, just recipe metadata
+  const handleSearch = async (query: string) => {
     if (query.length < 2) { setSearchResults([]); return }
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const q = (supabase.from('recipes') as any)
-      .select(`id, name, category, storage_instructions,
-        recipe_ingredients!recipe_ingredients_recipe_id_fkey (
-          ingredient:ingredients ( name )
-        )`)
+    const { data, error } = await (supabase.from('recipes') as any)
+      .select('id, name, category, storage_instructions')
       .ilike('name', `%${query}%`)
-      .eq('is_active', true)
-      .limit(6)
-    const filtered = tenantId ? q.eq('tenant_id', tenantId) : q
-    const { data } = await filtered
+      .neq('is_active', false)
+      .limit(5)
+    if (error) console.error('[label search]', error)
     setSearchResults((data ?? []) as RecipeResult[])
-  }, [tenantId])
+  }
 
-  const addToQueue = (recipe: RecipeResult) => {
-    const ingredientNames = recipe.recipe_ingredients
-      ?.map((ri) => ri.ingredient?.name)
+  // On recipe select — fetch ingredients + allergens fresh by recipe_id
+  const handleSelectRecipe = async (recipe: RecipeResult) => {
+    const supabase = createClient()
+
+    // Fetch ingredient IDs + names in one query
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: riData } = await (supabase.from('recipe_ingredients') as any)
+      .select('ingredient_id, ingredient:ingredients ( id, name )')
+      .eq('recipe_id', recipe.id)
+
+    const ingredientNames: string[] = (riData ?? [])
+      .map((ri: { ingredient?: { name?: string } | null }) => ri.ingredient?.name)
       .filter(Boolean)
-      .join(', ') ?? ''
-    setLabelQueue((prev) => [...prev, {
+
+    const ingredientIds: string[] = (riData ?? [])
+      .map((ri: { ingredient?: { id?: string } | null }) => ri.ingredient?.id)
+      .filter(Boolean)
+
+    // Fetch allergens via the authenticated API endpoint (uses admin client + EU_ALLERGENS mapping)
+    let allergens: string[] = []
+    if (ingredientIds.length > 0) {
+      try {
+        const res = await fetch(`/api/ingredients/allergens?ids=${ingredientIds.join(',')}`)
+        if (res.ok) {
+          const allergenMap = await res.json() as Record<string, IngredientAllergen[]>
+          const seenIds = new Set<number>()
+          Object.values(allergenMap).forEach((list) =>
+            list.filter((a) => a.status === 'contains').forEach((a) => seenIds.add(a.allergenId))
+          )
+          allergens = Array.from(seenIds)
+            .map((id) => EU_ALLERGENS.find((e) => e.id === id)?.shortName ?? '')
+            .filter(Boolean)
+        }
+      } catch {
+        // non-critical
+      }
+    }
+
+    setEditingNewLabel({
       recipeId: recipe.id,
       recipeName: recipe.name,
       quantity: 1,
-      isEditing: false,
       labelData: {
         productName: recipe.name,
         businessName: tenantName,
@@ -138,15 +168,32 @@ export default function LabelsPage() {
         yieldQty: '',
         productionDate: new Date().toISOString().split('T')[0],
         expiryDate: '',
-        ingredients: ingredientNames,
+        ingredients: ingredientNames.join(', '),
         storageInstructions: recipe.storage_instructions ?? '',
         weight: '',
-        allergens: [],
+        allergens,
       },
-    }])
+    })
     setSearchQuery('')
     setSearchResults([])
-    searchInputRef.current?.focus()
+  }
+
+  const confirmAddToQueue = () => {
+    if (!editingNewLabel) return
+    setLabelQueue((prev) => [...prev, {
+      recipeId: editingNewLabel.recipeId,
+      recipeName: editingNewLabel.recipeName,
+      quantity: Math.max(1, editingNewLabel.quantity),
+      isEditing: false,
+      labelData: editingNewLabel.labelData,
+    }])
+    setEditingNewLabel(null)
+    setTimeout(() => searchInputRef.current?.focus(), 50)
+  }
+
+  const setEditField = (field: StringLabelField, value: string) => {
+    if (!editingNewLabel) return
+    setEditingNewLabel({ ...editingNewLabel, labelData: { ...editingNewLabel.labelData, [field]: value } })
   }
 
   const updateQuantity = (index: number, qty: number) => {
@@ -184,36 +231,72 @@ export default function LabelsPage() {
     const isRoll = printerType === 'roll'
     const cols = isRoll ? 1 : labelsPerRow
 
-    const allLabels: LabelData[] = []
-    labelQueue.forEach((item) => {
-      for (let i = 0; i < item.quantity; i++) allLabels.push(item.labelData)
-    })
+    const allLabels: LabelData[] = labelQueue.flatMap((item) =>
+      Array.from({ length: item.quantity }, () => ({
+        ...item.labelData,
+        allergens: item.labelData.allergens ?? [],
+      }))
+    )
 
     const renderLabel = (label: LabelData) => {
-      let ingredientsHtml = label.ingredients
-      label.allergens.forEach((a) => {
+      let ingredientsHtml = label.ingredients || ''
+      const allergens = label.allergens ?? []
+      allergens.forEach((a) => {
         const re = new RegExp(`(${a})`, 'gi')
         ingredientsHtml = ingredientsHtml.replace(re, '<strong style="text-transform:uppercase;">$1</strong>')
       })
-      const scale = Math.min(size.h / 100, 1)
-      const nameSize = Math.max(10, Math.round(16 * scale))
-      const bodySize = Math.max(6, Math.round(9 * scale))
-      const metaSize = Math.max(5, Math.round(7 * scale))
-      const pad = Math.max(2, Math.round(4 * scale))
+
       const fmtDate = (d: string) => d
         ? new Date(d).toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: '2-digit' })
         : ''
-      return `<div class="label" style="width:${size.w}mm;height:${size.h}mm;padding:${pad}mm;border:0.5px solid #ccc;box-sizing:border-box;overflow:hidden;page-break-inside:avoid;display:flex;flex-direction:column;">
-        <p style="font-size:${nameSize}px;font-weight:900;line-height:1.1;margin:0;">${label.productName}</p>
-        ${label.businessName ? `<p style="font-size:${metaSize}px;color:#666;margin:1px 0 0;">${label.businessName}</p>` : ''}
-        <p style="font-size:${metaSize - 1}px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin:${Math.round(3 * scale)}px 0 1px;">Ingredients</p>
-        <p style="font-size:${bodySize - 1}px;color:#333;line-height:1.3;margin:0;flex:1;overflow:hidden;">${ingredientsHtml}</p>
-        ${label.allergens.length > 0 ? `<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:2px;padding:1.5px 3px;margin:2px 0;"><p style="font-size:${metaSize}px;font-weight:800;color:#dc2626;margin:0;">CONTAINS: ${label.allergens.join(', ')}</p></div>` : ''}
-        ${label.weight ? `<p style="font-size:${bodySize}px;font-weight:700;margin:2px 0 0;">Net Wt: ${label.weight}</p>` : ''}
-        ${label.storageInstructions ? `<p style="font-size:${metaSize - 1}px;color:#888;font-style:italic;margin:1px 0;">${label.storageInstructions}</p>` : ''}
-        <div style="display:flex;justify-content:space-between;font-size:${metaSize - 1}px;color:#999;margin-top:auto;">
-          ${label.batchId ? `<span>Batch: ${label.batchId}</span>` : '<span></span>'}
-          <span>${fmtDate(label.productionDate) ? `Prod: ${fmtDate(label.productionDate)}` : ''}${fmtDate(label.expiryDate) ? ` · BB: ${fmtDate(label.expiryDate)}` : ''}</span>
+      const prodDate = fmtDate(label.productionDate)
+      const expDate = fmtDate(label.expiryDate)
+
+      // All sizes scale proportionally based on label height (base = 100mm)
+      const scale = size.h / 100
+      const clamp = (min: number, val: number, max: number) => Math.max(min, Math.min(max, val))
+      const fs = {
+        name:        clamp(8,  Math.round(16 * scale), 22),
+        business:    clamp(5,  Math.round(8 * scale),  12),
+        sectionHead: clamp(4,  Math.round(6 * scale),  9),
+        body:        clamp(5,  Math.round(8 * scale),  11),
+        allergen:    clamp(5,  Math.round(7 * scale),  10),
+        meta:        clamp(4,  Math.round(6 * scale),  8),
+        metaVal:     clamp(5,  Math.round(7 * scale),  9),
+      }
+      const pad = clamp(2, Math.round(4 * scale), 8)
+      const gap = clamp(1, Math.round(3 * scale), 6)
+      const radius = clamp(2, Math.round(4 * scale), 8)
+
+      // Truncate ingredients to fit available space
+      const pxPerMm = 3.78
+      const innerW = (size.w - pad * 2) * pxPerMm
+      const charsPerLine = Math.floor(innerW / (fs.body * 0.52))
+      const fixedH = fs.name + fs.business + fs.sectionHead +
+        (allergens.length > 0 ? fs.allergen * 2 + gap * 4 : 0) +
+        (label.weight ? fs.body + gap : 0) +
+        (label.storageInstructions ? fs.meta + gap : 0) +
+        fs.metaVal * 2 + gap * 8 + pad * 2 * pxPerMm
+      const availH = size.h * pxPerMm - fixedH
+      const maxLines = Math.max(1, Math.floor(availH / (fs.body * 1.35)))
+      const maxChars = charsPerLine * maxLines
+      const truncated = ingredientsHtml.length > maxChars
+        ? ingredientsHtml.slice(0, maxChars) + '…'
+        : ingredientsHtml
+
+      return `<div class="label" style="width:${size.w}mm;height:${size.h}mm;border:1.5px solid #1e293b;border-radius:${radius}px;padding:${pad}mm;box-sizing:border-box;overflow:hidden;page-break-inside:avoid;display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1e293b;">
+        <p style="font-size:${fs.name}px;font-weight:900;line-height:1.1;margin:0 0 ${gap * 0.3}px 0;">${label.productName}</p>
+        ${label.businessName ? `<p style="font-size:${fs.business}px;color:#6b7280;font-weight:500;margin:0 0 ${gap}px 0;line-height:1.2;">${label.businessName}</p>` : ''}
+        <p style="font-size:${fs.sectionHead}px;font-weight:800;color:#6b7280;text-transform:uppercase;letter-spacing:0.8px;margin:0 0 ${gap * 0.3}px 0;">Ingredients</p>
+        <p style="font-size:${fs.body}px;color:#374151;line-height:1.3;margin:0;flex:1;overflow:hidden;">${truncated}</p>
+        ${allergens.length > 0 ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:${clamp(2, Math.round(3 * scale), 6)}px;padding:${clamp(1, Math.round(2 * scale), 4)}px ${clamp(2, Math.round(3 * scale), 6)}px;margin:${gap * 0.5}px 0;"><p style="font-size:${fs.allergen - 1}px;font-weight:800;color:#dc2626;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 1px 0;">Contains</p><p style="font-size:${fs.allergen}px;font-weight:700;color:#991b1b;margin:0;">${allergens.join(', ')}</p></div>` : ''}
+        ${label.storageInstructions ? `<p style="font-size:${fs.meta}px;color:#6b7280;font-style:italic;margin:${gap * 0.3}px 0;line-height:1.2;">${label.storageInstructions}</p>` : ''}
+        ${label.weight ? `<p style="font-size:${fs.body}px;font-weight:700;margin:${gap * 0.3}px 0;">Net Wt: ${label.weight}</p>` : ''}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:${clamp(1, Math.round(2 * scale), 4)}px;border-top:1px solid #e5e7eb;padding-top:${clamp(1, Math.round(2 * scale), 4)}px;margin-top:auto;">
+          ${label.batchId ? `<div><p style="font-size:${fs.meta - 1}px;color:#9ca3af;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;margin:0;">Batch</p><p style="font-size:${fs.metaVal}px;font-weight:600;color:#374151;margin:0;">${label.batchId}</p></div>` : '<div></div>'}
+          ${label.yieldQty ? `<div><p style="font-size:${fs.meta - 1}px;color:#9ca3af;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;margin:0;">Yield</p><p style="font-size:${fs.metaVal}px;font-weight:600;color:#374151;margin:0;">${label.yieldQty} units</p></div>` : '<div></div>'}
+          ${prodDate ? `<div><p style="font-size:${fs.meta - 1}px;color:#9ca3af;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;margin:0;">Produced</p><p style="font-size:${fs.metaVal}px;font-weight:600;color:#374151;margin:0;">${prodDate}</p></div>` : '<div></div>'}
+          ${expDate ? `<div><p style="font-size:${fs.meta - 1}px;color:#9ca3af;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;margin:0;">Best Before</p><p style="font-size:${fs.metaVal}px;font-weight:600;color:#374151;margin:0;">${expDate}</p></div>` : '<div></div>'}
         </div>
       </div>`
     }
@@ -225,12 +308,7 @@ export default function LabelsPage() {
     win.document.write(`<!DOCTYPE html><html><head><title>Labels — ZRecipe</title><style>
       *{margin:0;padding:0;box-sizing:border-box}
       body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;${isRoll ? '' : 'padding:5mm;'}}
-      @media print{
-        body{padding:0}.no-print{display:none!important}
-        ${isRoll
-          ? `@page{size:${size.w}mm ${size.h}mm;margin:0}.label{page-break-after:always}`
-          : `@page{size:A4;margin:10mm}`}
-      }
+      @media print{body{padding:0}.no-print{display:none!important}${isRoll ? `@page{size:${size.w}mm ${size.h}mm;margin:0}.label{page-break-after:always}` : `@page{size:A4;margin:10mm}`}}
       .print-bar{position:fixed;bottom:0;left:0;right:0;background:white;border-top:1px solid #eee;padding:12px 24px;display:flex;justify-content:space-between;align-items:center;z-index:100}
       .print-btn{background:#059669;color:white;border:none;padding:10px 24px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer}
       .print-btn:hover{background:#047857}
@@ -250,13 +328,30 @@ export default function LabelsPage() {
   const currentSize = labelSize === 'custom'
     ? { w: customWidth, h: customHeight }
     : (SIZE_MAP[labelSize] ?? SIZE_MAP['62x100'])
-  const PREVIEW_MAX_W = 220
-  const previewScale = Math.min(1, PREVIEW_MAX_W / currentSize.w)
-  const previewW = Math.round(currentSize.w * previewScale * 3.78)
-  const previewH = Math.round(currentSize.h * previewScale * 3.78)
 
-  const inputCls = 'w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm focus:border-emerald-400 focus:outline-none'
-  const labelCls = 'mb-1 block text-[10px] font-bold uppercase tracking-widest text-gray-400'
+  // For sheet preview: scale A4 to fit ~300px wide
+  const A4_W_PX = 794  // 210mm at 96dpi
+  const A4_H_PX = 1123 // 297mm at 96dpi
+  const SHEET_SCALE = 0.34
+  const sheetPreviewW = Math.round(A4_W_PX * SHEET_SCALE)
+  const sheetPreviewH = Math.round(A4_H_PX * SHEET_SCALE)
+
+  // For roll preview: scale label to max 280px wide
+  const rollScale = Math.min(1, 280 / (currentSize.w * 3.78))
+  const rollPreviewW = Math.round(currentSize.w * 3.78 * rollScale)
+  const rollPreviewH = Math.round(currentSize.h * 3.78 * rollScale)
+
+  // Flatten queue items to a flat array of LabelData for the sheet preview
+  const flatLabels: LabelData[] = []
+  labelQueue.forEach((item) => {
+    for (let i = 0; i < item.quantity; i++) flatLabels.push(item.labelData)
+  })
+  const pagesNeeded = Math.ceil(totalLabels / (labelsPerRow * labelsPerCol))
+
+  const inputCls = 'w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100'
+  const modalLabelCls = 'mb-1 block text-xs font-semibold uppercase tracking-wider text-gray-500'
+  const queueInputCls = 'w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm focus:border-emerald-400 focus:outline-none'
+  const queueLabelCls = 'mb-1 block text-[10px] font-bold uppercase tracking-widest text-gray-400'
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -300,7 +395,7 @@ export default function LabelsPage() {
                   <button
                     key={recipe.id}
                     type="button"
-                    onClick={() => addToQueue(recipe)}
+                    onClick={() => void handleSelectRecipe(recipe)}
                     className="flex w-full items-center justify-between px-4 py-3 text-left transition hover:bg-emerald-50"
                   >
                     <div>
@@ -320,7 +415,6 @@ export default function LabelsPage() {
               <div className="mb-4 space-y-2">
                 {labelQueue.map((item, index) => (
                   <div key={`${item.recipeId}-${index}`} className="overflow-hidden rounded-xl border border-gray-200">
-                    {/* Row header */}
                     <div className="flex items-center justify-between bg-gray-50 px-4 py-3">
                       <div className="flex min-w-0 flex-1 items-center gap-3">
                         <Tag className="h-4 w-4 flex-shrink-0 text-gray-400" />
@@ -334,109 +428,82 @@ export default function LabelsPage() {
                         )}
                       </div>
                       <div className="flex items-center gap-2">
-                        {/* Qty */}
                         <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white">
-                          <button
-                            type="button"
-                            onClick={() => updateQuantity(index, item.quantity - 1)}
+                          <button type="button" onClick={() => updateQuantity(index, item.quantity - 1)}
                             disabled={item.quantity <= 1}
-                            className="p-1.5 text-gray-400 hover:text-gray-600 disabled:opacity-30"
-                          >
+                            className="p-1.5 text-gray-400 hover:text-gray-600 disabled:opacity-30">
                             <Minus className="h-3 w-3" />
                           </button>
-                          <input
-                            type="number"
-                            value={item.quantity}
+                          <input type="number" value={item.quantity}
                             onChange={(e) => updateQuantity(index, Number(e.target.value))}
                             className="w-10 border-0 text-center text-sm font-semibold focus:outline-none"
-                            min={1}
-                            max={100}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => updateQuantity(index, item.quantity + 1)}
-                            className="p-1.5 text-gray-400 hover:text-gray-600"
-                          >
+                            min={1} max={100} />
+                          <button type="button" onClick={() => updateQuantity(index, item.quantity + 1)}
+                            className="p-1.5 text-gray-400 hover:text-gray-600">
                             <Plus className="h-3 w-3" />
                           </button>
                         </div>
-                        {/* Edit toggle */}
-                        <button
-                          type="button"
-                          onClick={() => toggleEdit(index)}
-                          className={cn(
-                            'rounded-lg p-1.5 transition-colors',
-                            item.isEditing
-                              ? 'bg-emerald-50 text-emerald-600'
-                              : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'
-                          )}
-                        >
+                        <button type="button" onClick={() => toggleEdit(index)}
+                          className={cn('rounded-lg p-1.5 transition-colors',
+                            item.isEditing ? 'bg-emerald-50 text-emerald-600' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600')}>
                           <Pencil className="h-3.5 w-3.5" />
                         </button>
-                        {/* Remove */}
-                        <button
-                          type="button"
-                          onClick={() => removeFromQueue(index)}
-                          className="p-1.5 text-gray-400 transition-colors hover:text-red-400"
-                        >
+                        <button type="button" onClick={() => removeFromQueue(index)}
+                          className="p-1.5 text-gray-400 transition-colors hover:text-red-400">
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </div>
                     </div>
 
-                    {/* Edit form */}
                     {item.isEditing && (
                       <div className="space-y-3 border-t border-gray-100 bg-white px-4 py-3">
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <label className={labelCls}>Product Name</label>
+                            <label className={queueLabelCls}>Product Name</label>
                             <input type="text" value={item.labelData.productName}
                               onChange={(e) => updateLabelField(index, 'productName', e.target.value)}
-                              className={inputCls} />
+                              className={queueInputCls} />
                           </div>
                           <div>
-                            <label className={labelCls}>Net Weight</label>
+                            <label className={queueLabelCls}>Net Weight</label>
                             <input type="text" value={item.labelData.weight}
                               onChange={(e) => updateLabelField(index, 'weight', e.target.value)}
-                              placeholder="e.g. 250g" className={inputCls} />
+                              placeholder="e.g. 250g" className={queueInputCls} />
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <label className={labelCls}>Batch ID</label>
+                            <label className={queueLabelCls}>Batch ID</label>
                             <input type="text" value={item.labelData.batchId}
                               onChange={(e) => updateLabelField(index, 'batchId', e.target.value)}
-                              placeholder="e.g. B-001" className={inputCls} />
+                              placeholder="e.g. B-001" className={queueInputCls} />
                           </div>
                           <div>
-                            <label className={labelCls}>Best Before</label>
+                            <label className={queueLabelCls}>Best Before</label>
                             <input type="date" value={item.labelData.expiryDate}
                               onChange={(e) => updateLabelField(index, 'expiryDate', e.target.value)}
-                              className={inputCls} />
+                              className={queueInputCls} />
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <label className={labelCls}>Production Date</label>
+                            <label className={queueLabelCls}>Production Date</label>
                             <input type="date" value={item.labelData.productionDate}
                               onChange={(e) => updateLabelField(index, 'productionDate', e.target.value)}
-                              className={inputCls} />
+                              className={queueInputCls} />
                           </div>
                           <div>
-                            <label className={labelCls}>Storage</label>
+                            <label className={queueLabelCls}>Storage</label>
                             <input type="text" value={item.labelData.storageInstructions}
                               onChange={(e) => updateLabelField(index, 'storageInstructions', e.target.value)}
-                              placeholder="e.g. Store in a cool, dry place" className={inputCls} />
+                              placeholder="e.g. Store cool, dry" className={queueInputCls} />
                           </div>
                         </div>
                         <div>
-                          <label className={labelCls}>Ingredients List</label>
-                          <textarea
-                            value={item.labelData.ingredients}
+                          <label className={queueLabelCls}>Ingredients List</label>
+                          <textarea value={item.labelData.ingredients}
                             onChange={(e) => updateLabelField(index, 'ingredients', e.target.value)}
-                            rows={2}
-                            className={cn(inputCls, 'resize-none')}
-                          />
+                            rows={2} className={cn(queueInputCls, 'resize-none')} />
                         </div>
                       </div>
                     )}
@@ -444,18 +511,13 @@ export default function LabelsPage() {
                 ))}
               </div>
 
-              {/* Queue summary */}
               <div className="flex items-center justify-between border-t border-gray-100 pt-3">
                 <p className="text-sm text-gray-500">
                   <span className="font-semibold text-gray-800">{totalLabels}</span>{' '}
-                  label{totalLabels !== 1 ? 's' : ''} from{' '}
-                  {labelQueue.length} recipe{labelQueue.length !== 1 ? 's' : ''}
+                  label{totalLabels !== 1 ? 's' : ''} from {labelQueue.length} recipe{labelQueue.length !== 1 ? 's' : ''}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => setLabelQueue([])}
-                  className="text-xs text-gray-400 transition-colors hover:text-red-400"
-                >
+                <button type="button" onClick={() => setLabelQueue([])}
+                  className="text-xs text-gray-400 transition-colors hover:text-red-400">
                   Clear all
                 </button>
               </div>
@@ -477,17 +539,9 @@ export default function LabelsPage() {
             <h3 className="mb-3 text-sm font-bold text-gray-800">Label Size</h3>
             <div className="grid grid-cols-2 gap-2">
               {LABEL_SIZES.map((size) => (
-                <button
-                  key={size.value}
-                  type="button"
-                  onClick={() => setLabelSize(size.value)}
-                  className={cn(
-                    'rounded-xl border-2 p-3 text-left transition-all',
-                    labelSize === size.value
-                      ? 'border-emerald-400 bg-emerald-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  )}
-                >
+                <button key={size.value} type="button" onClick={() => setLabelSize(size.value)}
+                  className={cn('rounded-xl border-2 p-3 text-left transition-all',
+                    labelSize === size.value ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-gray-300')}>
                   <p className="text-sm font-medium text-gray-800">{size.label}</p>
                   <p className="text-[10px] text-gray-400">{size.desc}</p>
                 </button>
@@ -496,16 +550,16 @@ export default function LabelsPage() {
             {labelSize === 'custom' && (
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <div>
-                  <label className={labelCls}>Width (mm)</label>
+                  <label className={queueLabelCls}>Width (mm)</label>
                   <input type="number" value={customWidth}
                     onChange={(e) => setCustomWidth(Number(e.target.value))}
-                    className={inputCls} min={20} max={200} />
+                    className={queueInputCls} min={20} max={200} />
                 </div>
                 <div>
-                  <label className={labelCls}>Height (mm)</label>
+                  <label className={queueLabelCls}>Height (mm)</label>
                   <input type="number" value={customHeight}
                     onChange={(e) => setCustomHeight(Number(e.target.value))}
-                    className={inputCls} min={20} max={300} />
+                    className={queueInputCls} min={20} max={300} />
                 </div>
               </div>
             )}
@@ -516,15 +570,9 @@ export default function LabelsPage() {
             <h3 className="mb-3 text-sm font-bold text-gray-800">Printer Type</h3>
             <div className="mb-3 flex rounded-lg bg-gray-100 p-0.5">
               {(['roll', 'sheet'] as const).map((type) => (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => setPrinterType(type)}
-                  className={cn(
-                    'flex-1 rounded-md py-2 text-sm font-medium transition-all',
-                    printerType === type ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500'
-                  )}
-                >
+                <button key={type} type="button" onClick={() => setPrinterType(type)}
+                  className={cn('flex-1 rounded-md py-2 text-sm font-medium transition-all',
+                    printerType === type ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500')}>
                   {type === 'roll' ? 'Roll (continuous)' : 'Sheet / A4'}
                 </button>
               ))}
@@ -532,85 +580,274 @@ export default function LabelsPage() {
             {printerType === 'sheet' && (
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className={labelCls}>Labels per row</label>
+                  <label className={queueLabelCls}>Labels per row</label>
                   <input type="number" value={labelsPerRow}
                     onChange={(e) => setLabelsPerRow(Math.min(5, Math.max(1, Number(e.target.value))))}
-                    className={inputCls} min={1} max={5} />
+                    className={queueInputCls} min={1} max={5} />
                 </div>
                 <div>
-                  <label className={labelCls}>Labels per column</label>
+                  <label className={queueLabelCls}>Labels per column</label>
                   <input type="number" value={labelsPerCol}
                     onChange={(e) => setLabelsPerCol(Math.min(15, Math.max(1, Number(e.target.value))))}
-                    className={inputCls} min={1} max={15} />
+                    className={queueInputCls} min={1} max={15} />
                 </div>
               </div>
             )}
           </div>
 
-          {/* Live Preview */}
+          {/* Preview */}
           <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h3 className="mb-3 text-sm font-bold text-gray-800">Preview</h3>
-            <div className="flex min-h-[180px] items-center justify-center rounded-xl bg-gray-50 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-gray-800">Preview</h3>
+              <span className="text-[10px] text-gray-400">
+                {currentSize.w} × {currentSize.h} mm · {printerType === 'roll' ? 'Roll' : `${labelsPerRow}×${labelsPerCol} per page`}
+              </span>
+            </div>
+
+            <div className="overflow-hidden rounded-xl bg-gray-100 p-4">
               {labelQueue.length > 0 ? (
-                <div
-                  className="overflow-hidden rounded-lg border-2 border-gray-800 bg-white"
-                  style={{ width: previewW, height: previewH, padding: 8 }}
-                >
-                  <p style={{ fontSize: 11, fontWeight: 900, lineHeight: 1.2 }}>
-                    {labelQueue[0].labelData.productName}
-                  </p>
-                  {labelQueue[0].labelData.businessName && (
-                    <p style={{ fontSize: 7, color: '#6b7280', marginTop: 1 }}>
-                      {labelQueue[0].labelData.businessName}
-                    </p>
-                  )}
-                  <p style={{ fontSize: 5, color: '#6b7280', marginTop: 4, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    Ingredients
-                  </p>
-                  <p style={{ fontSize: 6, color: '#374151', lineHeight: 1.3 }}>
-                    {labelQueue[0].labelData.ingredients.slice(0, 120)}
-                    {labelQueue[0].labelData.ingredients.length > 120 ? '…' : ''}
-                  </p>
-                  {labelQueue[0].labelData.allergens.length > 0 && (
-                    <div style={{ marginTop: 3, padding: '2px 4px', background: '#fef2f2', borderRadius: 3, border: '1px solid #fca5a5' }}>
-                      <p style={{ fontSize: 5, fontWeight: 800, color: '#dc2626' }}>
-                        CONTAINS: {labelQueue[0].labelData.allergens.join(', ')}
-                      </p>
+                printerType === 'sheet' ? (
+                  // A4 sheet preview — scaled down full page with grid
+                  <div style={{ width: sheetPreviewW, height: sheetPreviewH, overflow: 'hidden', position: 'relative', margin: '0 auto' }}>
+                    <div style={{
+                      width: A4_W_PX, minHeight: A4_H_PX,
+                      background: 'white', padding: '38px',
+                      transform: `scale(${SHEET_SCALE})`, transformOrigin: 'top left',
+                      position: 'absolute', top: 0, left: 0,
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                    }}>
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: `repeat(${labelsPerRow}, ${currentSize.w}mm)`,
+                        gridAutoRows: `${currentSize.h}mm`,
+                        gap: '2mm',
+                        justifyContent: 'start',
+                      }}>
+                        {flatLabels.slice(0, labelsPerRow * labelsPerCol).map((label, i) => (
+                          <div key={i} style={{
+                            width: `${currentSize.w}mm`, height: `${currentSize.h}mm`,
+                            border: '1.5px solid #1e293b', borderRadius: '4px',
+                            padding: '3mm', overflow: 'hidden',
+                            fontFamily: '-apple-system, sans-serif',
+                            display: 'flex', flexDirection: 'column',
+                          }}>
+                            <p style={{ fontWeight: 900, fontSize: '10px', lineHeight: 1.1, margin: 0 }}>
+                              {label.productName}
+                            </p>
+                            {label.businessName && (
+                              <p style={{ fontSize: '6px', color: '#888', margin: '1px 0' }}>
+                                {label.businessName}
+                              </p>
+                            )}
+                            <p style={{ fontSize: '5px', fontWeight: 800, color: '#888', textTransform: 'uppercase', margin: '3px 0 1px' }}>
+                              Ingredients
+                            </p>
+                            <p style={{ fontSize: '5.5px', color: '#333', lineHeight: 1.3, overflow: 'hidden', margin: 0, flex: 1 }}>
+                              {label.ingredients.slice(0, 60)}{label.ingredients.length > 60 ? '…' : ''}
+                            </p>
+                            {label.allergens.length > 0 && (
+                              <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '2px', padding: '1px 2px', margin: '2px 0' }}>
+                                <p style={{ fontSize: '5px', fontWeight: 800, color: '#dc2626' }}>
+                                  CONTAINS: {label.allergens.join(', ')}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  )}
-                  <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between', fontSize: 5, color: '#9ca3af' }}>
-                    <span>{labelQueue[0].labelData.batchId}</span>
-                    <span>
-                      {labelQueue[0].labelData.productionDate
-                        ? new Date(labelQueue[0].labelData.productionDate).toLocaleDateString('en-IE', { day: '2-digit', month: '2-digit', year: '2-digit' })
-                        : ''}
-                    </span>
                   </div>
-                </div>
+                ) : (
+                  // Roll preview — single label
+                  <div style={{ width: rollPreviewW, height: rollPreviewH, overflow: 'hidden', margin: '0 auto' }}>
+                    <div style={{
+                      border: '2px solid #1e293b', borderRadius: '6px', padding: '8px',
+                      background: 'white', width: rollPreviewW, height: rollPreviewH,
+                    }}>
+                      <p style={{ fontWeight: 900, fontSize: 11, lineHeight: 1.1 }}>
+                        {labelQueue[0].labelData.productName}
+                      </p>
+                      {labelQueue[0].labelData.businessName && (
+                        <p style={{ fontSize: 7, color: '#6b7280', marginTop: 1 }}>
+                          {labelQueue[0].labelData.businessName}
+                        </p>
+                      )}
+                      <p style={{ fontSize: 5, color: '#6b7280', marginTop: 4, fontWeight: 700, textTransform: 'uppercase' }}>
+                        Ingredients
+                      </p>
+                      <p style={{ fontSize: 6, color: '#374151', lineHeight: 1.3 }}>
+                        {labelQueue[0].labelData.ingredients.slice(0, 120)}
+                        {labelQueue[0].labelData.ingredients.length > 120 ? '…' : ''}
+                      </p>
+                      {labelQueue[0].labelData.allergens.length > 0 && (
+                        <div style={{ marginTop: 3, padding: '2px 4px', background: '#fef2f2', borderRadius: 3, border: '1px solid #fca5a5' }}>
+                          <p style={{ fontSize: 5, fontWeight: 800, color: '#dc2626' }}>
+                            CONTAINS: {labelQueue[0].labelData.allergens.join(', ')}
+                          </p>
+                        </div>
+                      )}
+                      <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between', fontSize: 5, color: '#9ca3af' }}>
+                        <span>{labelQueue[0].labelData.batchId}</span>
+                        <span>
+                          {labelQueue[0].labelData.productionDate
+                            ? new Date(labelQueue[0].labelData.productionDate).toLocaleDateString('en-IE', { day: '2-digit', month: '2-digit', year: '2-digit' })
+                            : ''}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )
               ) : (
-                <div className="text-center">
-                  <Eye className="mx-auto mb-1 h-6 w-6 text-gray-300" />
-                  <p className="text-xs text-gray-400">Add a recipe to preview</p>
+                <div className="flex min-h-[140px] items-center justify-center text-center">
+                  <div>
+                    <Eye className="mx-auto mb-1 h-6 w-6 text-gray-300" />
+                    <p className="text-xs text-gray-400">Add a recipe to preview</p>
+                  </div>
                 </div>
               )}
             </div>
-            <p className="mt-2 text-center text-[10px] text-gray-400">
-              {currentSize.w} × {currentSize.h} mm · Showing first label
-            </p>
+
+            {labelQueue.length > 0 && printerType === 'sheet' && (
+              <p className="mt-2 text-center text-[10px] text-gray-400">
+                {pagesNeeded} page{pagesNeeded > 1 ? 's' : ''} needed ·{' '}
+                {Math.min(totalLabels, labelsPerRow * labelsPerCol)} shown in preview
+              </p>
+            )}
           </div>
 
           {/* Print button */}
-          <button
-            type="button"
-            onClick={handlePrintAllLabels}
-            disabled={labelQueue.length === 0}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
+          <button type="button" onClick={handlePrintAllLabels} disabled={labelQueue.length === 0}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50">
             <Printer className="h-5 w-5" />
             Print {totalLabels} Label{totalLabels !== 1 ? 's' : ''}
           </button>
         </div>
       </div>
+
+      {/* ── New Label Modal ──────────────────────────────────────────────────── */}
+      {editingNewLabel && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setEditingNewLabel(null)}
+        >
+          <div
+            className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Label Details</h2>
+                <p className="text-sm text-gray-500">{editingNewLabel.recipeName}</p>
+              </div>
+              <button type="button" onClick={() => setEditingNewLabel(null)}
+                className="text-gray-400 hover:text-gray-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
+              <div>
+                <label className={modalLabelCls}>Product Name</label>
+                <input type="text" value={editingNewLabel.labelData.productName}
+                  onChange={(e) => setEditField('productName', e.target.value)}
+                  className={inputCls} autoFocus />
+              </div>
+
+              <div>
+                <label className={modalLabelCls}>Business Name</label>
+                <input type="text" value={editingNewLabel.labelData.businessName}
+                  onChange={(e) => setEditField('businessName', e.target.value)}
+                  className={inputCls} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={modalLabelCls}>Net Weight</label>
+                  <input type="text" value={editingNewLabel.labelData.weight}
+                    onChange={(e) => setEditField('weight', e.target.value)}
+                    placeholder="e.g. 250g" className={inputCls} />
+                </div>
+                <div>
+                  <label className={modalLabelCls}>Batch ID</label>
+                  <input type="text" value={editingNewLabel.labelData.batchId}
+                    onChange={(e) => setEditField('batchId', e.target.value)}
+                    placeholder="e.g. B-001" className={inputCls} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={modalLabelCls}>Production Date</label>
+                  <input type="date" value={editingNewLabel.labelData.productionDate}
+                    onChange={(e) => setEditField('productionDate', e.target.value)}
+                    className={inputCls} />
+                </div>
+                <div>
+                  <label className={modalLabelCls}>Best Before / Use By</label>
+                  <input type="date" value={editingNewLabel.labelData.expiryDate}
+                    onChange={(e) => setEditField('expiryDate', e.target.value)}
+                    className={inputCls} />
+                </div>
+              </div>
+
+              <div>
+                <label className={modalLabelCls}>Ingredients List</label>
+                <textarea value={editingNewLabel.labelData.ingredients}
+                  onChange={(e) => setEditField('ingredients', e.target.value)}
+                  rows={3} className={cn(inputCls, 'resize-none')} />
+                <p className="mt-1 text-xs text-gray-400">
+                  Allergens will be highlighted in bold automatically
+                </p>
+              </div>
+
+              <div>
+                <label className={modalLabelCls}>Storage Instructions</label>
+                <input type="text" value={editingNewLabel.labelData.storageInstructions}
+                  onChange={(e) => setEditField('storageInstructions', e.target.value)}
+                  placeholder="e.g. Store in a cool, dry place" className={inputCls} />
+              </div>
+
+              <div>
+                <label className={modalLabelCls}>Number of Labels</label>
+                <div className="flex items-center gap-2">
+                  <input type="number"
+                    value={editingNewLabel.quantity}
+                    onChange={(e) => setEditingNewLabel({ ...editingNewLabel, quantity: Math.max(1, Number(e.target.value)) })}
+                    className="w-24 rounded-xl border border-gray-200 px-3 py-2.5 text-center text-sm focus:border-emerald-400 focus:outline-none"
+                    min={1} />
+                  <span className="text-sm text-gray-400">labels</span>
+                </div>
+              </div>
+
+              {editingNewLabel.labelData.allergens.length > 0 && (
+                <div className="rounded-xl border border-red-100 bg-red-50 p-3">
+                  <p className="mb-1 text-xs font-bold uppercase tracking-wider text-red-600">
+                    Allergens (auto-detected)
+                  </p>
+                  <p className="text-sm font-semibold text-red-700">
+                    {editingNewLabel.labelData.allergens.join(', ')}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex gap-3 border-t border-gray-100 px-6 py-4">
+              <button type="button" onClick={() => setEditingNewLabel(null)}
+                className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm text-gray-600 transition hover:bg-gray-50">
+                Cancel
+              </button>
+              <button type="button" onClick={confirmAddToQueue}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700">
+                <Plus className="h-4 w-4" />
+                Add to Queue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

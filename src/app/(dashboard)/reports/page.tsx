@@ -5,7 +5,7 @@ import Link from 'next/link'
 import {
   BarChart3, ChefHat, TrendingUp, Receipt, FileText,
   AlertTriangle, Sparkles, Printer, Apple, Truck, Loader2,
-  ArrowUpRight, ArrowDownRight,
+  ArrowUpRight, ArrowDownRight, X,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LabelList,
@@ -102,6 +102,13 @@ export default function ReportsPage() {
   const [insights, setInsights] = useState<Insight[]>([])
   const [insightsLoading, setInsightsLoading] = useState(false)
   const [sortMode, setSortMode] = useState<SortMode>('margin-high')
+  const [showSupplierDateModal, setShowSupplierDateModal] = useState(false)
+  const [supplierDateFrom, setSupplierDateFrom] = useState(
+    new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]
+  )
+  const [supplierDateTo, setSupplierDateTo] = useState(
+    new Date().toISOString().split('T')[0]
+  )
 
   useEffect(() => {
     const load = async () => {
@@ -362,10 +369,15 @@ export default function ReportsPage() {
     win.document.close()
   }
 
-  const printSupplierReport = () => {
-    const today = new Date().toLocaleDateString('en-IE', { day: 'numeric', month: 'long', year: 'numeric' })
+  const printSupplierReport = (dateFrom: string, dateTo: string) => {
+    // Filter in-memory invoices by the selected date range
+    const filtered = invoices.filter((inv) => {
+      if (!inv.invoice_date) return false
+      return inv.invoice_date >= dateFrom && inv.invoice_date <= dateTo
+    })
+
     const grouped: Record<string, { name: string; invs: InvoiceRow[] }> = {}
-    for (const inv of invoices) {
+    for (const inv of filtered) {
       const key = inv.supplier_id ?? '__unknown__'
       const name = Array.isArray(inv.supplier)
         ? (inv.supplier[0] as { name: string } | undefined)?.name ?? 'Unknown'
@@ -373,29 +385,37 @@ export default function ReportsPage() {
       if (!grouped[key]) grouped[key] = { name, invs: [] }
       grouped[key].invs.push(inv)
     }
-    const sections = Object.values(grouped)
-      .sort((a, b) => {
-        const ta = a.invs.reduce((s, i) => s + (i.total_amount ?? 0), 0)
-        const tb = b.invs.reduce((s, i) => s + (i.total_amount ?? 0), 0)
-        return tb - ta
-      })
-      .map(({ name, invs }) => {
-        const total = invs.reduce((s, i) => s + (i.total_amount ?? 0), 0)
-        const invRows = invs
-          .sort((a, b) => (b.invoice_date ?? '').localeCompare(a.invoice_date ?? ''))
-          .map((inv) => `<tr>
-            <td>${inv.invoice_date ? new Date(inv.invoice_date + 'T12:00:00').toLocaleDateString('en-IE') : '—'}</td>
-            <td>€${(inv.total_amount ?? 0).toFixed(2)}</td>
-          </tr>`).join('')
-        return `<h3 style="font-size:16px;font-weight:700;margin:24px 0 8px;">${name}</h3>
-          <table><thead><tr><th>Date</th><th>Amount</th></tr></thead>
-          <tbody>${invRows}
-            <tr style="font-weight:700;border-top:2px solid #e5e7eb;">
-              <td>${invs.length} invoice${invs.length !== 1 ? 's' : ''}</td>
-              <td>€${total.toFixed(2)}</td>
-            </tr>
-          </tbody></table>`
-      }).join('')
+
+    const sortedSuppliers = Object.values(grouped).sort((a, b) => {
+      const ta = a.invs.reduce((s, i) => s + (i.total_amount ?? 0), 0)
+      const tb = b.invs.reduce((s, i) => s + (i.total_amount ?? 0), 0)
+      return tb - ta
+    })
+    const grandTotal = sortedSuppliers.reduce(
+      (s, sup) => s + sup.invs.reduce((ss, i) => ss + (i.total_amount ?? 0), 0), 0
+    )
+
+    const fromDisplay = new Date(dateFrom + 'T12:00:00').toLocaleDateString('en-IE', { day: 'numeric', month: 'long', year: 'numeric' })
+    const toDisplay = new Date(dateTo + 'T12:00:00').toLocaleDateString('en-IE', { day: 'numeric', month: 'long', year: 'numeric' })
+
+    const sections = sortedSuppliers.map(({ name, invs }) => {
+      const total = invs.reduce((s, i) => s + (i.total_amount ?? 0), 0)
+      const invRows = invs
+        .sort((a, b) => (b.invoice_date ?? '').localeCompare(a.invoice_date ?? ''))
+        .map((inv) => `<tr>
+          <td>${inv.invoice_date ? new Date(inv.invoice_date + 'T12:00:00').toLocaleDateString('en-IE') : '—'}</td>
+          <td>€${(inv.total_amount ?? 0).toFixed(2)}</td>
+        </tr>`).join('')
+      return `<h3 style="font-size:16px;font-weight:700;margin:24px 0 8px;">${name}</h3>
+        <table><thead><tr><th>Date</th><th>Amount</th></tr></thead>
+        <tbody>${invRows}
+          <tr style="font-weight:700;border-top:2px solid #e5e7eb;">
+            <td>${invs.length} invoice${invs.length !== 1 ? 's' : ''}</td>
+            <td>€${total.toFixed(2)}</td>
+          </tr>
+        </tbody></table>`
+    }).join('')
+
     const win = window.open('', '_blank')
     if (!win) return
     win.document.write(`<!DOCTYPE html><html><head><title>Supplier Report</title><style>
@@ -408,8 +428,8 @@ export default function ReportsPage() {
       .print-btn{position:fixed;bottom:20px;right:20px;background:#3b82f6;color:white;border:none;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer}
     </style></head><body>
       <h1>Supplier Report</h1>
-      <p class="meta">${tenantName} · ${today} · Total spend: €${totalInvoiceSpend.toFixed(2)}</p>
-      ${sections}
+      <p class="meta">${tenantName} · ${fromDisplay} to ${toDisplay} · ${sortedSuppliers.length} supplier${sortedSuppliers.length !== 1 ? 's' : ''} · Grand total: €${grandTotal.toFixed(2)}</p>
+      ${sections || '<p style="color:#9ca3af;font-size:13px;margin-top:16px;">No invoices found in this date range.</p>'}
       <div class="footer">Generated by ZRecipe</div>
       <button class="print-btn no-print" onclick="window.print()">🖨 Print</button>
     </body></html>`)
@@ -489,8 +509,123 @@ export default function ReportsPage() {
           onSortModeChange={setSortMode}
           onPrintRecipes={printRecipeCostReport}
           onPrintIngredients={printIngredientList}
-          onPrintSuppliers={printSupplierReport}
+          onPrintSuppliers={() => setShowSupplierDateModal(true)}
         />
+      )}
+
+      {/* ── Supplier date-range modal ──────────────────────────────────── */}
+      {showSupplierDateModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setShowSupplierDateModal(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50">
+                  <Truck className="h-5 w-5 text-blue-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900">Supplier Report</h2>
+                  <p className="text-sm text-gray-500">Select date range</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSupplierDateModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-6 py-5">
+              {/* Quick presets */}
+              <div className="mb-5 flex flex-wrap gap-2">
+                {[
+                  { label: 'This month',    from: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],     to: new Date().toISOString().split('T')[0] },
+                  { label: 'Last month',    from: new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1).toISOString().split('T')[0], to: new Date(new Date().getFullYear(), new Date().getMonth(), 0).toISOString().split('T')[0] },
+                  { label: 'Last 3 months', from: new Date(new Date().getFullYear(), new Date().getMonth() - 3, 1).toISOString().split('T')[0], to: new Date().toISOString().split('T')[0] },
+                  { label: 'This year',     from: new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0],                         to: new Date().toISOString().split('T')[0] },
+                  { label: 'All time',      from: '2020-01-01',                                                                                  to: new Date().toISOString().split('T')[0] },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => { setSupplierDateFrom(preset.from); setSupplierDateTo(preset.to) }}
+                    className={cn(
+                      'rounded-lg border px-3 py-1.5 text-xs transition-colors',
+                      supplierDateFrom === preset.from && supplierDateTo === preset.to
+                        ? 'border-emerald-600 bg-emerald-600 text-white'
+                        : 'border-gray-200 text-gray-600 hover:border-emerald-300 hover:bg-emerald-50'
+                    )}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Custom date inputs */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-500">From</label>
+                  <input
+                    type="date"
+                    value={supplierDateFrom}
+                    onChange={(e) => setSupplierDateFrom(e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-500">To</label>
+                  <input
+                    type="date"
+                    value={supplierDateTo}
+                    onChange={(e) => setSupplierDateTo(e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                  />
+                </div>
+              </div>
+
+              {/* Period summary */}
+              <div className="mt-4 flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3">
+                <span className="text-sm text-gray-500">Period</span>
+                <span className="text-sm font-semibold text-gray-800">
+                  {new Date(supplierDateFrom + 'T12:00:00').toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  {' — '}
+                  {new Date(supplierDateTo + 'T12:00:00').toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </span>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex gap-3 border-t border-gray-100 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setShowSupplierDateModal(false)}
+                className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm text-gray-600 transition hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSupplierDateModal(false)
+                  printSupplierReport(supplierDateFrom, supplierDateTo)
+                }}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700"
+              >
+                <Printer className="h-4 w-4" />
+                Generate Report
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
