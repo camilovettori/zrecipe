@@ -98,6 +98,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/dashboard', request.url))
   }
 
+  // ── Super-admin route guard ──────────────────────────────────────────────
+  if (pathname.startsWith('/adminziffera')) {
+    if (user.email !== 'camilovettori@gmail.com') {
+      return NextResponse.redirect(new URL('/', request.url))
+    }
+    // Admin passes through without a tenant check
+    return response
+  }
+
   // ── Tenant presence check ────────────────────────────────────────────────
   const hasTenantCookie = request.cookies.get('has-tenant')?.value === 'true'
   console.log('[MW] hasTenantCookie:', hasTenantCookie, '— proceeding to DB check:', !hasTenantCookie)

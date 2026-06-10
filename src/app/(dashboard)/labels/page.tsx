@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Tag, Search, Plus, Minus, Trash2, Printer, Eye, Pencil, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
@@ -79,7 +79,6 @@ export default function LabelsPage() {
   const [customWidth, setCustomWidth] = useState(62)
   const [customHeight, setCustomHeight] = useState(100)
   const [tenantName, setTenantName] = useState('')
-  const [tenantId, setTenantId] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -92,7 +91,6 @@ export default function LabelsPage() {
         .eq('user_id', user.id).limit(1).maybeSingle()
       const tid = (memberRow as { tenant_id: string } | null)?.tenant_id
       if (!tid) return
-      setTenantId(tid)
       const { data: tenantData } = await supabase
         .from('tenants').select('name').eq('id', tid).single()
       if ((tenantData as { name?: string } | null)?.name) {
