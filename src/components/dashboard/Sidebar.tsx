@@ -20,11 +20,14 @@ import {
   Sparkles,
   User,
   X,
+  Shield,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { clearTenantCache } from '@/hooks/useTenant'
 import { useAppStore } from '@/stores/app'
 import { cn } from '@/lib/utils'
+
+const SUPER_ADMIN_EMAILS = ['camilovettori@gmail.com', 'camilo@hotmail.com']
 
 const NAV_ITEMS = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -169,11 +172,13 @@ function SidebarContent({
   onNavClick,
   onToggle,
   user,
+  userEmail,
 }: {
   collapsed: boolean
   onNavClick?: () => void
   onToggle?: () => void
   user: UserInfo | null
+  userEmail?: string
 }) {
   return (
     <div className="flex h-full flex-col">
@@ -216,6 +221,23 @@ function SidebarContent({
         </div>
       )}
 
+      {/* Admin link — only for super admins */}
+      {SUPER_ADMIN_EMAILS.includes(userEmail ?? '') && (
+        <div className="px-3 pb-1">
+          <Link
+            href="/adminziffera"
+            title={collapsed ? 'Admin Panel' : undefined}
+            className={cn(
+              'flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-slate-500 transition-colors hover:bg-slate-800/50 hover:text-amber-400',
+              collapsed && 'justify-center'
+            )}
+          >
+            <Shield className="h-3.5 w-3.5 shrink-0" />
+            {!collapsed && <span>Admin Panel</span>}
+          </Link>
+        </div>
+      )}
+
       {/* Separator */}
       <div className="mx-3 border-t border-slate-700" />
 
@@ -255,6 +277,7 @@ export default function Sidebar() {
           collapsed={sidebarCollapsed}
           onToggle={toggleSidebar}
           user={user}
+          userEmail={user?.email}
         />
       </motion.aside>
 
@@ -289,6 +312,7 @@ export default function Sidebar() {
               <SidebarContent
                 collapsed={false}
                 user={user}
+                userEmail={user?.email}
                 onNavClick={() => setMobileSidebarOpen(false)}
               />
             </motion.aside>

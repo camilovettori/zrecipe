@@ -17,28 +17,28 @@ export default async function AdminTenants() {
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const a = admin as any
+
   const [
     { data: tenants },
-    { data: { users } },
+    listUsersResult,
     { data: tenantUsers },
     { data: recipes },
     { data: ingredients },
     { data: invoices },
     { data: invites },
   ] = await Promise.all([
-    admin.from('tenants').select('*').order('created_at', { ascending: false }),
-    admin.auth.admin.listUsers(),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (admin.from('tenant_users') as any).select('*'),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (admin.from('recipes') as any).select('id, tenant_id, name'),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (admin.from('ingredients') as any).select('id, tenant_id'),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (admin.from('invoices') as any).select('id, tenant_id, total_amount, created_at'),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (admin.from('tenant_invites') as any).select('*').catch(() => ({ data: [] })),
+    a.from('tenants').select('*').order('created_at', { ascending: false }),
+    admin.auth.admin.listUsers().catch(() => ({ data: { users: [] }, error: null })),
+    a.from('tenant_users').select('*'),
+    a.from('recipes').select('id, tenant_id, name'),
+    a.from('ingredients').select('id, tenant_id'),
+    a.from('invoices').select('id, tenant_id, total_amount, created_at'),
+    a.from('tenant_invites').select('*').catch(() => ({ data: [] })),
   ])
+
+  const users = (listUsersResult as { data: { users: { id: string; email?: string; last_sign_in_at?: string }[] } }).data?.users ?? []
 
   return (
     <div>
