@@ -64,6 +64,7 @@ export async function POST(request: NextRequest) {
       is_sub_ingredient: body.isSubIngredient ?? false,
       sub_ingredient_unit: body.subIngredientUnit || 'g',
       sub_ingredient_cost_per_unit: body.subIngredientCostPerUnit ?? null,
+      storage_instructions: body.storageInstructions ?? null,
     }
 
     let recipeId: string
@@ -111,6 +112,7 @@ export async function POST(request: NextRequest) {
             ingredientName?: string
             yield_percent?: number | null
             yield_override?: boolean | null
+            ep_weight_manual?: number | null
           },
           idx: number
         ) => ({
@@ -124,6 +126,7 @@ export async function POST(request: NextRequest) {
           tenant_id: tenantId,
           yield_percent: ing.yield_percent ?? 100,
           yield_override: ing.yield_override ?? false,
+          ep_weight_manual: ing.ep_weight_manual ?? null,
         })
       )
       console.log('[RECIPE SAVE] Inserting ingredients...')

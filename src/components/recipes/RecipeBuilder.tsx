@@ -3,25 +3,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import dynamic from 'next/dynamic'
 import { useDropzone } from 'react-dropzone'
 import { useRouter } from 'next/navigation'
 import { Reorder, useDragControls } from 'framer-motion'
 import {
   ArrowLeft,
-  Save,
-  Printer,
-  UploadCloud,
-  GripVertical,
-  Plus,
-  Trash2,
-  Loader2,
+  Camera,
+  ChefHat,
   Check,
   CheckCircle,
+  FileText,
+  GripVertical,
+  ImageIcon,
   Link2,
-  ChefHat,
-  RefreshCw,
+  Loader2,
   Pencil,
+  Plus,
+  Printer,
+  RefreshCw,
+  Save,
+  Tag,
+  Trash2,
+  UploadCloud,
   X,
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
@@ -38,7 +41,7 @@ import {
   useRecipes,
 } from '@/hooks/useRecipes'
 import type { IngredientLookup } from '@/hooks/useInvoices'
-import { resolveTenantId } from '@/hooks/useTenant'
+import { resolveTenantContext, resolveTenantId } from '@/hooks/useTenant'
 import { computeRecipeAllergens, type RecipeAllergenSummary, type IngredientAllergen } from '@/lib/allergens'
 import IngredientSearch, { type SubRecipeLookup } from './IngredientSearch'
 import { CustomSelect } from '@/components/ui/CustomSelect'
@@ -48,21 +51,8 @@ import { findYieldFactor } from '@/lib/data/yield-factors'
 import CostBreakdown from './CostBreakdown'
 import NewIngredientModal, { type NewIngredientFormData } from './NewIngredientModal'
 
-const PrintOptionsModal = dynamic(() => import('./PrintOptionsModal'), {
-  ssr: false,
-})
 
 const SUB_INGREDIENT_UNITS = ['g', 'kg', 'ml', 'L', 'unit', 'portion']
-
-const YIELD_UNIT_OPTIONS = [
-  { value: 'g',       label: 'g' },
-  { value: 'kg',      label: 'kg' },
-  { value: 'ml',      label: 'ml' },
-  { value: 'L',       label: 'L' },
-  { value: 'unit',    label: 'unit' },
-  { value: 'portion', label: 'portion' },
-  { value: 'batch',   label: 'Batch' },
-]
 
 const INGREDIENT_ROW_UNITS = [
   { value: 'g',    label: 'g' },
@@ -105,6 +95,7 @@ function createIngredientLine(partial?: Partial<RecipeIngredientDraft>): RecipeI
     allergens: partial?.allergens ?? [],
     yield_percent: partial?.yield_percent ?? 100,
     yield_override: partial?.yield_override ?? false,
+    ep_weight_manual: partial?.ep_weight_manual ?? null,
     lineCost: 0,
   }
   line.lineCost = calculateLineCost(line)
@@ -130,6 +121,7 @@ function blankRecipe(): RecipeEditorData {
     imageUrl: null,
     isSubIngredient: false,
     subIngredientUnit: 'g',
+    storageInstructions: null,
     instructions: [createStep()],
     ingredients: [],
   }
@@ -154,6 +146,7 @@ function mapRecipeToState(recipe: RecipeRecord): RecipeEditorData {
     imageUrl: recipe.imageUrl,
     isSubIngredient: recipe.isSubIngredient ?? false,
     subIngredientUnit: recipe.subIngredientUnit ?? 'g',
+    storageInstructions: recipe.storageInstructions ?? null,
     instructions: recipe.instructions.length > 0 ? recipe.instructions : [createStep()],
     ingredients: recipe.ingredients.length > 0
       ? recipe.ingredients.map((item) => createIngredientLine(item))
@@ -192,11 +185,33 @@ function IngredientRow({
   onRemove: () => void
 }) {
   const controls = useDragControls()
+  const [epWeightDraft, setEpWeightDraft] = useState<string | null>(null)
 
   const yieldPct = item.yield_percent ?? 100
   const apQty = yieldPct > 0 && yieldPct < 100
     ? Math.ceil(item.quantity / (yieldPct / 100))
     : null
+
+  const apWeight = (() => {
+    if (item.unit === 'g')  return item.quantity
+    if (item.unit === 'kg') return item.quantity * 1000
+    if (item.unit === 'ml') return item.quantity
+    if (item.unit === 'L')  return item.quantity * 1000
+    return null
+  })()
+
+  const epWeight = (() => {
+    if (apWeight == null) return null
+    if (['g', 'kg'].includes(item.unit)) return { value: apWeight * (yieldPct / 100), unitLabel: 'g' }
+    if (['ml', 'L'].includes(item.unit)) return { value: apWeight * (yieldPct / 100), unitLabel: 'ml' }
+    return null
+  })()
+
+  const handleEpWeightChange = (newEpG: number) => {
+    if (apWeight == null || apWeight <= 0) return
+    const newYieldPct = Math.round(Math.min(100, Math.max(1, (newEpG / apWeight) * 100)) * 100) / 100
+    onUpdate({ yield_percent: newYieldPct, yield_override: true })
+  }
 
   return (
     <Reorder.Item
@@ -205,70 +220,135 @@ function IngredientRow({
       dragControls={controls}
       className="group"
     >
-      <div className="grid grid-cols-[28px_1fr_72px_72px_auto_64px_28px] items-center gap-1.5 rounded-xl border border-slate-100 bg-white px-2 py-1.5 transition hover:border-slate-200 hover:shadow-sm">
-        <div
-          className="cursor-grab touch-none text-slate-300 transition hover:text-slate-500 active:cursor-grabbing"
-          onPointerDown={(e) => controls.start(e)}
-        >
-          <GripVertical className="h-4 w-4" />
-        </div>
-
-        {item.subRecipeId ? (
-          <Link
-            href={`/recipes/${item.subRecipeId}`}
-            target="_blank"
-            className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-emerald-700 hover:text-emerald-600"
+      <div className="rounded-xl border border-slate-100 bg-white transition hover:border-slate-200 hover:shadow-sm">
+        <div className="grid grid-cols-[28px_1fr_70px_70px_60px_80px_65px_28px] items-center gap-1.5 px-2 py-1.5">
+          <div
+            className="cursor-grab touch-none text-slate-300 transition hover:text-slate-500 active:cursor-grabbing"
+            onPointerDown={(e) => controls.start(e)}
           >
-            <Link2 className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{item.ingredientName}</span>
-          </Link>
-        ) : (
-          <span className="min-w-0 truncate text-sm text-slate-800">{item.ingredientName}</span>
-        )}
+            <GripVertical className="h-4 w-4" />
+          </div>
 
-        <input
-          type="number"
-          min="0"
-          step="0.001"
-          value={item.quantity}
-          onChange={(e) => onUpdate({ quantity: parseFloat(e.target.value || '0') })}
-          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-right text-sm outline-none transition focus:border-emerald-500 focus:bg-white"
-        />
-
-        <CustomSelect
-          value={item.unit}
-          onChange={(v) => onUpdate({ unit: v })}
-          options={INGREDIENT_ROW_UNITS}
-          size="sm"
-        />
-
-        {/* Yield factor section */}
-        <div className="flex items-center gap-1.5">
-          {!item.subRecipeId && (
-            <YieldFactorPopover item={item} onUpdate={onUpdate} />
+          {item.subRecipeId ? (
+            <Link
+              href={`/recipes/${item.subRecipeId}`}
+              target="_blank"
+              className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-emerald-700 hover:text-emerald-600"
+            >
+              <Link2 className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{item.ingredientName}</span>
+            </Link>
+          ) : (
+            <span className="min-w-0 truncate text-sm text-slate-800">{item.ingredientName}</span>
           )}
-          {apQty != null && (
-            <span className="whitespace-nowrap text-xs text-slate-400">
-              AP: {apQty}{item.unit}
-            </span>
-          )}
+
+          {/* EP Qty */}
+          <input
+            type="number"
+            min="0"
+            step="0.001"
+            value={item.quantity || ''}
+            onChange={(e) => {
+              const v = e.target.value === '' ? 0 : parseFloat(e.target.value)
+              if (!isNaN(v)) onUpdate({ quantity: v })
+            }}
+            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-right text-sm outline-none transition focus:border-emerald-500 focus:bg-white"
+          />
+
+          {/* Unit */}
+          <CustomSelect
+            value={item.unit}
+            onChange={(v) => onUpdate({ unit: v })}
+            options={INGREDIENT_ROW_UNITS}
+            size="sm"
+          />
+
+          {/* YF — fixed width, no inline AP text */}
+          <div className="flex justify-center">
+            {!item.subRecipeId ? (
+              <YieldFactorPopover item={item} onUpdate={onUpdate} />
+            ) : (
+              <span className="text-xs text-slate-300">—</span>
+            )}
+          </div>
+
+          {/* EP WT — always editable */}
+          <input
+            type="number"
+            min="0"
+            step="1"
+            value={epWeight
+              ? (epWeightDraft ?? (Math.round(epWeight.value) || ''))
+              : (item.ep_weight_manual || '')}
+            onChange={(e) => {
+              if (epWeight) {
+                setEpWeightDraft(e.target.value)
+              } else {
+                const num = e.target.value === '' ? 0 : parseFloat(e.target.value)
+                onUpdate({ ep_weight_manual: isNaN(num) ? 0 : num })
+              }
+            }}
+            onBlur={(e) => {
+              if (epWeight) {
+                const v = parseFloat(e.target.value || '0')
+                if (!isNaN(v) && v >= 0) handleEpWeightChange(v)
+                setEpWeightDraft(null)
+              }
+            }}
+            onKeyDown={(e) => {
+              if (epWeight) {
+                if (e.key === 'Enter') {
+                  const v = parseFloat(e.currentTarget.value || '0')
+                  if (!isNaN(v) && v >= 0) handleEpWeightChange(v)
+                  setEpWeightDraft(null)
+                }
+                if (e.key === 'Escape') setEpWeightDraft(null)
+              }
+            }}
+            placeholder={epWeight ? '' : 'g'}
+            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-right text-sm outline-none transition focus:border-emerald-500 focus:bg-white"
+          />
+
+          {/* Cost */}
+          <span className="text-right text-sm font-medium tabular-nums text-slate-700">
+            €{lineCost.toFixed(2)}
+          </span>
+
+          {/* Delete */}
+          <button
+            type="button"
+            onClick={onRemove}
+            className="rounded-full p-1 text-slate-300 transition hover:bg-red-50 hover:text-red-500"
+            aria-label="Remove ingredient"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
         </div>
 
-        <span className="text-right text-sm font-medium tabular-nums text-slate-700">
-          €{lineCost.toFixed(2)}
-        </span>
-
-        <button
-          type="button"
-          onClick={onRemove}
-          className="rounded-full p-1 text-slate-300 transition hover:bg-red-50 hover:text-red-500"
-          aria-label="Remove ingredient"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        {/* AP sub-row — only when yield factor is applied */}
+        {apQty != null && (
+          <div className="grid grid-cols-[28px_1fr_70px_70px_60px_80px_65px_28px] gap-1.5 px-2 pb-1">
+            <div className="col-start-6 text-center text-[10px] text-slate-400">
+              AP: {apQty}{item.unit}
+            </div>
+          </div>
+        )}
       </div>
     </Reorder.Item>
   )
+}
+
+type LabelData = {
+  productName: string
+  businessName: string
+  category: string
+  batchId: string
+  yieldQty: number | string
+  productionDate: string
+  expiryDate: string
+  ingredients: string
+  storageInstructions: string
+  weight: string
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
@@ -282,7 +362,8 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const [saving, setSaving] = useState(false)
   const [recipe, setRecipe] = useState<RecipeEditorData>(blankRecipe())
   const [loadedRecipe, setLoadedRecipe] = useState<RecipeRecord | null>(null)
-  const [printOpen, setPrintOpen] = useState(false)
+  const [showPrintModal, setShowPrintModal] = useState(false)
+  const [showLabelEditor, setShowLabelEditor] = useState(false)
   const [recipeAllergens, setRecipeAllergens] = useState<RecipeAllergenSummary>({ contains: [], mayContain: [] })
   const [uploadingImage, setUploadingImage] = useState(false)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
@@ -291,14 +372,18 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'clean' | 'dirty' | 'autosaving' | 'saved' | 'failed'>('clean')
   const [fetchingImage, setFetchingImage] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
   const [categoryMode, setCategoryMode] = useState<'select' | 'custom'>('select')
   const [customCategoryInput, setCustomCategoryInput] = useState('')
   const [yieldModalOpen, setYieldModalOpen] = useState(false)
+  const [showYfTooltip, setShowYfTooltip] = useState(false)
   const [newIngredientName, setNewIngredientName] = useState('')
   const [newIngredientModalOpen, setNewIngredientModalOpen] = useState(false)
   const [newIngredientSaving, setNewIngredientSaving] = useState(false)
   const [newIngredientError, setNewIngredientError] = useState<string | null>(null)
   const [laborHourlyRate, setLaborHourlyRate] = useState(0)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
   const hasLoaded = useRef(false)
   const suppressNextDirtyRef = useRef(false)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -758,6 +843,18 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
   // ── Upload image via API route (service role) ──────────────────────────────
 
+  useEffect(() => {
+    setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent))
+  }, [])
+
+  const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      await uploadImage(file)
+      e.target.value = ''
+    }
+  }
+
   const uploadImage = async (file: File) => {
     if (!file.type.startsWith('image/')) return
     setUploadingImage(true)
@@ -829,8 +926,10 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
     suppressNextDirtyRef.current = true
     setLoadedRecipe(hydratedRecipe)
-    setRecipe(mapRecipeToState(hydratedRecipe))
-    setImagePreview(saved.imageUrl)
+    if (!silent) {
+      setRecipe(mapRecipeToState(hydratedRecipe))
+      setImagePreview(saved.imageUrl)
+    }
     setRecipeAllergens(
       computeRecipeAllergens(
         Object.fromEntries(hydratedIngredients.map((ing: RecipeIngredientDraft) => [ing.id, ing.allergens ?? []]))
@@ -895,6 +994,282 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       setDeleteBusy(false)
     }
   }
+
+  const handlePrintFull = useCallback(() => {
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) return
+
+    const yieldQty = recipe.yieldQuantity
+    const isBatch = yieldQty > 1
+    const profitPerUnit = cost.sellingPrice - cost.costPerUnit
+    const margin = cost.marginPercent
+
+    const allergensList = recipeAllergens.contains.length > 0
+      ? `<div style="margin-top:16px;padding:12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;">
+           <p style="font-weight:700;color:#dc2626;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Contains</p>
+           <p style="color:#991b1b;font-size:14px;margin:0;">${recipeAllergens.contains.map((a) => `${a.icon} ${a.shortName}`).join(', ')}</p>
+         </div>`
+      : '<p style="color:#059669;font-size:13px;">✓ No allergens declared</p>'
+
+    const ingredientRows = computedIngredients.map((ri) => `
+      <tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;">
+          ${ri.ingredientName}${(ri.yield_percent ?? 100) < 100 ? ` <span style="color:#d97706;font-size:11px;">(YF ${Math.round(ri.yield_percent ?? 100)}%)</span>` : ''}
+        </td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;">${ri.quantity} ${ri.unit}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;">€${ri.lineCost.toFixed(2)}</td>
+      </tr>
+    `).join('')
+
+    const today = new Date().toLocaleDateString('en-IE', { day: 'numeric', month: 'long', year: 'numeric' })
+
+    printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <title>${recipe.name} — ZRecipe</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1e293b; padding: 40px; max-width: 800px; margin: 0 auto; }
+    @media print { body { padding: 20px; } .no-print { display: none !important; } @page { margin: 15mm; } }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #059669; padding-bottom: 16px; margin-bottom: 24px; }
+    .recipe-name { font-size: 28px; font-weight: 800; }
+    .brand { color: #059669; font-size: 14px; font-weight: 600; }
+    .meta-badges { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    .badge { font-size: 11px; padding: 4px 10px; border-radius: 20px; background: #f1f5f9; color: #475569; font-weight: 500; }
+    .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: #9ca3af; margin: 24px 0 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #9ca3af; padding: 8px 12px; border-bottom: 2px solid #e5e7eb; }
+    th:last-child, th:nth-child(2) { text-align: right; }
+    .cost-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+    .cost-card { padding: 16px; border-radius: 12px; border: 1px solid #e5e7eb; }
+    .cost-card.primary { border: 2px solid #059669; background: #f0fdf4; }
+    .cost-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; margin-bottom: 4px; }
+    .cost-value { font-size: 24px; font-weight: 800; }
+    .cost-sub { font-size: 12px; color: #9ca3af; margin-top: 2px; }
+    .cost-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; }
+    .cost-row-label { color: #6b7280; }
+    .cost-row-value { font-weight: 600; }
+    .profit-positive { color: #059669; }
+    .profit-negative { color: #ef4444; }
+    .print-btn { position: fixed; bottom: 20px; right: 20px; background: #059669; color: white; border: none; padding: 12px 24px; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(5,150,105,0.3); }
+    .print-btn:hover { background: #047857; }
+    .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; font-size: 11px; color: #9ca3af; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1 class="recipe-name">${recipe.name}</h1>
+      <div class="meta-badges">
+        <span class="badge">${recipe.category || 'Uncategorised'}</span>
+        <span class="badge">Yield: ${yieldQty}${isBatch ? ' units' : ''}</span>
+        <span class="badge">Prep: ${recipe.prepTimeMinutes} min</span>
+        <span class="badge">Cook: ${recipe.cookTimeMinutes} min</span>
+      </div>
+    </div>
+    <div style="text-align:right;"><p class="brand">ZRecipe</p><p style="font-size:12px;color:#9ca3af;">${today}</p></div>
+  </div>
+
+  ${imagePreview ? `<img src="${imagePreview}" style="width:100%;max-height:250px;object-fit:cover;border-radius:12px;margin-bottom:20px;" />` : ''}
+
+  <p class="section-title">Ingredients</p>
+  <table>
+    <thead><tr><th>Ingredient</th><th style="text-align:right;">Quantity</th><th style="text-align:right;">Cost</th></tr></thead>
+    <tbody>
+      ${ingredientRows}
+      <tr style="font-weight:700;">
+        <td style="padding:10px 12px;border-top:2px solid #e5e7eb;">Total ingredient cost</td>
+        <td style="padding:10px 12px;border-top:2px solid #e5e7eb;"></td>
+        <td style="padding:10px 12px;border-top:2px solid #e5e7eb;text-align:right;">€${cost.ingredientCost.toFixed(2)}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="section-title">Allergen Information (EU Reg. 1169/2011)</p>
+  ${allergensList}
+
+  <p class="section-title">Cost Summary</p>
+  <div class="cost-row"><span class="cost-row-label">Ingredient cost</span><span class="cost-row-value">€${cost.ingredientCost.toFixed(2)}</span></div>
+  <div class="cost-row"><span class="cost-row-label">Labor${recipe.laborMode === 'time' ? ` (${recipe.prepTimeMinutes}min × €${laborHourlyRate}/hr)` : ''}</span><span class="cost-row-value">€${cost.laborCost.toFixed(2)}</span></div>
+  <div class="cost-row"><span class="cost-row-label">Overhead${recipe.overheadMode === 'percent' ? ` (${recipe.overheadPercent}%)` : ''}</span><span class="cost-row-value">€${cost.overheadCost.toFixed(2)}</span></div>
+  ${(recipe.wastePercent ?? 0) > 0 ? `<div class="cost-row"><span class="cost-row-label">Waste (${recipe.wastePercent}%)</span><span class="cost-row-value">+€${cost.wasteCost.toFixed(2)}</span></div>` : ''}
+
+  <div class="cost-grid">
+    <div class="cost-card">
+      <p class="cost-label">Total Cost</p>
+      <p class="cost-value">€${cost.totalCost.toFixed(2)}</p>
+      ${isBatch ? `<p class="cost-sub">€${cost.costPerUnit.toFixed(3)} per unit · ${yieldQty} units</p>` : ''}
+    </div>
+    <div class="cost-card primary">
+      <p class="cost-label" style="color:#059669;">Selling Price${isBatch ? ' (per unit)' : ''}</p>
+      <p class="cost-value">€${cost.sellingPrice.toFixed(2)}</p>
+    </div>
+  </div>
+
+  <div style="margin-top:16px;">
+    <div class="cost-row">
+      <span class="cost-row-label">Profit per unit</span>
+      <span class="cost-row-value ${profitPerUnit >= 0 ? 'profit-positive' : 'profit-negative'}">${profitPerUnit >= 0 ? '+' : ''}€${profitPerUnit.toFixed(2)}</span>
+    </div>
+    <div class="cost-row">
+      <span class="cost-row-label">Margin</span>
+      <span class="cost-row-value" style="color:${margin >= 40 ? '#059669' : margin >= 20 ? '#d97706' : '#ef4444'};">${margin.toFixed(1)}%</span>
+    </div>
+    ${isBatch ? `
+      <div class="cost-row"><span class="cost-row-label">Batch revenue (${yieldQty} units)</span><span class="cost-row-value">€${(cost.sellingPrice * yieldQty).toFixed(2)}</span></div>
+      <div class="cost-row"><span class="cost-row-label">Batch profit</span><span class="cost-row-value ${profitPerUnit >= 0 ? 'profit-positive' : 'profit-negative'}">${profitPerUnit >= 0 ? '+' : ''}€${(profitPerUnit * yieldQty).toFixed(2)}</span></div>
+    ` : ''}
+  </div>
+
+  <div class="footer">
+    <span>Generated by ZRecipe</span>
+    <span>Prep: ${recipe.prepTimeMinutes} min · Cook: ${recipe.cookTimeMinutes} min</span>
+    <span>${today}</span>
+  </div>
+
+  <button class="print-btn no-print" onclick="window.print()">🖨 Print</button>
+</body>
+</html>`)
+
+    printWindow.document.close()
+  }, [recipe, cost, computedIngredients, recipeAllergens, imagePreview, laborHourlyRate])
+
+  const handlePrintKitchen = useCallback(() => {
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) return
+
+    const yieldQty = recipe.yieldQuantity
+    const allergenText = recipeAllergens.contains.map((a) => `${a.icon} ${a.shortName}`).join(', ')
+
+    const ingredientRows = computedIngredients.map((ri) => `
+      <tr>
+        <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:16px;font-weight:500;">${ri.ingredientName}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-size:16px;font-weight:600;">${ri.quantity} ${ri.unit}</td>
+      </tr>
+    `).join('')
+
+    const instructionSteps = recipe.instructions
+      .filter((s) => s.text.trim())
+      .map((s, i) => `<li style="margin-bottom:12px;font-size:15px;line-height:1.6;">${i + 1}. ${s.text}</li>`)
+      .join('')
+
+    printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <title>${recipe.name} — Kitchen Card</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:-apple-system,BlinkMacSystemFont,sans-serif; color:#1e293b; padding:40px; max-width:700px; margin:0 auto; }
+    @media print { body { padding:20px; } .no-print { display:none !important; } @page { margin:15mm; } }
+    h1 { font-size:32px; font-weight:800; margin-bottom:8px; }
+    .meta { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:24px; }
+    .badge { font-size:12px; padding:4px 12px; border-radius:20px; background:#f1f5f9; color:#475569; font-weight:500; }
+    .section { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#9ca3af; margin:24px 0 12px; }
+    table { width:100%; border-collapse:collapse; margin-bottom:24px; }
+    th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#9ca3af; padding:8px 12px; border-bottom:2px solid #e5e7eb; }
+    th:last-child { text-align:right; }
+    .allergen-box { padding:16px; background:#fef2f2; border:1px solid #fecaca; border-radius:12px; margin-top:24px; }
+    .print-btn { position:fixed; bottom:20px; right:20px; background:#059669; color:white; border:none; padding:12px 24px; border-radius:12px; font-size:14px; font-weight:600; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <h1>${recipe.name}</h1>
+  <div class="meta">
+    <span class="badge">${recipe.category || 'Uncategorised'}</span>
+    <span class="badge">Yield: ${yieldQty} unit${yieldQty !== 1 ? 's' : ''}</span>
+    <span class="badge">Prep: ${recipe.prepTimeMinutes} min</span>
+    <span class="badge">Cook: ${recipe.cookTimeMinutes} min</span>
+  </div>
+  ${imagePreview ? `<img src="${imagePreview}" style="width:100%;max-height:300px;object-fit:cover;border-radius:12px;margin-bottom:24px;" />` : ''}
+  <p class="section">Ingredients</p>
+  <table>
+    <thead><tr><th>Ingredient</th><th style="text-align:right;">Quantity</th></tr></thead>
+    <tbody>${ingredientRows}</tbody>
+  </table>
+  ${instructionSteps ? `<p class="section">Instructions</p><ol style="padding-left:0;list-style:none;">${instructionSteps}</ol>` : ''}
+  ${recipeAllergens.contains.length > 0
+    ? `<div class="allergen-box"><p style="font-weight:700;color:#dc2626;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Allergen Declaration</p><p style="color:#991b1b;font-size:15px;font-weight:600;">CONTAINS: ${allergenText}</p></div>`
+    : '<p style="color:#059669;font-size:13px;margin-top:24px;">✓ No allergens declared</p>'}
+  <button class="print-btn no-print" onclick="window.print()">Print</button>
+</body>
+</html>`)
+    printWindow.document.close()
+  }, [recipe, computedIngredients, recipeAllergens, imagePreview])
+
+  const handlePrintLabel = useCallback((labelData: LabelData) => {
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) return
+
+    const allergenNames = recipeAllergens.contains.map((a) => a.shortName)
+    const allergenDisplay = recipeAllergens.contains.map((a) => `${a.icon} ${a.shortName}`).join(', ')
+
+    let ingredientsHtml = labelData.ingredients
+    allergenNames.forEach((name) => {
+      const regex = new RegExp(`(${name})`, 'gi')
+      ingredientsHtml = ingredientsHtml.replace(regex, '<strong style="text-transform:uppercase;">$1</strong>')
+    })
+
+    const prodDate = labelData.productionDate
+      ? new Date(labelData.productionDate + 'T12:00:00').toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: 'numeric' })
+      : ''
+    const expDate = labelData.expiryDate
+      ? new Date(labelData.expiryDate + 'T12:00:00').toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: 'numeric' })
+      : ''
+
+    printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <title>${labelData.productName} — Label</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:-apple-system,BlinkMacSystemFont,sans-serif; color:#1e293b; padding:20px; display:flex; justify-content:center; align-items:flex-start; min-height:100vh; background:#f9fafb; }
+    @media print { body { padding:0; background:white; min-height:auto; } .no-print { display:none !important; } @page { margin:5mm; } }
+    .label { border:2.5px solid #1e293b; border-radius:10px; padding:20px 24px; max-width:420px; width:100%; background:white; }
+    .product-name { font-size:24px; font-weight:900; color:#0f172a; line-height:1.2; margin-bottom:2px; }
+    .business-name { font-size:13px; color:#6b7280; font-weight:500; margin-bottom:12px; }
+    .section-label { font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:1.5px; color:#6b7280; margin-bottom:4px; }
+    .ingredients-text { font-size:12px; color:#374151; line-height:1.5; margin-bottom:12px; }
+    .allergen-box { background:#fef2f2; border:1.5px solid #fecaca; border-radius:8px; padding:8px 12px; margin-bottom:12px; }
+    .allergen-label { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:1px; color:#dc2626; margin-bottom:2px; }
+    .allergen-list { font-size:13px; font-weight:700; color:#991b1b; }
+    .storage { font-size:11px; color:#6b7280; font-style:italic; margin-bottom:12px; }
+    .meta-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; border-top:1.5px solid #e5e7eb; padding-top:10px; margin-top:4px; }
+    .meta-item { font-size:10px; }
+    .meta-label { color:#9ca3af; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; }
+    .meta-value { color:#374151; font-weight:600; font-size:12px; }
+    .print-btn { position:fixed; bottom:24px; right:24px; background:#059669; color:white; border:none; padding:14px 28px; border-radius:14px; font-size:15px; font-weight:600; cursor:pointer; box-shadow:0 4px 12px rgba(5,150,105,0.3); }
+  </style>
+</head>
+<body>
+  <div class="label">
+    <p class="product-name">${labelData.productName}</p>
+    ${labelData.businessName ? `<p class="business-name">${labelData.businessName}</p>` : ''}
+    <p class="section-label">Ingredients</p>
+    <p class="ingredients-text">${ingredientsHtml}</p>
+    ${recipeAllergens.contains.length > 0
+      ? `<div class="allergen-box"><p class="allergen-label">Contains</p><p class="allergen-list">${allergenDisplay}</p></div>`
+      : '<p style="font-size:10px;color:#059669;margin-bottom:12px;">No allergens declared</p>'}
+    ${labelData.storageInstructions ? `<p class="storage">${labelData.storageInstructions}</p>` : ''}
+    ${labelData.weight ? `<p style="font-size:14px;font-weight:700;margin-bottom:8px;">Net Wt: ${labelData.weight}</p>` : ''}
+    <div class="meta-grid">
+      ${labelData.batchId ? `<div class="meta-item"><p class="meta-label">Batch</p><p class="meta-value">${labelData.batchId}</p></div>` : ''}
+      ${labelData.yieldQty ? `<div class="meta-item"><p class="meta-label">Yield</p><p class="meta-value">${labelData.yieldQty} units</p></div>` : ''}
+      ${prodDate ? `<div class="meta-item"><p class="meta-label">Produced</p><p class="meta-value">${prodDate}</p></div>` : ''}
+      ${expDate ? `<div class="meta-item"><p class="meta-label">Best Before</p><p class="meta-value">${expDate}</p></div>` : ''}
+    </div>
+  </div>
+  <button class="print-btn no-print" onclick="window.print()">Print Label</button>
+</body>
+</html>`)
+    printWindow.document.close()
+  }, [recipeAllergens])
+
+  const handlePrintSelect = useCallback((type: 'full' | 'kitchen' | 'label') => {
+    setShowPrintModal(false)
+    if (type === 'full') handlePrintFull()
+    else if (type === 'kitchen') handlePrintKitchen()
+    else setShowLabelEditor(true)
+  }, [handlePrintFull, handlePrintKitchen])
 
   // ── Loading skeleton ───────────────────────────────────────────────────────
 
@@ -974,7 +1349,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
           <button
             type="button"
-            onClick={() => setPrintOpen(true)}
+            onClick={() => setShowPrintModal(true)}
             className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
             <Printer className="h-4 w-4" />
@@ -1019,6 +1394,10 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
               )}
             >
               <input {...getInputProps()} />
+              {/* Hidden inputs for direct ref-based access */}
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileInputChange} />
+              <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileInputChange} />
+
               {imagePreview ? (
                 <>
                   <Image src={imagePreview} alt={recipe.name || 'Recipe'} fill unoptimized className="object-cover" />
@@ -1029,13 +1408,34 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                     </span>
                   )}
                   <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={openFilePicker}
-                      className="rounded-full bg-white/90 px-4 py-1.5 text-xs font-semibold text-slate-700 shadow transition hover:bg-white"
-                    >
-                      {uploadingImage ? 'Uploading…' : 'Change photo'}
-                    </button>
+                    {isMobile ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => cameraInputRef.current?.click()}
+                          className="flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-2 text-xs text-white shadow-lg transition-transform active:scale-95"
+                        >
+                          <Camera className="h-3.5 w-3.5" />
+                          Take photo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-2 text-xs text-white backdrop-blur-sm transition-transform active:scale-95"
+                        >
+                          <ImageIcon className="h-3.5 w-3.5" />
+                          Upload
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={openFilePicker}
+                        className="rounded-full bg-black/60 px-3 py-1.5 text-xs text-white backdrop-blur-sm transition hover:bg-black/70"
+                      >
+                        {uploadingImage ? 'Uploading…' : 'Change photo'}
+                      </button>
+                    )}
                     {imageSource === 'pexels' && !isNew && (
                       <button
                         type="button"
@@ -1054,20 +1454,36 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                   <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
                   <p className="text-xs text-slate-500">Fetching photo…</p>
                 </div>
+              ) : uploadingImage ? (
+                <div className="flex flex-col items-center gap-3 px-4 text-center">
+                  <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+                  <p className="text-xs text-slate-500">Uploading…</p>
+                </div>
+              ) : isMobile ? (
+                <div
+                  onClick={() => cameraInputRef.current?.click()}
+                  className="flex cursor-pointer flex-col items-center gap-2 px-4 text-center"
+                >
+                  <Camera className="h-8 w-8 text-slate-400" />
+                  <p className="text-xs text-slate-500">Tap to take a photo</p>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click() }}
+                    className="mt-1 text-xs text-slate-400 underline"
+                  >
+                    or choose from gallery
+                  </button>
+                </div>
               ) : (
                 <div className="flex flex-col items-center gap-3 px-4 text-center">
-                  {uploadingImage ? (
-                    <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
-                  ) : (
-                    <UploadCloud className="h-8 w-8 text-slate-400" />
-                  )}
+                  <UploadCloud className="h-8 w-8 text-slate-400" />
                   <p className="text-xs text-slate-500">Drop an image here or</p>
                   <button
                     type="button"
                     onClick={openFilePicker}
                     className="rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500"
                   >
-                    {uploadingImage ? 'Uploading…' : 'Choose photo'}
+                    Choose photo
                   </button>
                 </div>
               )}
@@ -1151,26 +1567,19 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
               )}
             </div>
 
-            <div className="grid grid-cols-[1fr_100px] gap-2">
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Yield qty</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={recipe.yieldQuantity}
-                  onChange={(e) => updateRecipeField('yieldQuantity', parseFloat(e.target.value || '0'))}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Unit</span>
-                <CustomSelect
-                  value={recipe.yieldUnit}
-                  onChange={(v) => updateRecipeField('yieldUnit', v)}
-                  options={YIELD_UNIT_OPTIONS}
-                />
-              </label>
+            <div>
+              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Yield qty</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={recipe.yieldQuantity || ''}
+                onChange={(e) => {
+                  const v = e.target.value === '' ? 0 : parseFloat(e.target.value)
+                  if (!isNaN(v)) updateRecipeField('yieldQuantity', v)
+                }}
+                className="w-24 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500"
+              />
             </div>
 
             <label className="block">
@@ -1239,7 +1648,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                   <div className="flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1.5">
                     <ChefHat className="h-3.5 w-3.5 text-emerald-600" />
                     <span className="text-xs font-medium text-emerald-700">
-                      Cost: €{(cost.totalCost / recipe.yieldQuantity).toFixed(4)} / {recipe.yieldUnit}
+                      Cost: €{(cost.totalCost / recipe.yieldQuantity).toFixed(4)} / unit
                     </span>
                   </div>
                 )}
@@ -1261,14 +1670,27 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                 {computedIngredients.length}
               </span>
             )}
-            <button
-              type="button"
-              onClick={() => setYieldModalOpen(true)}
-              title="Yield factor reference table"
-              className="ml-auto rounded-full border border-slate-200 px-2 py-0.5 text-xs text-slate-400 transition hover:border-slate-300 hover:text-slate-600"
-            >
-              YF ref
-            </button>
+            <div className="relative ml-auto">
+              <button
+                type="button"
+                onClick={() => setYieldModalOpen(true)}
+                onMouseEnter={() => setShowYfTooltip(true)}
+                onMouseLeave={() => setShowYfTooltip(false)}
+                className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-400 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-600"
+              >
+                YF ref
+              </button>
+
+              {showYfTooltip && (
+                <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-xl border border-gray-200 bg-white p-3 shadow-lg pointer-events-none">
+                  <p className="mb-1 text-sm font-semibold text-gray-800">Yield Factor Reference</p>
+                  <p className="mb-2 text-xs leading-relaxed text-gray-500">
+                    Yield factor accounts for trim loss during prep — peeling, boning, coring. Example: a banana is 66% usable after peeling.
+                  </p>
+                  <p className="text-xs font-medium text-emerald-600">Click to view full reference table →</p>
+                </div>
+              )}
+            </div>
           </div>
 
           <IngredientSearch
@@ -1280,12 +1702,13 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
           {computedIngredients.length > 0 && (
             <div className="mt-4">
               {/* Table header */}
-              <div className="mb-1 grid grid-cols-[28px_1fr_72px_72px_auto_64px_28px] items-center gap-1.5 px-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+              <div className="mb-1 grid grid-cols-[28px_1fr_70px_70px_60px_80px_65px_28px] items-center gap-1.5 px-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
                 <div />
                 <div>Ingredient</div>
-                <div className="text-right">EP Qty</div>
-                <div>Unit</div>
-                <div>YF</div>
+                <div className="text-center">Qty</div>
+                <div className="text-center">Unit</div>
+                <div className="text-center">Yield</div>
+                <div className="text-center">Net Wt</div>
                 <div className="text-right">Cost</div>
                 <div />
               </div>
@@ -1314,17 +1737,23 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                 </div>
 
                 {(() => {
-                  const gramUnits = new Set(['g', 'kg'])
+                  const weightVolUnits = new Set(['g', 'kg', 'ml', 'L'])
                   const epG = computedIngredients.reduce((sum, ing) => {
-                    if (!gramUnits.has(ing.unit)) return sum
-                    const grams = ing.unit === 'kg' ? ing.quantity * 1000 : ing.quantity
-                    return sum + grams
+                    if (weightVolUnits.has(ing.unit)) {
+                      const base = ing.unit === 'kg' ? ing.quantity * 1000
+                                 : ing.unit === 'L'  ? ing.quantity * 1000
+                                 : ing.quantity
+                      return sum + base * ((ing.yield_percent ?? 100) / 100)
+                    }
+                    return sum + (ing.ep_weight_manual ?? 0)
                   }, 0)
                   const apG = computedIngredients.reduce((sum, ing) => {
-                    if (!gramUnits.has(ing.unit)) return sum
-                    const grams = ing.unit === 'kg' ? ing.quantity * 1000 : ing.quantity
+                    if (!weightVolUnits.has(ing.unit)) return sum
+                    const base = ing.unit === 'kg' ? ing.quantity * 1000
+                               : ing.unit === 'L'  ? ing.quantity * 1000
+                               : ing.quantity
                     const yf = Math.max(0.01, (ing.yield_percent ?? 100) / 100)
-                    return sum + grams / yf
+                    return sum + base / yf
                   }, 0)
                   if (epG === 0) return null
                   return (
@@ -1461,11 +1890,315 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       />
 
       <PrintOptionsModal
-        open={printOpen}
-        onClose={() => setPrintOpen(false)}
-        recipe={currentRecipeRecord}
-        allergens={recipeAllergens}
+        isOpen={showPrintModal}
+        onClose={() => setShowPrintModal(false)}
+        onSelect={handlePrintSelect}
       />
+
+      <LabelEditorModal
+        isOpen={showLabelEditor}
+        onClose={() => setShowLabelEditor(false)}
+        recipe={recipe}
+        recipeId={loadedRecipe?.id ?? null}
+        allergenNames={recipeAllergens.contains.map((a) => a.shortName)}
+        allergenDisplay={recipeAllergens.contains.map((a) => `${a.icon} ${a.shortName}`).join(', ')}
+        ingredientNames={computedIngredients.map((ri) => ri.ingredientName)}
+        onPrint={(data) => handlePrintLabel(data)}
+      />
+    </div>
+  )
+}
+
+// ── Print options modal ───────────────────────────────────────────────────────
+
+function PrintOptionsModal({
+  isOpen,
+  onClose,
+  onSelect,
+}: {
+  isOpen: boolean
+  onClose: () => void
+  onSelect: (type: 'full' | 'kitchen' | 'label') => void
+}) {
+  if (!isOpen) return null
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="mb-1 text-lg font-bold text-gray-900">Print Recipe</h2>
+        <p className="mb-5 text-sm text-gray-500">Choose a format</p>
+
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={() => onSelect('full')}
+            className="group w-full rounded-xl border-2 border-gray-200 p-4 text-left transition-all hover:border-emerald-400 hover:bg-emerald-50/50"
+          >
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
+                <FileText className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-800 group-hover:text-emerald-700">
+                  Full Cost Report
+                </p>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  Ingredients with costs, labor, overhead, waste, margin, profit, VAT. For management.
+                </p>
+              </div>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onSelect('kitchen')}
+            className="group w-full rounded-xl border-2 border-gray-200 p-4 text-left transition-all hover:border-emerald-400 hover:bg-emerald-50/50"
+          >
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-100">
+                <ChefHat className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-800 group-hover:text-emerald-700">
+                  Kitchen Card
+                </p>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  Clean recipe with photo, ingredients, instructions and allergens. No prices. For kitchen staff.
+                </p>
+              </div>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onSelect('label')}
+            className="group w-full rounded-xl border-2 border-gray-200 p-4 text-left transition-all hover:border-emerald-400 hover:bg-emerald-50/50"
+          >
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-100">
+                <Tag className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-800 group-hover:text-emerald-700">
+                  Product Label
+                </p>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  Compact label with name, allergens (EU 1169/2011), yield and date. For product packaging.
+                </p>
+              </div>
+            </div>
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-4 w-full py-2 text-sm text-gray-500 transition-colors hover:text-gray-700"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Label editor modal ────────────────────────────────────────────────────────
+
+function LabelEditorModal({
+  isOpen,
+  onClose,
+  recipe,
+  recipeId,
+  allergenNames,
+  allergenDisplay,
+  ingredientNames,
+  onPrint,
+}: {
+  isOpen: boolean
+  onClose: () => void
+  recipe: RecipeEditorData
+  recipeId: string | null
+  allergenNames: string[]
+  allergenDisplay: string
+  ingredientNames: string[]
+  onPrint: (data: LabelData) => void
+}) {
+  const [labelData, setLabelData] = useState<LabelData>({
+    productName: '',
+    businessName: '',
+    category: '',
+    batchId: '',
+    yieldQty: '',
+    productionDate: '',
+    expiryDate: '',
+    ingredients: '',
+    storageInstructions: '',
+    weight: '',
+  })
+
+  useEffect(() => {
+    if (!isOpen) return
+    // CHANGE 1: category, batchId, yieldQty start empty — user fills each time
+    setLabelData({
+      productName: recipe.name,
+      businessName: '',
+      category: '',
+      batchId: '',
+      yieldQty: '',
+      productionDate: new Date().toISOString().split('T')[0],
+      expiryDate: '',
+      ingredients: ingredientNames.join(', '),
+      storageInstructions: recipe.storageInstructions ?? '',
+      weight: '',
+    })
+    resolveTenantContext()
+      .then((ctx) => setLabelData((prev) => ({ ...prev, businessName: ctx.tenant.name })))
+      .catch(() => {})
+  }, [isOpen]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!isOpen) return null
+
+  const set = (field: keyof LabelData, value: string | number) =>
+    setLabelData((prev) => ({ ...prev, [field]: value }))
+
+  const handlePrintClick = async () => {
+    // CHANGE 2: save storage instructions to DB if recipe exists and value changed
+    if (recipeId && labelData.storageInstructions !== (recipe.storageInstructions ?? '')) {
+      try {
+        const supabase = createClient()
+        await supabase
+          .from('recipes')
+          .update({ storage_instructions: labelData.storageInstructions || null })
+          .eq('id', recipeId)
+      } catch {
+        // non-fatal — print still proceeds
+      }
+    }
+    onPrint(labelData)
+    onClose()
+  }
+
+  const inputCls = 'w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100'
+  const labelCls = 'mb-1 block text-xs font-semibold uppercase tracking-wider text-gray-500'
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">Product Label</h2>
+            <p className="text-sm text-gray-500">Customise before printing</p>
+          </div>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Form */}
+        <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
+
+          <div>
+            <label className={labelCls}>Product Name</label>
+            <input type="text" value={labelData.productName} onChange={(e) => set('productName', e.target.value)} className={inputCls} />
+          </div>
+
+          <div>
+            <label className={labelCls}>Business Name</label>
+            <input type="text" value={labelData.businessName} onChange={(e) => set('businessName', e.target.value)} placeholder="Your business name" className={inputCls} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>Category</label>
+              <input type="text" value={labelData.category} onChange={(e) => set('category', e.target.value)} placeholder="e.g. Pastries" className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Net Weight</label>
+              <input type="text" value={labelData.weight} onChange={(e) => set('weight', e.target.value)} placeholder="e.g. 250g" className={inputCls} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>Batch ID</label>
+              <input type="text" value={labelData.batchId} onChange={(e) => set('batchId', e.target.value)} placeholder="e.g. B-001" className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Yield (units)</label>
+              <input type="number" value={labelData.yieldQty || ''} onChange={(e) => set('yieldQty', e.target.value)} placeholder="e.g. 12" className={inputCls} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>Production Date</label>
+              <input type="date" value={labelData.productionDate} onChange={(e) => set('productionDate', e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Best Before / Use By</label>
+              <input type="date" value={labelData.expiryDate} onChange={(e) => set('expiryDate', e.target.value)} className={inputCls} />
+            </div>
+          </div>
+
+          <div>
+            <label className={labelCls}>Ingredients List</label>
+            <textarea
+              value={labelData.ingredients}
+              onChange={(e) => set('ingredients', e.target.value)}
+              rows={3}
+              className={`${inputCls} resize-none`}
+              placeholder="Comma-separated ingredients"
+            />
+            <p className="mt-1 text-xs text-gray-400">Allergens will be highlighted in bold automatically</p>
+          </div>
+
+          <div>
+            <label className={labelCls}>Storage Instructions (optional)</label>
+            <input type="text" value={labelData.storageInstructions} onChange={(e) => set('storageInstructions', e.target.value)} placeholder="e.g. Store in a cool, dry place" className={inputCls} />
+          </div>
+
+          {allergenNames.length > 0 && (
+            <div className="rounded-xl border border-red-100 bg-red-50 p-3">
+              <p className="mb-1 text-xs font-bold uppercase tracking-wider text-red-600">
+                Allergens (auto-detected)
+              </p>
+              <p className="text-sm font-semibold text-red-700">{allergenDisplay}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex gap-3 border-t border-gray-100 px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm text-gray-600 transition-colors hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handlePrintClick}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+          >
+            <Printer className="h-4 w-4" />
+            Print Label
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

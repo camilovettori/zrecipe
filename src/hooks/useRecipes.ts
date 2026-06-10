@@ -27,6 +27,7 @@ export interface RecipeIngredientDraft {
   allergens?: IngredientAllergen[]
   yield_percent?: number | null
   yield_override?: boolean | null
+  ep_weight_manual?: number | null
 }
 
 export interface RecipeEditorData {
@@ -47,6 +48,7 @@ export interface RecipeEditorData {
   imageUrl: string | null
   isSubIngredient: boolean
   subIngredientUnit: string
+  storageInstructions?: string | null
   instructions: RecipeStepDraft[]
   ingredients: RecipeIngredientDraft[]
 }
@@ -132,6 +134,7 @@ type DBRecipeRow = {
   is_sub_ingredient?: boolean | null
   sub_ingredient_unit?: string | null
   sub_ingredient_cost_per_unit?: number | null
+  storage_instructions?: string | null
   recipe_ingredients?: DBRecipeIngredientRow[] | DBRecipeIngredientRow | null
   created_at: string
   updated_at: string
@@ -435,6 +438,7 @@ function mapRecipeRow(row: DBRecipeRow, laborHourlyRate = 15): RecipeRecord {
     imageUrl: row.image_url ?? null,
     isSubIngredient: row.is_sub_ingredient ?? false,
     subIngredientUnit: row.sub_ingredient_unit ?? 'g',
+    storageInstructions: row.storage_instructions ?? null,
     instructions,
     ingredients,
     createdAt: row.created_at,
@@ -595,6 +599,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           is_sub_ingredient,
           sub_ingredient_unit,
           sub_ingredient_cost_per_unit,
+          storage_instructions,
           recipe_ingredients!recipe_ingredients_recipe_id_fkey (
             id,
             recipe_id,
@@ -686,6 +691,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           isSubIngredient: input.isSubIngredient,
           subIngredientUnit: input.subIngredientUnit || 'g',
           subIngredientCostPerUnit,
+          storageInstructions: input.storageInstructions ?? null,
           ingredients: input.ingredients,
         }),
       })
