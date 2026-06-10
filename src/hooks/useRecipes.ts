@@ -97,6 +97,13 @@ type DBIngredientRow = {
   ingredient_allergens?: Array<{ allergen_id: number; status: string }> | null
 }
 
+type DBSubRecipeRef = {
+  id: string
+  name: string
+  sub_ingredient_cost_per_unit?: number | null
+  sub_ingredient_unit?: string | null
+}
+
 type DBRecipeIngredientRow = {
   id: string
   recipe_id: string
@@ -109,6 +116,7 @@ type DBRecipeIngredientRow = {
   yield_percent?: number | null
   yield_override?: boolean | null
   ingredient?: DBIngredientRow[] | DBIngredientRow | null
+  sub_recipe?: DBSubRecipeRef[] | DBSubRecipeRef | null
 }
 
 type DBRecipeRow = {
@@ -371,10 +379,14 @@ function mapRecipeRow(row: DBRecipeRow, laborHourlyRate = 15): RecipeRecord {
         }))
 
       const ingredient = normalizeIngredientRelation(item.ingredient)
+      // For sub-recipe lines ingredient_id is null — fall back to the joined sub-recipe row
+      const subRecipeRef = Array.isArray(item.sub_recipe)
+        ? item.sub_recipe[0]
+        : (item.sub_recipe ?? null)
       const ingredientName =
-        ingredient?.name ?? item.notes ?? `Ingredient ${index + 1}`
-      const currentPrice = ingredient?.currentPrice ?? null
-      const priceUnit = ingredient?.priceUnit ?? item.unit
+        ingredient?.name ?? subRecipeRef?.name ?? item.notes ?? `Ingredient ${index + 1}`
+      const currentPrice = ingredient?.currentPrice ?? subRecipeRef?.sub_ingredient_cost_per_unit ?? null
+      const priceUnit = ingredient?.priceUnit ?? subRecipeRef?.sub_ingredient_unit ?? item.unit
       const line: RecipeIngredientDraft = {
         id: item.id,
         ingredientId: item.ingredient_id ?? ingredient?.id ?? null,
@@ -531,6 +543,12 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
                 name,
                 current_price,
                 price_unit
+              ),
+              sub_recipe:recipes!sub_recipe_id (
+                id,
+                name,
+                sub_ingredient_cost_per_unit,
+                sub_ingredient_unit
               )
             ),
             created_at,
@@ -616,6 +634,12 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
               name,
               current_price,
               price_unit
+            ),
+            sub_recipe:recipes!sub_recipe_id (
+              id,
+              name,
+              sub_ingredient_cost_per_unit,
+              sub_ingredient_unit
             )
           ),
           created_at,
@@ -662,9 +686,15 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           yieldUnit: input.yieldUnit,
         }
       )
+      // Convert the recipe's yield to the sub-ingredient unit before computing per-unit cost.
+      // e.g. yield = 1.15 kg, subIngredientUnit = 'g' → yieldInSubUnit = 1150
+      //      costPerGram = €1.99 / 1150 = €0.001730  (not €1.99 / 1.15 = €1.73)
+      const yieldInSubUnit = input.isSubIngredient
+        ? convertUnit(input.yieldQuantity, input.yieldUnit, input.subIngredientUnit || 'g')
+        : 0
       const subIngredientCostPerUnit =
-        input.isSubIngredient && input.yieldQuantity > 0
-          ? recipeCost.totalCost / input.yieldQuantity
+        input.isSubIngredient && yieldInSubUnit > 0
+          ? recipeCost.totalCost / yieldInSubUnit
           : null
 
       const res = await fetch('/api/recipes/save', {

@@ -43,12 +43,12 @@ function normaliseDateForInput(date: string | null | undefined): string {
 
 // ── Claude extraction ──────────────────────────────────────────────────────
 
-const EXTRACTION_PROMPT = `You are an invoice data extraction system. Extract structured data from this invoice text.
+const EXTRACTION_PROMPT = `You are an invoice data extraction system for food service businesses (bakeries, restaurants, cafés). Extract structured data from this invoice text.
 
 Return ONLY valid JSON, no markdown, no backticks, no explanation. The JSON must follow this exact structure:
 
 {
-  "supplier_name": "string",
+  "supplier_name": "string - the company ISSUING the invoice, not the buyer",
   "invoice_number": "string",
   "invoice_date": "DD/MM/YYYY",
   "vat_rate": number or null,
@@ -57,28 +57,95 @@ Return ONLY valid JSON, no markdown, no backticks, no explanation. The JSON must
   "total": number,
   "items": [
     {
-      "description": "string - clean product name without brand suffixes or size info",
+      "description": "string",
       "quantity": number,
-      "unit": "string - case/bag/pack/box/tub/bottle/carton/tray/block/unit/kg/L",
+      "unit": "string",
       "package_size": number or null,
-      "package_unit": "kg/g/L/ml/unit" or null,
+      "package_unit": "string or null",
       "unit_price": number,
       "total": number
     }
   ]
 }
 
-Rules for extraction:
-- description: Clean product name. Remove brand names (e.g., "COSUN", "CALLEBA", "BOYLANS", "DUER"), remove size info (e.g., "16kg", "2.5KG"), capitalize as Title Case
-- quantity: Number of units/cases purchased
-- unit: The purchase unit (case, bag, pack, box, etc.)
-- package_size: The weight/volume per unit. If SIZE says "1 X 2.5KG" then package_size = 2.5. If "8 X 2.5KG" then package_size = 20 (8 × 2.5). If "1 X 25KG" then package_size = 25.
-- package_unit: kg, g, L, ml, or unit
-- unit_price: Price per single unit/case
-- total: Total cost for this line (quantity × unit_price)
-- Skip section headers, dashed lines, page numbers, footer text
-- supplier_name: The company issuing the invoice (NOT the buyer)
-- invoice_date: Convert any date format to DD/MM/YYYY
+FIELD RULES:
+
+description:
+- Clean product name in Title Case
+- Remove supplier brand prefixes (e.g., "COSUN", "CALLEBA", "KTC", "MC DOUGALLS", "NEWFORGE", "LAKELAND", "GEM")
+- Remove size/weight info that belongs in package_size (e.g., "10KG", "500ML", "250G")
+- Keep the actual product identity (e.g., "Butter Salted", "Coconut Oil Pure", "Muffin Case Standard")
+
+quantity:
+- The number of PURCHASE UNITS ordered (cases, bags, packs, boxes, etc.)
+- This is the "Ordered" or "Qty" column on the invoice
+- Example: if invoice says "Ordered: 4" for muffin cases → quantity = 4
+
+unit:
+- The PURCHASE unit: case, bag, pack, box, tub, bottle, carton, tray, block, unit, kg, L
+- This is how the supplier sells it, NOT the individual items inside
+
+package_size:
+- The NET WEIGHT or NET VOLUME contained in ONE purchase unit
+- If the invoice shows "250G" and pack contains 40 blocks: package_size = 10 (40 × 250g = 10kg), package_unit = "kg"
+- If the invoice shows "500ML" and pack contains 6 bottles: package_size = 3000 or 3, package_unit = "ml" or "L"
+- If the invoice shows "10KG" for a single bag: package_size = 10, package_unit = "kg"
+- For countable non-weight items (muffin cases, cups, lids): package_size = count per pack (e.g., 480), package_unit = "unit"
+
+package_unit:
+- kg, g, L, ml, or unit
+- Use "unit" for countable items without weight (cases, cups, napkins, etc.)
+
+unit_price:
+- CRITICAL: This is ALWAYS the price for ONE PURCHASE UNIT (one case, one bag, one pack)
+- NEVER divide by the number of items inside the pack
+- If invoice shows: "Muffin Case 480s, Qty: 4, Price: 15.00, Value: 60.00" → unit_price = 15.00 (price per pack), NOT 0.03125 (price per individual muffin case)
+- If invoice shows: "Butter 250G, Pack: 40, Qty: 2, Price: 63.33, Value: 126.66" → unit_price = 63.33 (price per case of 40), NOT 1.58 (price per butter block)
+- VERIFY: quantity × unit_price should approximately equal total (allowing for rounding)
+
+total:
+- Total cost for this line item
+- Should equal quantity × unit_price (verify this)
+
+VALIDATION:
+- For each item, check that quantity × unit_price ≈ total (within rounding tolerance)
+- If the math doesn't add up, re-examine which number is the quantity and which is the price
+- Skip section headers ("FOODS", "NON FOODS"), dashed lines, page numbers, footer text
+- Skip items with zero value unless they have a valid price
+
+COMMON INVOICE FORMATS:
+Cash & Carry invoices (Elliotts, Musgrave, BWG, etc.) have columns like:
+Code | Description | Pack | Ordered | Supplied | Price | Value | VAT
+
+CRITICAL COLUMN MAPPING:
+- "Pack" column = items per pack (e.g., 480 muffin cases per pack) → this goes in package_size
+- "Ordered" column = number of packs purchased → this goes in quantity
+- "Price" column = price PER PACK → this goes in unit_price
+- "Value" column = total cost (Ordered × Price) → this goes in total
+
+Example from a real Elliotts invoice:
+MC DOUGALLS STD MUFFIN CASE 480S 90G | Pack: 480 | Ordered: 4 | Price: 15.00 | Value: 60.00
+
+CORRECT extraction:
+- description: "Muffin Case Standard"
+- quantity: 4 (from Ordered column)
+- unit: "pack"
+- package_size: 480 (from Pack column)
+- package_unit: "unit"
+- unit_price: 15.00 (from Price column — per pack, NOT per individual muffin case)
+- total: 60.00 (from Value column — 4 × 15.00)
+
+WRONG extraction:
+- quantity: 480 ← NO, this is the Pack column, not quantity
+- unit_price: 0.03125 ← NO, never divide Price by Pack
+- total: 0.00 ← NO, this means the math was wrong
+
+ANOTHER EXAMPLE:
+COCONUT OIL PURE KTC 500ML | Pack: 12 | Ordered: 2 | Price: 39.67 | Value: 79.34
+CORRECT: quantity=2, unit="case", package_size=6000, package_unit="ml", unit_price=39.67, total=79.34
+
+FINAL VALIDATION RULE:
+After extracting all items, verify: SUM of all item totals should approximately equal the invoice subtotal/total goods. If it doesn't, one or more items have wrong values — recheck them.
 
 Invoice text:
 `
@@ -96,6 +163,10 @@ async function extractWithClaude(text: string) {
 
   const content = response.content[0]
   if (content.type !== 'text') throw new Error('Claude returned no text content')
+
+  console.log('=== RAW CLAUDE EXTRACTION ===')
+  console.log(content.text)
+  console.log('=== END RAW ===')
 
   const cleaned = content.text
     .replace(/^```(?:json)?\n?/i, '')
@@ -119,6 +190,33 @@ async function extractWithClaude(text: string) {
       unit_price?: number
       total?: number
     }>
+  }
+
+  // Validate and auto-correct item prices before returning
+  if (Array.isArray(parsed.items)) {
+    for (const item of parsed.items) {
+      const qty   = Number(item.quantity ?? 1) || 1
+      const price = Number(item.unit_price ?? 0)
+      const total = Number(item.total ?? 0)
+      const calculatedTotal = qty * price
+
+      // Fix zero totals when price and quantity are both valid
+      if (total === 0 && price > 0) {
+        item.total = Number((calculatedTotal).toFixed(2))
+        console.warn(`[extract] Fixed zero total for "${item.description}": ${item.total}`)
+      }
+
+      // If qty × price is off from the reported total by >10%, correct unit_price from total/qty
+      const reportedTotal = Number(item.total ?? 0)
+      if (reportedTotal > 0 && Math.abs(calculatedTotal - reportedTotal) / reportedTotal > 0.1) {
+        const corrected = Number((reportedTotal / qty).toFixed(4))
+        console.warn(
+          `[extract] Price mismatch for "${item.description}": ` +
+          `${qty} × ${price} = ${calculatedTotal.toFixed(2)}, total = ${reportedTotal} → correcting unit_price to ${corrected}`
+        )
+        item.unit_price = corrected
+      }
+    }
   }
 
   return {
