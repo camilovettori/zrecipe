@@ -6,6 +6,19 @@ import { cn } from '@/lib/utils'
 
 const SUPER_ADMIN_EMAIL = 'camilovettori@gmail.com'
 
+interface Tenant {
+  id: string
+  name: string | null
+  slug: string
+  business_type: string | null
+  subscription_status: string
+  stripe_customer_id: string | null
+  stripe_subscription_id: string | null
+  subscription_cancel_at: string | null
+  created_at: string
+  updated_at: string
+}
+
 export default async function AdminTenants() {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -48,7 +61,7 @@ export default async function AdminTenants() {
       </div>
 
       <div className="space-y-4">
-        {tenants?.map((tenant) => {
+        {(tenants as Tenant[] | null)?.map((tenant) => {
           type TenantUser = { tenant_id: string; user_id: string; role: string }
           const tUsers: TenantUser[] = tenantUsers?.filter((tu: TenantUser) => tu.tenant_id === tenant.id) ?? []
           const tUserDetails = tUsers.map((tu) => {

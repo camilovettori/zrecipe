@@ -5,6 +5,14 @@ import { cn } from '@/lib/utils'
 
 const SUPER_ADMIN_EMAIL = 'camilovettori@gmail.com'
 
+interface Tenant {
+  id: string
+  name: string | null
+  business_type: string | null
+  subscription_status: string
+  created_at: string
+}
+
 export default async function AdminDashboard() {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -36,9 +44,10 @@ export default async function AdminDashboard() {
     (admin.from('invoices') as any).select('tenant_id'),
   ])
 
-  const activeTenants   = tenants?.filter((t) => t.subscription_status === 'active').length   ?? 0
-  const trialingTenants = tenants?.filter((t) => t.subscription_status === 'trialing').length ?? 0
-  const canceledTenants = tenants?.filter((t) => t.subscription_status === 'canceled').length ?? 0
+  const tenantList = (tenants as Tenant[] | null) ?? []
+  const activeTenants   = tenantList.filter((t) => t.subscription_status === 'active').length
+  const trialingTenants = tenantList.filter((t) => t.subscription_status === 'trialing').length
+  const canceledTenants = tenantList.filter((t) => t.subscription_status === 'canceled').length
   const mrr = activeTenants * 25
 
   const today = new Date().toLocaleDateString('en-IE', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -64,7 +73,7 @@ export default async function AdminDashboard() {
       {/* Stats grid */}
       <div className="mb-8 grid grid-cols-4 gap-4">
         {[
-          { label: 'Total Tenants',   value: tenants?.length ?? 0, color: 'blue' },
+          { label: 'Total Tenants',   value: tenantList.length,    color: 'blue' },
           { label: 'Active (Paying)', value: activeTenants,          color: 'emerald' },
           { label: 'Trialing',        value: trialingTenants,        color: 'amber' },
           { label: 'Canceled',        value: canceledTenants,        color: 'red' },
@@ -95,7 +104,7 @@ export default async function AdminDashboard() {
       <div className="rounded-2xl border border-gray-800 bg-gray-900 p-5">
         <h2 className="mb-4 text-sm font-bold text-white">Recent Tenants</h2>
         <div className="space-y-1">
-          {tenants?.slice(0, 10).map((tenant) => {
+          {(tenants as Tenant[] | null)?.slice(0, 10).map((tenant) => {
             const userCount       = tenantUsers?.filter((tu: { tenant_id: string }) => tu.tenant_id === tenant.id).length ?? 0
             const recipeCount     = recipeCounts?.filter((r: { tenant_id: string }) => r.tenant_id === tenant.id).length ?? 0
             const ingredientCount = ingredientCounts?.filter((i: { tenant_id: string }) => i.tenant_id === tenant.id).length ?? 0
