@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { Info } from 'lucide-react'
 import type { RecipeCostSummary } from '@/hooks/useRecipes'
 import { cn } from '@/lib/utils'
 
@@ -21,6 +22,33 @@ function sellingPriceFromMargin(costPerUnit: number, margin: number) {
 function parseMoney(value: string) {
   const n = Number(value)
   return Number.isFinite(n) && n >= 0 ? n : 0
+}
+
+function InfoTooltip({ text }: { text: string }) {
+  const [show, setShow] = useState(false)
+
+  return (
+    <div className="relative inline-flex">
+      <button
+        type="button"
+        onMouseEnter={() => setShow(true)}
+        onMouseLeave={() => setShow(false)}
+        className="ml-1 text-gray-300 transition-colors hover:text-gray-400 focus:outline-none"
+        tabIndex={-1}
+      >
+        <Info className="h-3.5 w-3.5" />
+      </button>
+
+      {show && (
+        <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-52 -translate-x-1/2">
+          <div className="relative rounded-lg bg-gray-800 px-3 py-2 text-xs leading-relaxed text-white shadow-lg">
+            {text}
+            <div className="absolute left-1/2 top-full -mt-1 h-2 w-2 -translate-x-1/2 rotate-45 bg-gray-800" />
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function CostBreakdown({
@@ -97,20 +125,26 @@ export default function CostBreakdown({
       {/* Header */}
       <div className="mb-4 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-slate-900">Cost Breakdown</h3>
-        <span className={cn(
-          'rounded-full px-2.5 py-1 text-xs font-semibold',
-          foodCostPct < 25 ? 'bg-emerald-100 text-emerald-700'
-            : foodCostPct < 35 ? 'bg-amber-100 text-amber-700'
-            : 'bg-red-100 text-red-600'
-        )}>
-          Food cost {foodCostPct.toFixed(1)}%
-        </span>
+        <div className="flex items-center gap-1">
+          <span className={cn(
+            'rounded-full px-2.5 py-1 text-xs font-semibold',
+            foodCostPct < 25 ? 'bg-emerald-100 text-emerald-700'
+              : foodCostPct < 35 ? 'bg-amber-100 text-amber-700'
+              : 'bg-red-100 text-red-600'
+          )}>
+            Food cost {foodCostPct.toFixed(1)}%
+          </span>
+          <InfoTooltip text="Percentage of selling price that goes to costs. Industry target: under 35%." />
+        </div>
       </div>
 
       <div>
         {/* Ingredient cost */}
         <div className="flex items-center justify-between border-b border-gray-50 py-2">
-          <span className="text-sm text-gray-500">Ingredient cost</span>
+          <div className="flex items-center">
+            <span className="text-sm text-gray-500">Ingredient cost</span>
+            <InfoTooltip text="Total cost of all ingredients in this recipe, adjusted for yield factor." />
+          </div>
           <span className="text-sm font-semibold text-gray-800">
             €{cost.ingredientCost.toFixed(2)}
           </span>
@@ -120,6 +154,7 @@ export default function CostBreakdown({
         <div className="flex items-start justify-between border-b border-gray-50 py-2">
           <div className="flex flex-1 items-center gap-1.5">
             <span className="text-sm text-gray-500">Labor</span>
+            <InfoTooltip text="Cost of staff time to prepare this recipe. Use 'time' mode to calculate from prep minutes × hourly rate." />
             <div className="flex rounded-lg bg-gray-100 p-0.5">
               <button
                 type="button"
@@ -171,6 +206,7 @@ export default function CostBreakdown({
         <div className="flex items-center justify-between border-b border-gray-50 py-2">
           <div className="flex items-center gap-1.5">
             <span className="text-sm text-gray-500">Overhead</span>
+            <InfoTooltip text="Indirect costs like energy, packaging, rent. Use '% ingr.' to auto-calculate as a percentage of ingredient cost." />
             <div className="flex rounded-lg bg-gray-100 p-0.5">
               <button
                 type="button"
@@ -231,6 +267,7 @@ export default function CostBreakdown({
         )}>
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-500">Waste</span>
+            <InfoTooltip text="Expected production loss — burnt items, portioning errors, unsold perishables. Applied to the subtotal." />
             <span className="text-xs italic text-gray-400">production loss</span>
             {(wastePercent ?? 0) > 10 && (
               <span className="text-xs font-medium text-amber-600">⚠</span>
@@ -263,9 +300,12 @@ export default function CostBreakdown({
 
         {/* LEFT — Total Cost */}
         <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-          <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-            Total Cost
-          </p>
+          <div className="mb-2 flex items-center">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+              Total Cost
+            </p>
+            <InfoTooltip text="Sum of ingredients + labor + overhead + waste. This is what it costs you to produce this recipe." />
+          </div>
           <p className="mb-1 text-2xl font-black text-gray-800">
             €{cost.totalCost.toFixed(2)}
           </p>
@@ -278,9 +318,12 @@ export default function CostBreakdown({
 
         {/* RIGHT — Selling Price (editable) */}
         <div className="rounded-2xl border-2 border-emerald-500 bg-white p-4 shadow-sm shadow-emerald-100">
-          <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-emerald-600">
-            {yieldQty > 1 ? 'Price per Unit' : 'Selling Price'}
-          </p>
+          <div className="mb-2 flex items-center">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">
+              {yieldQty > 1 ? 'Price per Unit' : 'Selling Price'}
+            </p>
+            <InfoTooltip text="The price you charge per unit. Drag the margin slider below to adjust automatically." />
+          </div>
           <div className="mb-1 flex items-baseline gap-1">
             <span className="text-base text-gray-400">€</span>
             <input
@@ -316,7 +359,10 @@ export default function CostBreakdown({
         {/* Margin + Slider */}
         <div className="mb-4">
           <div className="mb-2 flex items-baseline justify-between">
-            <span className="text-sm font-semibold text-gray-600">Margin</span>
+            <div className="flex items-center">
+              <span className="text-sm font-semibold text-gray-600">Margin</span>
+              <InfoTooltip text="Profit as a percentage of selling price. Above 60% is excellent for most food businesses." />
+            </div>
             <span className={cn(
               'text-3xl font-black',
               activeMargin < 20 ? 'text-red-500'
@@ -349,7 +395,10 @@ export default function CostBreakdown({
 
         {/* Profit per unit */}
         <div className="flex items-center justify-between py-1.5">
-          <span className="text-sm text-gray-500">Profit per unit</span>
+          <div className="flex items-center">
+            <span className="text-sm text-gray-500">Profit per unit</span>
+            <InfoTooltip text="Selling price minus cost per unit. This is what you keep from each sale." />
+          </div>
           <span className={cn(
             'text-lg font-bold',
             profitPerUnit >= 0 ? 'text-emerald-600' : 'text-red-500'
@@ -393,7 +442,10 @@ export default function CostBreakdown({
       <div className="rounded-2xl border border-gray-100 p-4">
         <div className="mb-3 flex items-center justify-between">
           <div>
-            <p className="text-sm font-semibold text-gray-700">VAT</p>
+            <div className="flex items-center">
+              <p className="text-sm font-semibold text-gray-700">VAT</p>
+              <InfoTooltip text="Value Added Tax applied to the selling price. Standard rate in Ireland is 23%, reduced rate for food is 13.5% or 9%." />
+            </div>
             <p className="text-xs text-gray-400">Applied to selling price</p>
           </div>
           <button

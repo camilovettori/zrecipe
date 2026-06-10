@@ -154,23 +154,6 @@ function mapRecipeToState(recipe: RecipeRecord): RecipeEditorData {
   }
 }
 
-function toRecipeRecord(
-  state: RecipeEditorData,
-  id: string,
-  tenantId = 'draft',
-  createdAt = new Date().toISOString(),
-  updatedAt = new Date().toISOString()
-): RecipeRecord {
-  const ingredients = state.ingredients.map((item) => ({
-    ...item,
-    lineCost: calculateLineCost(item),
-  }))
-  const cost = calculateRecipeCost(ingredients, state.laborCost, state.overheadCost, state.sellingPrice)
-  return {
-    id, tenantId, ...state, ingredients, cost, createdAt, updatedAt,
-  }
-}
-
 // ── Draggable ingredient row ─────────────────────────────────────────────────
 
 function IngredientRow({
@@ -598,17 +581,6 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
      recipe.overheadMode, recipe.overheadPercent, recipe.wastePercent,
      recipe.sellingPrice, recipe.prepTimeMinutes, recipe.yieldQuantity,
      recipe.yieldUnit, laborHourlyRate]
-  )
-
-  const currentRecipeRecord = useMemo(
-    () => toRecipeRecord(
-      { ...recipe, ingredients: computedIngredients },
-      loadedRecipe?.id ?? recipeId,
-      loadedRecipe?.tenantId ?? 'draft',
-      loadedRecipe?.createdAt ?? new Date().toISOString(),
-      new Date().toISOString()
-    ),
-    [computedIngredients, loadedRecipe, recipe, recipeId]
   )
 
   const hydrateIngredientAllergens = useCallback(
