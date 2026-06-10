@@ -1,50 +1,36 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
-import { LayoutDashboard, Users, CreditCard, Shield, ArrowLeft } from 'lucide-react'
+import { Shield, ArrowLeft } from 'lucide-react'
+import AdminNav from './AdminNav'
 
 const SUPER_ADMIN_EMAIL = 'camilovettori@gmail.com'
-
-const NAV = [
-  { href: '/adminziffera',         icon: LayoutDashboard, label: 'Overview' },
-  { href: '/adminziffera/tenants', icon: Users,           label: 'Tenants' },
-  { href: '/adminziffera/billing', icon: CreditCard,      label: 'Billing' },
-]
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user || user.email !== SUPER_ADMIN_EMAIL) redirect('/')
+  if (!user || user.email?.toLowerCase() !== SUPER_ADMIN_EMAIL) redirect('/')
 
   return (
-    <div className="flex min-h-screen bg-gray-950">
-      {/* Sidebar */}
-      <aside className="sticky top-0 flex h-screen w-56 flex-col border-r border-gray-800 bg-gray-900 p-4">
-        <div className="mb-8 flex items-center gap-2 px-2">
+    <div className="flex min-h-screen">
+      {/* Sidebar — dark */}
+      <aside className="sticky top-0 flex h-screen w-56 shrink-0 flex-col border-r border-slate-800 bg-slate-900 p-4">
+        <div className="mb-8 flex items-center gap-2.5 px-2">
           <Shield className="h-5 w-5 text-emerald-400" />
           <div>
-            <p className="text-sm font-bold text-white">ZRecipe Admin</p>
-            <p className="text-[10px] text-gray-500">Ziffera Management</p>
+            <p className="text-sm font-bold text-emerald-400">ZRecipe Admin</p>
+            <p className="text-[10px] text-slate-500">Ziffera Management</p>
           </div>
         </div>
 
-        <nav className="flex-1 space-y-1">
-          {NAV.map(({ href, icon: Icon, label }) => (
-            <Link
-              key={href}
-              href={href}
-              className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:bg-gray-800 hover:text-white"
-            >
-              <Icon className="h-4 w-4" />
-              {label}
-            </Link>
-          ))}
-        </nav>
+        <div className="flex-1">
+          <AdminNav />
+        </div>
 
-        <div className="border-t border-gray-800 pt-3">
+        <div className="border-t border-slate-800 pt-3">
           <Link
             href="/"
-            className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-gray-500 transition-colors hover:bg-gray-800 hover:text-white"
+            className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-300"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to ZRecipe
@@ -52,8 +38,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </div>
       </aside>
 
-      {/* Main */}
-      <main className="flex-1 overflow-auto p-8">{children}</main>
+      {/* Content area — light */}
+      <main className="flex-1 overflow-auto bg-slate-50 p-8">
+        {children}
+      </main>
     </div>
   )
 }

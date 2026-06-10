@@ -14,6 +14,7 @@ const EXEMPT_PREFIXES = [
   '/auth',
   '/api',           // all API routes — they handle their own auth
   '/workspace/setup',
+  '/suspended',     // shown to suspended tenants — must be exempt to avoid redirect loop
   '/models',
   '/_next',
   '/favicon',
@@ -25,11 +26,13 @@ function isExemptPath(pathname: string): boolean {
   )
 }
 
-async function checkTenantExists(userId: string): Promise<boolean> {
+async function checkTenantStatus(
+  userId: string
+): Promise<{ hasTenant: boolean; isSuspended: boolean }> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-  console.log('[MW] checkTenantExists — userId:', userId)
+  console.log('[MW] checkTenantStatus — userId:', userId)
   console.log('[MW] NEXT_PUBLIC_SUPABASE_URL set:', !!url)
   console.log('[MW] SUPABASE_SERVICE_ROLE_KEY set:', !!key,
     key ? `(prefix: ${key.slice(0, 20)}…)` : '(MISSING — will fail open!)'
@@ -37,37 +40,42 @@ async function checkTenantExists(userId: string): Promise<boolean> {
 
   if (!url || !key) {
     console.error('[MW] Missing env vars — failing open (user passes through)')
-    return true
+    return { hasTenant: true, isSuspended: false }
   }
 
   try {
-    // Service-role client: bypasses RLS entirely. This is the correct client
-    // to use here — the user's session is not attached, so RLS cannot block it.
     const adminClient = createClient(url, key, {
       auth: { autoRefreshToken: false, persistSession: false },
     })
 
+    // Join tenant_users → tenants to get both existence and subscription_status in one query
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: tenantData, error: tenantError } = await (adminClient.from('tenant_users') as any)
-      .select('tenant_id')
+      .select('tenant_id, tenants(subscription_status)')
       .eq('user_id', userId)
       .limit(1)
-      .maybeSingle()  // null data + no error = 0 rows; never throws on empty
+      .maybeSingle()
 
     console.log('[MW] Admin query result:', JSON.stringify(tenantData))
     console.log('[MW] Admin query error:', JSON.stringify(tenantError))
 
     if (tenantError) {
       console.error('[MW] DB error (failing open):', tenantError.code, tenantError.message)
-      return true // fail open — never lock users out due to DB errors
+      return { hasTenant: true, isSuspended: false }
     }
 
-    const hasTenant = tenantData !== null
-    console.log('[MW] hasTenant:', hasTenant)
-    return hasTenant
+    if (tenantData === null) {
+      console.log('[MW] hasTenant: false')
+      return { hasTenant: false, isSuspended: false }
+    }
+
+    const status = tenantData.tenants?.subscription_status as string | undefined
+    const isSuspended = status === 'suspended'
+    console.log('[MW] hasTenant: true, status:', status, 'isSuspended:', isSuspended)
+    return { hasTenant: true, isSuspended }
   } catch (e) {
-    console.error('[MW] Exception in checkTenantExists (failing open):', e)
-    return true
+    console.error('[MW] Exception in checkTenantStatus (failing open):', e)
+    return { hasTenant: true, isSuspended: false }
   }
 }
 
@@ -112,7 +120,17 @@ export async function middleware(request: NextRequest) {
   console.log('[MW] hasTenantCookie:', hasTenantCookie, '— proceeding to DB check:', !hasTenantCookie)
 
   if (!hasTenantCookie) {
-    const hasTenant = await checkTenantExists(user.id)
+    const { hasTenant, isSuspended } = await checkTenantStatus(user.id)
+
+    if (isSuspended) {
+      console.log('[MW] Tenant is suspended — redirecting to /suspended')
+      const redirectResponse = NextResponse.redirect(new URL('/suspended', request.url))
+      response.cookies.getAll().forEach(({ name, value }) => {
+        redirectResponse.cookies.set(name, value)
+      })
+      // Don't set has-tenant cookie for suspended tenants so they're re-checked on every request
+      return redirectResponse
+    }
 
     if (!hasTenant) {
       console.log('[MW] No tenant row found — redirecting to /workspace/setup')

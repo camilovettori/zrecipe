@@ -27,7 +27,7 @@ import { clearTenantCache } from '@/hooks/useTenant'
 import { useAppStore } from '@/stores/app'
 import { cn } from '@/lib/utils'
 
-const SUPER_ADMIN_EMAILS = ['camilovettori@gmail.com', 'camilo@hotmail.com']
+const SUPER_ADMIN_EMAIL = 'camilovettori@gmail.com'
 
 const NAV_ITEMS = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -222,7 +222,7 @@ function SidebarContent({
       )}
 
       {/* Admin link — only for super admins */}
-      {SUPER_ADMIN_EMAILS.includes(userEmail ?? '') && (
+      {(userEmail ?? '').toLowerCase() === SUPER_ADMIN_EMAIL && (
         <div className="px-3 pb-1">
           <Link
             href="/adminziffera"

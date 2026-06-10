@@ -5,76 +5,96 @@ import { cn } from '@/lib/utils'
 
 const SUPER_ADMIN_EMAIL = 'camilovettori@gmail.com'
 
+interface Tenant {
+  id: string
+  name: string | null
+  subscription_status: string
+  stripe_customer_id: string | null
+  is_comped?: boolean
+  created_at: string
+  updated_at: string
+}
+
 export default async function AdminBilling() {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || user.email !== SUPER_ADMIN_EMAIL) redirect('/')
 
-  const admin = createAdminClient(
+  const adminClient = createAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
-
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: tenants } = await (admin.from('tenants') as any)
-    .select('*')
-    .order('created_at', { ascending: false })
+  const admin = adminClient as any
 
-  const active   = (tenants ?? []).filter((t: { subscription_status: string }) => t.subscription_status === 'active')
-  const trialing = (tenants ?? []).filter((t: { subscription_status: string }) => t.subscription_status === 'trialing')
-  const canceled = (tenants ?? []).filter((t: { subscription_status: string }) => t.subscription_status === 'canceled')
-  const pastDue  = (tenants ?? []).filter((t: { subscription_status: string }) => t.subscription_status === 'past_due')
+  const { data: rawTenants } = await admin.from('tenants').select('*').order('created_at', { ascending: false })
 
-  const mrr = active.length * 25
-  const arr = mrr * 12
-  const total = (tenants ?? []).length
-  const conversionRate = total > 0 ? ((active.length / total) * 100).toFixed(1) : '0.0'
+  const tenants = (rawTenants ?? []) as Tenant[]
+  const active       = tenants.filter((t) => t.subscription_status === 'active')
+  const payingActive = active.filter((t) => !t.is_comped)
+  const compedActive = active.filter((t) => t.is_comped)
+  const trialing     = tenants.filter((t) => t.subscription_status === 'trialing')
+  const canceled     = tenants.filter((t) => t.subscription_status === 'canceled')
+  const pastDue      = tenants.filter((t) => t.subscription_status === 'past_due')
+
+  const mrr            = payingActive.length * 25
+  const arr            = mrr * 12
+  const total          = tenants.length
+  const conversionRate = total > 0 ? ((payingActive.length / total) * 100).toFixed(1) : '0.0'
 
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">Billing</h1>
-        <p className="mt-1 text-sm text-gray-500">Revenue and subscription metrics</p>
+        <h1 className="text-2xl font-semibold text-slate-900">Billing</h1>
+        <p className="mt-1 text-sm text-slate-500">Revenue and subscription metrics</p>
       </div>
 
       {/* Revenue cards */}
       <div className="mb-8 grid grid-cols-4 gap-4">
-        <div className="rounded-2xl bg-gradient-to-br from-emerald-600 to-emerald-500 p-5">
-          <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-emerald-200">MRR</p>
-          <p className="text-3xl font-black text-white">€{mrr.toLocaleString()}</p>
+        <div className="rounded-xl bg-emerald-600 p-5">
+          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-emerald-200">MRR</p>
+          <p className="text-3xl font-bold text-white">€{mrr.toLocaleString()}</p>
+          {compedActive.length > 0 && (
+            <p className="mt-1 text-xs text-emerald-200">{compedActive.length} comped account{compedActive.length > 1 ? 's' : ''} excluded</p>
+          )}
         </div>
-        <div className="rounded-2xl border border-gray-800 bg-gray-900 p-5">
-          <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">ARR</p>
-          <p className="text-3xl font-black text-gray-300">€{arr.toLocaleString()}</p>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">ARR</p>
+          <p className="text-3xl font-bold text-slate-900">€{arr.toLocaleString()}</p>
         </div>
-        <div className="rounded-2xl border border-gray-800 bg-gray-900 p-5">
-          <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">Conversion Rate</p>
-          <p className="text-3xl font-black text-gray-300">{conversionRate}%</p>
-          <p className="mt-1 text-xs text-gray-600">trial → paid</p>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Conversion Rate</p>
+          <p className="text-3xl font-bold text-slate-900">{conversionRate}%</p>
+          <p className="mt-1 text-xs text-slate-400">trial → paid</p>
         </div>
-        <div className="rounded-2xl border border-gray-800 bg-gray-900 p-5">
-          <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">Past Due</p>
-          <p className="text-3xl font-black text-red-400">{pastDue.length}</p>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Past Due</p>
+          <p className="text-3xl font-bold text-red-600">{pastDue.length}</p>
         </div>
       </div>
 
       {/* Subscription breakdown */}
       <div className="mb-4 grid grid-cols-2 gap-4">
-        {/* Active subscribers */}
-        <div className="rounded-2xl border border-gray-800 bg-gray-900 p-5">
-          <h2 className="mb-3 text-sm font-bold text-emerald-400">
-            Active Subscribers ({active.length})
-          </h2>
-          <div className="space-y-2">
+        {/* Active */}
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-5 py-3.5">
+            <h2 className="text-sm font-semibold text-emerald-700">
+              Active Subscribers ({payingActive.length} paying{compedActive.length > 0 ? ` · ${compedActive.length} comped` : ''})
+            </h2>
+          </div>
+          <div className="divide-y divide-slate-100">
             {active.length === 0 ? (
-              <p className="text-sm text-gray-600">No active subscribers yet</p>
+              <p className="px-5 py-6 text-sm text-slate-400">No active subscribers yet</p>
             ) : (
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              active.map((t: any) => (
-                <div key={t.id} className="flex items-center justify-between py-1.5">
-                  <span className="text-sm text-gray-300">{t.name ?? 'Unnamed'}</span>
-                  <span className="text-sm font-semibold text-emerald-400">€25/mo</span>
+              active.map((t) => (
+                <div key={t.id} className="flex items-center justify-between px-5 py-3">
+                  <span className="text-sm text-slate-700">{t.name ?? 'Unnamed'}</span>
+                  {t.is_comped ? (
+                    <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700">Comped</span>
+                  ) : (
+                    <span className="text-sm font-semibold text-emerald-600">€25/mo</span>
+                  )}
                 </div>
               ))
             )}
@@ -82,22 +102,23 @@ export default async function AdminBilling() {
         </div>
 
         {/* Trials */}
-        <div className="rounded-2xl border border-gray-800 bg-gray-900 p-5">
-          <h2 className="mb-3 text-sm font-bold text-amber-400">
-            Trials ({trialing.length})
-          </h2>
-          <div className="space-y-2">
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-5 py-3.5">
+            <h2 className="text-sm font-semibold text-amber-700">
+              Trials ({trialing.length})
+            </h2>
+          </div>
+          <div className="divide-y divide-slate-100">
             {trialing.length === 0 ? (
-              <p className="text-sm text-gray-600">No active trials</p>
+              <p className="px-5 py-6 text-sm text-slate-400">No active trials</p>
             ) : (
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              trialing.map((t: any) => {
+              trialing.map((t) => {
                 const ends  = new Date(new Date(t.created_at).getTime() + 14 * 86_400_000)
                 const dLeft = Math.max(0, Math.ceil((ends.getTime() - Date.now()) / 86_400_000))
                 return (
-                  <div key={t.id} className="flex items-center justify-between py-1.5">
-                    <span className="text-sm text-gray-300">{t.name ?? 'Unnamed'}</span>
-                    <span className={cn('text-sm font-semibold', dLeft <= 3 ? 'text-red-400' : 'text-amber-400')}>
+                  <div key={t.id} className="flex items-center justify-between px-5 py-3">
+                    <span className="text-sm text-slate-700">{t.name ?? 'Unnamed'}</span>
+                    <span className={cn('text-sm font-semibold', dLeft <= 3 ? 'text-red-600' : 'text-amber-600')}>
                       {dLeft}d left
                     </span>
                   </div>
@@ -108,21 +129,20 @@ export default async function AdminBilling() {
         </div>
       </div>
 
-      {/* Canceled + Past due */}
       <div className="grid grid-cols-2 gap-4">
-        <div className="rounded-2xl border border-gray-800 bg-gray-900 p-5">
-          <h2 className="mb-3 text-sm font-bold text-gray-400">
-            Canceled ({canceled.length})
-          </h2>
-          <div className="space-y-2">
+        {/* Canceled */}
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-5 py-3.5">
+            <h2 className="text-sm font-semibold text-slate-600">Cancelled ({canceled.length})</h2>
+          </div>
+          <div className="divide-y divide-slate-100">
             {canceled.length === 0 ? (
-              <p className="text-sm text-gray-600">None</p>
+              <p className="px-5 py-6 text-sm text-slate-400">None</p>
             ) : (
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              canceled.map((t: any) => (
-                <div key={t.id} className="flex items-center justify-between py-1.5">
-                  <span className="text-sm text-gray-400">{t.name ?? 'Unnamed'}</span>
-                  <span className="text-xs text-gray-600">
+              canceled.map((t) => (
+                <div key={t.id} className="flex items-center justify-between px-5 py-3">
+                  <span className="text-sm text-slate-500">{t.name ?? 'Unnamed'}</span>
+                  <span className="text-xs text-slate-400">
                     {new Date(t.created_at).toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </span>
                 </div>
@@ -131,23 +151,23 @@ export default async function AdminBilling() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-gray-800 bg-gray-900 p-5">
-          <h2 className="mb-3 text-sm font-bold text-red-400">
-            Past Due ({pastDue.length})
-          </h2>
-          <div className="space-y-2">
+        {/* Past due */}
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-5 py-3.5">
+            <h2 className="text-sm font-semibold text-red-700">Past Due ({pastDue.length})</h2>
+          </div>
+          <div className="divide-y divide-slate-100">
             {pastDue.length === 0 ? (
-              <p className="text-sm text-gray-600">None</p>
+              <p className="px-5 py-6 text-sm text-slate-400">None</p>
             ) : (
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              pastDue.map((t: any) => (
-                <div key={t.id} className="flex items-center justify-between py-1.5">
-                  <span className="text-sm text-gray-300">{t.name ?? 'Unnamed'}</span>
+              pastDue.map((t) => (
+                <div key={t.id} className="flex items-center justify-between px-5 py-3">
+                  <span className="text-sm text-slate-700">{t.name ?? 'Unnamed'}</span>
                   {t.stripe_customer_id && (
                     <a
                       href={`https://dashboard.stripe.com/customers/${t.stripe_customer_id}`}
                       target="_blank"
-                      className="text-sm text-emerald-400 hover:underline"
+                      className="text-sm text-emerald-600 hover:underline"
                     >
                       Stripe →
                     </a>

@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
 import { getEffectiveSubscriptionStatus } from '@/lib/tenant'
 import { FREE_LIMITS, PRO_LIMITS } from '@/lib/subscription/limits'
+import { logAIUsage } from '@/lib/ai/usage-logger'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -173,9 +174,18 @@ export async function POST(request: NextRequest) {
       messages: [{ role: 'user', content: prompt }],
     })
 
-    // Record usage after successful AI call
+    // Record rate-limit usage
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (admin.from('ai_usage') as any).insert({ tenant_id: tenantId, feature: 'recipe_ideas' })
+    // Log detailed token usage for analytics
+    await logAIUsage({
+      tenantId,
+      userId: user.id,
+      feature: 'recipe_ideas',
+      inputTokens:  aiResponse.usage.input_tokens,
+      outputTokens: aiResponse.usage.output_tokens,
+      model: 'claude-sonnet-4-6',
+    })
 
     const content = aiResponse.content[0]
     if (!content || content.type !== 'text') {

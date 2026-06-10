@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
 import { getEffectiveSubscriptionStatus } from '@/lib/tenant'
 import { FREE_LIMITS, PRO_LIMITS } from '@/lib/subscription/limits'
+import { logAIUsage } from '@/lib/ai/usage-logger'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -91,6 +92,8 @@ async function extractWithClaude(text: string) {
     messages: [{ role: 'user', content: EXTRACTION_PROMPT + text }],
   })
 
+  const usage = { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens }
+
   const content = response.content[0]
   if (content.type !== 'text') throw new Error('Claude returned no text content')
 
@@ -119,6 +122,7 @@ async function extractWithClaude(text: string) {
   }
 
   return {
+    usage,
     supplier_name:   parsed.supplier_name ?? 'Unknown Supplier',
     invoice_number:  parsed.invoice_number ?? null,
     invoice_date:    normaliseDateForInput(parsed.invoice_date),
@@ -262,11 +266,22 @@ export async function POST(request: NextRequest) {
 
       try {
         const result = await extractWithClaude(text)
-        // Record usage after successful extraction
+        // Record rate-limit usage
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (admin.from('ai_usage') as any).insert({ tenant_id: tenantId, feature: 'invoice_extract' })
+        // Log detailed token usage for analytics
+        await logAIUsage({
+          tenantId,
+          userId: user.id,
+          feature: 'invoice_extract',
+          inputTokens:  result.usage.inputTokens,
+          outputTokens: result.usage.outputTokens,
+          model: 'claude-sonnet-4-6',
+        })
         console.log('[extract] Claude succeeded, items:', result.items.length)
-        return NextResponse.json(result)
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { usage: _u, ...responseData } = result
+        return NextResponse.json(responseData)
       } catch (claudeErr) {
         const message = claudeErr instanceof Error ? claudeErr.message : 'AI extraction failed'
         console.error('[extract] Claude error:', message)
