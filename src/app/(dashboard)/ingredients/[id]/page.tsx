@@ -13,6 +13,7 @@ import PriceChangeBanner from '@/components/ingredients/PriceChangeBanner'
 import type { IngredientRow } from '@/hooks/useIngredients'
 import { EU_ALLERGENS, type AllergenStatus, type IngredientAllergen } from '@/lib/allergens'
 import { findIngredientImage } from '@/lib/utils/ingredient-image'
+import { compressImage } from '@/lib/utils/image-compress'
 
 function formatMoney(value: number) {
   return `\u20ac${value.toFixed(2)}`
@@ -304,8 +305,9 @@ export default function IngredientDetailPage() {
 
     setUploadingImage(true)
     try {
+      const compressed = await compressImage(file, 1200, 0.8)
       const formData = new FormData()
-      formData.append('file', file)
+      formData.append('file', compressed)
       formData.append('ingredientId', ingredient.id)
 
       const res = await fetch('/api/ingredients/upload-image', { method: 'POST', body: formData })
@@ -440,8 +442,16 @@ export default function IngredientDetailPage() {
                       <X className="h-3.5 w-3.5 text-slate-700" />
                     </button>
                   )}
+                  {uploadingImage && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                      <div className="text-center">
+                        <div className="mx-auto mb-2 h-8 w-8 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                        <p className="text-xs font-medium text-white">Saving photo…</p>
+                      </div>
+                    </div>
+                  )}
                   {/* Change photo button — overlay for user uploads */}
-                  {userImageUrl && (
+                  {userImageUrl && !uploadingImage && (
                     <label className="absolute bottom-2 right-2 flex cursor-pointer items-center gap-1.5 rounded-full bg-white/90 px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-white">
                       <Camera className="h-3 w-3" />
                       Change

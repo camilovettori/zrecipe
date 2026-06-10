@@ -48,6 +48,7 @@ import { CustomSelect } from '@/components/ui/CustomSelect'
 import { YieldFactorPopover } from './YieldFactorPopover'
 import { YieldFactorModal } from './YieldFactorModal'
 import { findYieldFactor } from '@/lib/data/yield-factors'
+import { compressImage } from '@/lib/utils/image-compress'
 import CostBreakdown from './CostBreakdown'
 import NewIngredientModal, { type NewIngredientFormData } from './NewIngredientModal'
 
@@ -831,8 +832,9 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     if (!file.type.startsWith('image/')) return
     setUploadingImage(true)
     try {
+      const compressed = await compressImage(file, 1200, 0.8)
       const fd = new FormData()
-      fd.append('file', file)
+      fd.append('file', compressed)
       fd.append('recipeId', isNew ? 'draft' : recipeId)
       const res = await fetch('/api/recipes/upload-image', { method: 'POST', body: fd })
       if (!res.ok) {
@@ -1374,6 +1376,14 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                 <>
                   <Image src={imagePreview} alt={recipe.name || 'Recipe'} fill unoptimized className="object-cover" />
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-900/40 to-transparent" />
+                  {uploadingImage && (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/50">
+                      <div className="text-center">
+                        <div className="mx-auto mb-2 h-8 w-8 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                        <p className="text-xs font-medium text-white">Saving photo…</p>
+                      </div>
+                    </div>
+                  )}
                   {imageSource === 'pexels' && (
                     <span className="absolute top-2 left-2 rounded bg-black/40 px-1.5 py-0.5 text-[10px] text-white/80">
                       Stock photo
