@@ -26,6 +26,16 @@ const WEIGHT_TO_GRAMS: Record<string, number> = {
 const VOLUME_TO_ML: Record<string, number> = {
   ml: 1,
   l: 1000,
+  tsp: 4.92892,
+  tbsp: 14.7868,
+  cup: 236.588,
+}
+
+const COUNT_TO_UNIT: Record<string, number> = {
+  unit: 1,
+  dozen: 12,
+  portion: 1,
+  serving: 1,
 }
 
 function normalizeUnit(unit: Unit) {
@@ -35,6 +45,7 @@ function normalizeUnit(unit: Unit) {
 function getFamily(unit: string) {
   if (unit in WEIGHT_TO_GRAMS) return 'weight'
   if (unit in VOLUME_TO_ML) return 'volume'
+  if (unit in COUNT_TO_UNIT) return 'count'
   return 'count'
 }
 
@@ -61,7 +72,18 @@ export function getConversionFactor(fromUnit: Unit, toUnit: Unit) {
     return VOLUME_TO_ML[from] / VOLUME_TO_ML[to]
   }
 
+  if (fromFamily === 'count') {
+    const fromFactor = COUNT_TO_UNIT[from]
+    const toFactor = COUNT_TO_UNIT[to]
+    if (fromFactor == null || toFactor == null) return null
+    return fromFactor / toFactor
+  }
+
   return null
+}
+
+export function isConvertible(fromUnit: Unit, toUnit: Unit): boolean {
+  return getConversionFactor(fromUnit, toUnit) !== null
 }
 
 export function convertUnit(value: number, fromUnit: Unit, toUnit: Unit) {

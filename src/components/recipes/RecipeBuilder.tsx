@@ -7,6 +7,7 @@ import { useDropzone } from 'react-dropzone'
 import { useRouter } from 'next/navigation'
 import { Reorder, useDragControls } from 'framer-motion'
 import {
+  AlertTriangle,
   ArrowLeft,
   Camera,
   ChefHat,
@@ -49,6 +50,7 @@ import { YieldFactorPopover } from './YieldFactorPopover'
 import { YieldFactorModal } from './YieldFactorModal'
 import { findYieldFactor } from '@/lib/data/yield-factors'
 import { compressImage } from '@/lib/utils/image-compress'
+import { isConvertible } from '@/lib/utils/unit-converter'
 import CostBreakdown from './CostBreakdown'
 import NewIngredientModal, { type NewIngredientFormData } from './NewIngredientModal'
 
@@ -160,11 +162,13 @@ function mapRecipeToState(recipe: RecipeRecord): RecipeEditorData {
 function IngredientRow({
   item,
   lineCost,
+  hasMismatch,
   onUpdate,
   onRemove,
 }: {
   item: RecipeIngredientDraft
   lineCost: number
+  hasMismatch: boolean
   onUpdate: (patch: Partial<RecipeIngredientDraft>) => void
   onRemove: () => void
 }) {
@@ -294,7 +298,15 @@ function IngredientRow({
           />
 
           {/* Cost */}
-          <span className="text-right text-sm font-medium tabular-nums text-slate-700">
+          <span className="flex items-center justify-end gap-1 text-right text-sm font-medium tabular-nums text-slate-700">
+            {hasMismatch && (
+              <span
+                title={`Unit mismatch: recipe uses ${item.unit} but price is per ${item.priceUnit ?? item.unit} — cost excluded`}
+                className="shrink-0 text-amber-500"
+              >
+                <AlertTriangle className="h-3.5 w-3.5" />
+              </span>
+            )}
             €{lineCost.toFixed(2)}
           </span>
 
@@ -540,7 +552,11 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   // ── Computed values ────────────────────────────────────────────────────────
 
   const computedIngredients = useMemo(
-    () => recipe.ingredients.map((item) => ({ ...item, lineCost: calculateLineCost(item) })),
+    () => recipe.ingredients.map((item) => ({
+      ...item,
+      lineCost: calculateLineCost(item),
+      hasMismatch: !!item.currentPrice && !isConvertible(item.unit, item.priceUnit ?? item.unit),
+    })),
     [recipe.ingredients]
   )
 
@@ -1706,6 +1722,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                     key={item.id}
                     item={item}
                     lineCost={computedIngredients[idx]?.lineCost ?? 0}
+                    hasMismatch={computedIngredients[idx]?.hasMismatch ?? false}
                     onUpdate={(patch) => updateIngredient(item.id, patch)}
                     onRemove={() => removeIngredient(item.id)}
                   />

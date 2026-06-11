@@ -14,6 +14,17 @@
 
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
+
+const SUPER_ADMIN_EMAIL = 'camilovettori@gmail.com'
+
+async function requireSuperAdmin(): Promise<void> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user || user.email?.toLowerCase() !== SUPER_ADMIN_EMAIL) {
+    throw new Error('Unauthorized')
+  }
+}
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -36,11 +47,13 @@ function revalidateTenant(tenantId: string) {
 // ── existing actions ──────────────────────────────────────────────────────────
 
 export async function activateCompedPlan(tenantId: string): Promise<void> {
+  await requireSuperAdmin()
   await updateTenant(tenantId, { subscription_status: 'active', is_comped: true })
   revalidateTenant(tenantId)
 }
 
 export async function revokeCompedPlan(tenantId: string): Promise<void> {
+  await requireSuperAdmin()
   await updateTenant(tenantId, { subscription_status: 'trialing', is_comped: false })
   revalidateTenant(tenantId)
 }
@@ -48,6 +61,7 @@ export async function revokeCompedPlan(tenantId: string): Promise<void> {
 // ── new actions ───────────────────────────────────────────────────────────────
 
 export async function suspendTenant(tenantId: string): Promise<void> {
+  await requireSuperAdmin()
   await updateTenant(tenantId, { subscription_status: 'suspended' })
   revalidateTenant(tenantId)
 }
@@ -56,6 +70,7 @@ export async function unsuspendTenant(
   tenantId: string,
   restoreTo: 'trialing' | 'active_comped' | 'active_stripe',
 ): Promise<void> {
+  await requireSuperAdmin()
   const update =
     restoreTo === 'trialing'
       ? { subscription_status: 'trialing', is_comped: false }
@@ -67,17 +82,37 @@ export async function unsuspendTenant(
 }
 
 export async function cancelTenantSubscription(tenantId: string): Promise<void> {
+  await requireSuperAdmin()
   await updateTenant(tenantId, { subscription_status: 'canceled', is_comped: false })
   revalidateTenant(tenantId)
 }
 
 export async function endTrial(tenantId: string): Promise<void> {
+  await requireSuperAdmin()
   await updateTenant(tenantId, { subscription_status: 'canceled' })
   revalidateTenant(tenantId)
 }
 
 export async function deleteTenant(tenantId: string): Promise<void> {
+  await requireSuperAdmin()
   const admin = createAdminClient()
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: tenant } = await (admin.from('tenants') as any)
+    .select('stripe_subscription_id, subscription_status, is_comped')
+    .eq('id', tenantId)
+    .single()
+
+  if (
+    tenant?.stripe_subscription_id &&
+    tenant?.subscription_status === 'active' &&
+    !tenant?.is_comped
+  ) {
+    throw new Error(
+      'This tenant has an active Stripe subscription. Cancel it in the Stripe Dashboard first, then delete.'
+    )
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { error } = await (admin.from('tenants') as any).delete().eq('id', tenantId)
   if (error) throw new Error(error.message)

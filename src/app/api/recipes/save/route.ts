@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
+import { getEffectiveSubscriptionStatus } from '@/lib/tenant'
+import { FREE_LIMITS } from '@/lib/subscription/limits'
 
 export const runtime = 'nodejs'
 
@@ -21,13 +23,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    console.log('[RECIPE SAVE] === START ===')
-    console.log('[RECIPE SAVE] User:', user?.id)
-    console.log('[RECIPE SAVE] Recipe data:', JSON.stringify(body).substring(0, 500))
 
     const admin = createAdminClient()
 
-    console.log('[RECIPE SAVE] Looking up tenant...')
     const { data: member } = (await admin
       .from('tenant_users')
       .select('tenant_id')
@@ -40,7 +38,35 @@ export async function POST(request: NextRequest) {
     }
 
     const tenantId = member.tenant_id
-    console.log('[RECIPE SAVE] Tenant:', tenantId)
+
+    // Enforce free plan recipe limit for new recipes only
+    if (!body.id) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: tenant } = await (admin.from('tenants') as any)
+        .select('subscription_status, created_at')
+        .eq('id', tenantId)
+        .single()
+
+      const effectiveStatus = getEffectiveSubscriptionStatus(
+        tenant?.subscription_status ?? null,
+        tenant?.created_at ?? new Date().toISOString()
+      )
+      const hasFullAccess = effectiveStatus === 'active' || effectiveStatus === 'trialing'
+
+      if (!hasFullAccess) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { count } = await (admin.from('recipes') as any)
+          .select('id', { count: 'exact', head: true })
+          .eq('tenant_id', tenantId)
+
+        if ((count ?? 0) >= FREE_LIMITS.maxRecipes) {
+          return NextResponse.json(
+            { error: `Free plan limit of ${FREE_LIMITS.maxRecipes} recipes reached. Upgrade to Pro for unlimited recipes.` },
+            { status: 403 }
+          )
+        }
+      }
+    }
 
     const recipeData = {
       tenant_id: tenantId,
@@ -70,7 +96,6 @@ export async function POST(request: NextRequest) {
     let recipeId: string
 
     if (body.id) {
-      console.log('[RECIPE SAVE] Updating recipe...')
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: recipe, error: recipeError } = await (admin.from('recipes') as any)
         .update(recipeData)
@@ -78,22 +103,18 @@ export async function POST(request: NextRequest) {
         .eq('tenant_id', tenantId)
         .select('id')
         .single()
-      console.log('[RECIPE SAVE] Recipe result:', recipe?.id, 'error:', JSON.stringify(recipeError))
       if (recipeError || !recipe) throw recipeError ?? new Error('Unable to update recipe')
       recipeId = recipe.id
     } else {
-      console.log('[RECIPE SAVE] Inserting recipe...')
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: recipe, error: recipeError } = await (admin.from('recipes') as any)
         .insert(recipeData)
         .select('id')
         .single()
-      console.log('[RECIPE SAVE] Recipe result:', recipe?.id, 'error:', JSON.stringify(recipeError))
       if (recipeError || !recipe) throw recipeError ?? new Error('Unable to create recipe')
       recipeId = recipe.id
     }
 
-    console.log('[RECIPE SAVE] Deleting existing recipe ingredients...')
     const { error: deleteError } = await admin
       .from('recipe_ingredients')
       .delete()
@@ -129,17 +150,15 @@ export async function POST(request: NextRequest) {
           ep_weight_manual: ing.ep_weight_manual ?? null,
         })
       )
-      console.log('[RECIPE SAVE] Inserting ingredients...')
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error: ingError } = await (admin.from('recipe_ingredients') as any).insert(ingredientRows)
-      console.log('[RECIPE SAVE] Ingredients error:', JSON.stringify(ingError))
       if (ingError) throw ingError
     }
 
     return NextResponse.json({ success: true, recipeId })
   } catch (error: unknown) {
+    console.error('Recipe save failed:', error)
     const msg = error instanceof Error ? error.message : 'Unknown error'
-    console.error('[RECIPE SAVE] Error:', msg)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }

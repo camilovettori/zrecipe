@@ -46,27 +46,20 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  console.log('[/api/auth/tenant] === Request start ===')
-
   try {
     // ── 1. Verify session ────────────────────────────────────────────────
-    console.log('[/api/auth/tenant] Verifying session...')
     const supabase = createRequestSupabaseClient(request)
     const {
       data: { user },
       error: userError,
     } = await supabase.auth.getUser()
 
-    console.log('[/api/auth/tenant] user:', user?.id ?? 'none', 'userError:', userError?.message ?? 'none')
-
     if (userError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     // ── 2. Service-role lookup (bypasses RLS) ────────────────────────────
-    console.log('[/api/auth/tenant] Creating admin client...')
     const admin = createAdminClient()
-    console.log('[/api/auth/tenant] Admin client created')
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: member, error: memberError } = await (admin.from('tenant_users') as any)
@@ -74,8 +67,6 @@ export async function GET(request: NextRequest) {
       .eq('user_id', user.id)
       .limit(1)
       .maybeSingle()
-
-    console.log('[/api/auth/tenant] member:', member?.tenant_id ?? 'none', 'memberError:', memberError?.message ?? 'none', 'code:', memberError?.code ?? 'none')
 
     if (memberError) {
       console.error('[/api/auth/tenant] MEMBER QUERY FAILED:', JSON.stringify(memberError))
@@ -86,7 +77,6 @@ export async function GET(request: NextRequest) {
     }
 
     if (!member) {
-      console.log('[/api/auth/tenant] No tenant_users row found for user:', user.id)
       return NextResponse.json({ error: 'No tenant' }, { status: 404 })
     }
 
@@ -99,8 +89,6 @@ export async function GET(request: NextRequest) {
       .limit(1)
       .maybeSingle()
 
-    console.log('[/api/auth/tenant] tenant:', tenant?.id ?? 'none', 'tenantError:', tenantError?.message ?? 'none')
-
     if (tenantError) {
       console.error('[/api/auth/tenant] TENANT QUERY FAILED:', JSON.stringify(tenantError))
       return NextResponse.json(
@@ -112,8 +100,6 @@ export async function GET(request: NextRequest) {
     if (!tenant) {
       return NextResponse.json({ error: 'No tenant' }, { status: 404 })
     }
-
-    console.log('[/api/auth/tenant] Success — returning tenant context')
 
     return NextResponse.json({
       tenantId: tenant.id as string,

@@ -42,9 +42,6 @@ type RecipeIdeasBody = {
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('[AI-IDEAS] Request received')
-    console.log('[AI-IDEAS] ANTHROPIC_API_KEY set:', !!process.env.ANTHROPIC_API_KEY)
-
     const supabase = createRequestSupabaseClient(request)
     const {
       data: { user },
@@ -78,14 +75,6 @@ export async function POST(request: NextRequest) {
 
     const count =
       typeof rawBody.count === 'number' && Number.isFinite(rawBody.count) ? rawBody.count : 5
-
-    console.log('[AI-IDEAS] Parsed body:', {
-      ingredientIds: ingredient_ids.length,
-      urgentIngredients: urgent_ingredients.length,
-      businessType: business_type,
-      styleProvided: !!style,
-      count,
-    })
 
     const admin = createAdminClient()
 

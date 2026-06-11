@@ -205,8 +205,6 @@ export default function IngredientDetailPage() {
         return
       }
 
-      console.log('[INGREDIENT DETAIL] price history query result:', histRes.data, 'error:', histRes.error)
-
       setIngredient({
         ...(ingRes.data as IngredientDbRow),
         base_unit: (ingRes.data as IngredientDbRow).price_unit ?? 'unit',
@@ -242,7 +240,6 @@ export default function IngredientDetailPage() {
       `)
       .eq('ingredient_id', id)
       .then((usedRecipesRes) => {
-        console.log('[INGREDIENT DETAIL] used recipes query result:', usedRecipesRes.data, 'error:', usedRecipesRes.error)
         if (cancelled) return
         setUsedRecipes(normalizeUsedRecipes((usedRecipesRes.data ?? []) as RecipeIngredientUsageRow[]))
         setUsedRecipesLoading(false)

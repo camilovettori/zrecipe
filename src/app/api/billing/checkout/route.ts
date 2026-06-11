@@ -4,32 +4,23 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
 
 export async function POST(request: NextRequest) {
-  console.log('[STRIPE] === Checkout Start ===')
-
   try {
-    // ── Env diagnostics ─────────────────────────────────────────────────
-    console.log('[STRIPE] STRIPE_SECRET_KEY exists:', !!process.env.STRIPE_SECRET_KEY)
-    console.log('[STRIPE] STRIPE_SECRET_KEY starts with sk_:', process.env.STRIPE_SECRET_KEY?.startsWith('sk_'))
-    console.log('[STRIPE] STRIPE_PRICE_ID:', process.env.STRIPE_PRICE_ID ?? '(not set)')
-    console.log('[STRIPE] STRIPE_PRO_PRICE_ID:', process.env.STRIPE_PRO_PRICE_ID ?? '(not set)')
-    console.log('[STRIPE] NEXT_PUBLIC_APP_URL:', process.env.NEXT_PUBLIC_APP_URL ?? '(not set)')
-
     // ── 1. Verify session ────────────────────────────────────────────────
-    console.log('[STRIPE] Verifying session...')
     const supabase = createRequestSupabaseClient(request)
     const {
       data: { user },
       error: userError,
     } = await supabase.auth.getUser()
 
-    console.log('[STRIPE] User:', user?.id ?? 'none', 'error:', userError?.message ?? 'none')
-
     if (!user) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 })
     }
 
+    if (userError) {
+      console.error('[STRIPE] Auth error:', userError.message)
+    }
+
     // ── 2. Resolve tenant ────────────────────────────────────────────────
-    console.log('[STRIPE] Resolving tenant...')
     const admin = createAdminClient()
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -39,7 +30,9 @@ export async function POST(request: NextRequest) {
       .limit(1)
       .maybeSingle()
 
-    console.log('[STRIPE] Member:', member?.tenant_id ?? 'none', 'error:', memberError?.message ?? 'none')
+    if (memberError) {
+      console.error('[STRIPE] Member lookup error:', memberError.message)
+    }
 
     if (!member) {
       return NextResponse.json({ message: 'Tenant not found' }, { status: 404 })
@@ -52,7 +45,9 @@ export async function POST(request: NextRequest) {
       .limit(1)
       .maybeSingle()
 
-    console.log('[STRIPE] Tenant:', tenant?.id ?? 'none', 'error:', tenantError?.message ?? 'none')
+    if (tenantError) {
+      console.error('[STRIPE] Tenant lookup error:', tenantError.message)
+    }
 
     if (!tenant) {
       return NextResponse.json({ message: 'Tenant not found' }, { status: 404 })
@@ -71,14 +66,11 @@ export async function POST(request: NextRequest) {
     }
 
     // ── 4. Create Stripe client ──────────────────────────────────────────
-    console.log('[STRIPE] Creating Stripe client...')
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
-    console.log('[STRIPE] Stripe client created')
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? request.nextUrl.origin
 
     // ── 5. Create Checkout Session ───────────────────────────────────────
-    console.log('[STRIPE] Creating checkout session, priceId:', priceId)
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       payment_method_types: ['card'],
@@ -96,14 +88,12 @@ export async function POST(request: NextRequest) {
       allow_promotion_codes: true,
     })
 
-    console.log('[STRIPE] Session created:', session.id, 'url:', session.url?.slice(0, 60))
     return NextResponse.json({ url: session.url })
 
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Checkout failed'
-    console.error('[STRIPE] FULL ERROR:', err)
-    console.error('[STRIPE] Error message:', message)
-    if (err instanceof Error) console.error('[STRIPE] Error stack:', err.stack)
+    console.error('[STRIPE] Error:', message)
+    if (err instanceof Error) console.error('[STRIPE] Stack:', err.stack)
     return NextResponse.json({ message }, { status: 500 })
   }
 }

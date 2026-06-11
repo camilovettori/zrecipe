@@ -493,7 +493,6 @@ export default function ImportInvoicesPage() {
           throw new Error(payload.error ?? 'Unable to extract CSV data')
         }
 
-        console.log('[OCR] Parsed result:', payload)
         applyCsvMapping({ headers, rows }, detected)
         setDraft(
           buildMatchedDraft(
@@ -518,9 +517,6 @@ export default function ImportInvoicesPage() {
 
       if (fileKind === 'pdf') {
         const text = await extractPdfText(file)
-        console.log('[PDF] Extracted text length:', text.length)
-        console.log('[PDF] First 500 chars:', text.substring(0, 500))
-        console.log('[OCR] Raw text:', text)
 
         if (!text.trim()) {
           toast.info('This PDF appears to be scanned. Please enter items manually.')
@@ -583,7 +579,6 @@ export default function ImportInvoicesPage() {
           throw new Error(payload.error ?? 'Unable to extract PDF data')
         }
 
-        console.log('[OCR] Parsed result:', payload)
         const extractedItems = normalizeExtractedItems(payload.items ?? [])
         setDraft(
           buildMatchedDraft(

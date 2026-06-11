@@ -9,6 +9,7 @@ import {
 } from '@react-pdf/renderer'
 import type { RecipeRecord, RecipeIngredientDraft } from '@/hooks/useRecipes'
 import type { RecipeAllergenSummary } from '@/lib/allergens'
+import { calculateCost, type CostInputs } from '@/lib/utils/cost-calculator'
 
 export type PrintMode = 'kitchen' | 'cost' | 'label'
 
@@ -61,48 +62,29 @@ function ingHasMayContain(ing: RecipeIngredientDraft) {
   return ing.allergens?.some((a) => a.status === 'may_contain') ?? false
 }
 
-function calculatePdfCosts(recipe: RecipeRecord, tenant?: PdfTenant | null) {
-  const ingredientCost = Number(
-    recipe.ingredients.reduce((sum, item) => sum + lineCost(item), 0).toFixed(2)
-  )
-  const laborRate = Number(tenant?.labor_hourly_rate ?? 15)
-  const prepTimeMinutes = Number(recipe.prepTimeMinutes ?? 0)
-  const laborCost =
-    recipe.laborMode === 'time'
-      ? Number(((prepTimeMinutes / 60) * laborRate).toFixed(2))
-      : Number(recipe.laborCost ?? 0)
-  const overheadCost =
-    recipe.overheadMode === 'percent'
-      ? Number((ingredientCost * ((recipe.overheadPercent ?? 0) / 100)).toFixed(2))
-      : Number(recipe.overheadCost ?? 0)
-  const subtotal = Number((ingredientCost + laborCost + overheadCost).toFixed(2))
-  const wastePercent = Number(recipe.wastePercent ?? 0)
-  const wasteCost = Number((subtotal * (wastePercent / 100)).toFixed(2))
-  const totalCost = Number((subtotal + wasteCost).toFixed(2))
-  const isBatch = recipe.yieldUnit?.toLowerCase() === 'batch'
-  const yieldQty = Number(recipe.yieldQuantity ?? 1)
-  const costPerUnit = isBatch && yieldQty > 0
-    ? Number((totalCost / yieldQty).toFixed(4))
-    : totalCost
-  const sellingPrice = Number(recipe.sellingPrice ?? recipe.cost.sellingPrice ?? 0)
-  const margin = sellingPrice > 0
-    ? Number((((sellingPrice - costPerUnit) / sellingPrice) * 100).toFixed(1))
-    : 0
-
+function buildPdfCostInputs(recipe: RecipeRecord, tenant?: PdfTenant | null): CostInputs {
   return {
-    ingredientCost,
-    laborCost,
-    laborRate,
-    overheadCost,
-    subtotal,
-    wasteCost,
-    wastePercent,
-    totalCost,
-    isBatch,
-    yieldQty,
-    costPerUnit,
-    sellingPrice,
-    margin,
+    ingredients: recipe.ingredients.map((item) => ({
+      quantity: item.quantity,
+      unit: item.unit,
+      name: item.ingredientName,
+      yield_percent: item.yield_percent ?? 100,
+      current_price: item.currentPrice ?? null,
+      price_unit: item.priceUnit ?? item.unit,
+    })),
+    laborMode: recipe.laborMode,
+    laborCostFixed: Number(recipe.laborCost ?? 0),
+    prepTimeMinutes: Number(recipe.prepTimeMinutes ?? 0),
+    laborHourlyRate: Number(tenant?.labor_hourly_rate ?? 15),
+    overheadMode: recipe.overheadMode,
+    overheadCostFixed: Number(recipe.overheadCost ?? 0),
+    overheadPercent: Number(recipe.overheadPercent ?? 0),
+    wastePercent: Number(recipe.wastePercent ?? 0),
+    sellingPrice: Number(recipe.sellingPrice ?? 0),
+    yieldQty: Number(recipe.yieldQuantity ?? 1),
+    yieldUnit: recipe.yieldUnit ?? 'portion',
+    vatEnabled: false,
+    vatRate: 0,
   }
 }
 
@@ -519,7 +501,10 @@ function KitchenCardDocument({
   includesCosts: boolean
   tenant?: PdfTenant | null
 }) {
-  const pdfCosts = calculatePdfCosts(recipe, tenant)
+  const laborRate = Number(tenant?.labor_hourly_rate ?? 15)
+  const wastePercent = Number(recipe.wastePercent ?? 0)
+  const yieldQty = Number(recipe.yieldQuantity ?? 1)
+  const pdfCosts = calculateCost(buildPdfCostInputs(recipe, tenant))
   const date = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
   const marginColor = pdfCosts.margin >= 40 ? C.emerald : pdfCosts.margin >= 20 ? C.amber : C.red
 
@@ -575,9 +560,9 @@ function KitchenCardDocument({
             >
               Unit
             </Text>
-            {includesCosts && (
-              <Text style={[kitchen.tCell, kitchen.tHeadText, kitchen.tCellLast, { flex: 1.2, textAlign: 'right' }]}>Cost</Text>
-            )}
+              {includesCosts && (
+                <Text style={[kitchen.tCell, kitchen.tHeadText, kitchen.tCellLast, { flex: 1.2, textAlign: 'right' }]}>Cost</Text>
+              )}
           </View>
 
           {/* Rows */}
@@ -663,7 +648,7 @@ function KitchenCardDocument({
               <CostRow
                 label={
                   recipe.laborMode === 'time'
-                    ? `Labor (${recipe.prepTimeMinutes}min x ${fmt(pdfCosts.laborRate)}/hr)`
+                    ? `Labor (${recipe.prepTimeMinutes}min x ${fmt(laborRate)}/hr)`
                     : 'Labor cost'
                 }
                 value={fmt(pdfCosts.laborCost)}
@@ -676,27 +661,29 @@ function KitchenCardDocument({
                 }
                 value={fmt(pdfCosts.overheadCost)}
               />
-              {pdfCosts.wastePercent > 0 && (
+              {wastePercent > 0 && (
                 <CostRow
-                  label={`Waste (${pdfCosts.wastePercent}%)`}
+                  label={`Waste (${wastePercent}%)`}
                   value={`+${fmt(pdfCosts.wasteCost)}`}
                 />
               )}
               <View style={kitchen.costDivider} />
               <CostRow label="Total cost" value={fmt(pdfCosts.totalCost)} bold />
-              {pdfCosts.isBatch && pdfCosts.yieldQty > 1 && (
+              {yieldQty > 1 && (
                 <CostRow
-                  label={`Cost per unit (/ ${pdfCosts.yieldQty})`}
+                  label={`Cost per unit (/ ${yieldQty})`}
                   value={`\u20ac${pdfCosts.costPerUnit.toFixed(3)}`}
                 />
               )}
               <CostRow label="Selling price" value={fmt(pdfCosts.sellingPrice)} />
+              <CostRow label="Profit per unit" value={`${pdfCosts.profitPerUnit >= 0 ? '+' : ''}${fmt(pdfCosts.profitPerUnit)}`} />
               <CostRow
                 label="Margin"
                 value={`${pdfCosts.margin.toFixed(1)}%`}
                 valueColor={marginColor}
                 bold
               />
+              <CostRow label="Food cost" value={`${pdfCosts.foodCostPercent.toFixed(1)}%`} />
             </View>
           </>
         )}

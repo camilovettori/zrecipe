@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { convertUnit } from '@/lib/utils/unit-converter'
+import { convertUnit, isConvertible } from '@/lib/utils/unit-converter'
 import { calculateCost } from '@/lib/utils/cost-calculator'
 import { type IngredientLookup } from '@/hooks/useInvoices'
 import { resolveTenantId } from '@/hooks/useTenant'
@@ -233,11 +233,12 @@ function ingredientLineCost(item: RecipeIngredientDraft) {
   const currentPrice = item.currentPrice ?? 0
   if (!currentPrice) return 0
 
+  const priceUnit = item.priceUnit ?? item.unit
+  if (!isConvertible(item.unit, priceUnit)) return 0
+
   // Apply yield factor: cost is based on AP (as-purchased) quantity
   const yieldFactor = Math.max(0.01, (item.yield_percent ?? 100) / 100)
   const apQuantity = item.quantity / yieldFactor
-
-  const priceUnit = item.priceUnit ?? item.unit
   const quantityInPriceUnit = convertUnit(apQuantity, item.unit, priceUnit)
   return Number((quantityInPriceUnit * currentPrice).toFixed(2))
 }
@@ -489,7 +490,6 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
     try {
       const supabase = createClient()
       const tenantId = await resolveTenantId()
-      console.log('[refreshRecipes] tenantId:', tenantId)
       const { data: tenantData, error: tenantError } = await supabase
         .from('tenants')
         .select('labor_hourly_rate')
@@ -569,7 +569,6 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
         throw fetchError
       }
 
-      console.log('[refreshRecipes] OK, rows:', data?.length ?? 0)
       setRecipes((data as unknown as DBRecipeRow[] | null)?.map((row) => mapSummary(row, laborHourlyRate)) ?? [])
     } catch (err) {
       console.error('[refreshRecipes] caught:', err)

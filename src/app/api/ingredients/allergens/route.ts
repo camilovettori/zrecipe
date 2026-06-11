@@ -82,18 +82,14 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'ingredientId required' }, { status: 400 })
     }
 
-    console.log('[allergens PUT] ingredientId:', body.ingredientId, 'allergens:', body.allergens.length)
-
     const admin = createAdminClient()
 
     // Verify ingredient belongs to a tenant the user is a member of
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: ing, error: ingError } = await (admin.from('ingredients') as any)
+    const { data: ing } = await (admin.from('ingredients') as any)
       .select('id, tenant_id')
       .eq('id', body.ingredientId)
       .single()
-
-    console.log('[allergens PUT] ingredient lookup:', ing ? `tenant=${ing.tenant_id}` : 'not found', ingError?.message)
 
     if (!ing) {
       return NextResponse.json({ error: 'Ingredient not found' }, { status: 404 })
@@ -105,8 +101,6 @@ export async function PUT(request: NextRequest) {
       .eq('user_id', user.id)
       .eq('tenant_id', ing.tenant_id)
       .maybeSingle()
-
-    console.log('[allergens PUT] tenant member check:', member ? 'ok' : 'not found (forbidden)')
 
     if (!member) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -131,7 +125,6 @@ export async function PUT(request: NextRequest) {
         tenant_id:     ing.tenant_id,
       }))
 
-      console.log('[allergens PUT] inserting rows:', rows)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error: insertError } = await (admin.from('ingredient_allergens') as any).insert(rows)
       if (insertError) {
@@ -140,7 +133,6 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    console.log('[allergens PUT] success')
     return NextResponse.json({ success: true })
   } catch (err: unknown) {
     return NextResponse.json(

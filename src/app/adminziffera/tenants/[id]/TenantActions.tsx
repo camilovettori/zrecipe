@@ -4,7 +4,7 @@ import { useState, useTransition, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   MoreVertical, PauseCircle, PlayCircle, XCircle, Trash2,
-  Loader2, TimerOff,
+  Loader2, TimerOff, ExternalLink,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -43,6 +43,7 @@ export default function TenantActions({
   const [isPending, startTransition] = useTransition()
   const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null)
   const [deleteInput, setDeleteInput]   = useState('')
+  const [deleteError, setDeleteError]   = useState<string | null>(null)
   const [restoreTo, setRestoreTo]       = useState<RestoreOption>(trialDaysLeft > 0 ? 'trialing' : 'active_comped')
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -62,8 +63,8 @@ export default function TenantActions({
     return () => document.removeEventListener('mousedown', onOutside)
   }, [])
 
-  function openModal(m: ModalType) { setOpen(false); setModal(m); setDeleteInput('') }
-  function closeModal() { if (!isPending) setModal(null) }
+  function openModal(m: ModalType) { setOpen(false); setModal(m); setDeleteInput(''); setDeleteError(null) }
+  function closeModal() { if (!isPending) { setModal(null); setDeleteError(null) } }
 
   // ── action handlers ────────────────────────────────────────────────────────
   function run(fn: () => Promise<void>, successMsg: string) {
@@ -84,7 +85,13 @@ export default function TenantActions({
         await deleteTenant(tenantId)
         router.push('/adminziffera/tenants')
       } catch (err) {
-        setToast({ ok: false, msg: err instanceof Error ? err.message : 'Failed to delete.' })
+        const msg = err instanceof Error ? err.message : 'Failed to delete.'
+        if (msg.includes('active Stripe subscription')) {
+          setDeleteError(msg)
+        } else {
+          setModal(null)
+          setToast({ ok: false, msg })
+        }
       }
     })
   }
@@ -332,11 +339,26 @@ export default function TenantActions({
                     <li>• {teamCount} team member{teamCount !== 1 ? 's' : ''} will lose access</li>
                   </ul>
                 </div>
-                {stripeCustomerId && (
+                {deleteError ? (
+                  <div className="mb-4 rounded-lg border border-red-300 bg-red-50 p-3 text-xs text-red-800">
+                    <p className="mb-2 font-semibold">{deleteError}</p>
+                    {stripeSubscriptionId && (
+                      <a
+                        href={`https://dashboard.stripe.com/subscriptions/${stripeSubscriptionId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-semibold text-red-700 underline hover:text-red-900"
+                      >
+                        Open subscription in Stripe Dashboard
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </div>
+                ) : stripeCustomerId ? (
                   <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
                     This tenant has a Stripe customer record. Delete or archive it separately in the Stripe Dashboard.
                   </div>
-                )}
+                ) : null}
                 <div className="mb-5">
                   <label className="mb-1.5 block text-xs font-semibold text-slate-500">
                     Type the business name to confirm:

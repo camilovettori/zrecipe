@@ -1,8 +1,9 @@
-import { convertUnit } from './unit-converter'
+import { convertUnit, isConvertible } from './unit-converter'
 
 export type CostIngredientInput = {
   quantity: number
   unit: string
+  name?: string
   yield_percent?: number | null
   current_price?: number | null
   price_unit?: string | null
@@ -40,27 +41,36 @@ export type CostResult = {
   foodCostPercent: number
   vatAmount: number
   incVatSellingPrice: number
+  warnings: string[]
 }
 
 function money(value: number) {
   return Number(value.toFixed(2))
 }
 
-function costLine(item: CostIngredientInput) {
+function costLine(item: CostIngredientInput): { cost: number; warning?: string } {
   const currentPrice = Number(item.current_price ?? 0)
-  if (!currentPrice) return 0
+  if (!currentPrice) return { cost: 0 }
+
+  const priceUnit = item.price_unit ?? item.unit
+  if (!isConvertible(item.unit, priceUnit)) {
+    const label = item.name ?? 'Ingredient'
+    return {
+      cost: 0,
+      warning: `${label}: recipe uses ${item.unit} but price is per ${priceUnit} — cost excluded`,
+    }
+  }
 
   const yieldFactor = Math.max(0.01, Number(item.yield_percent ?? 100) / 100)
   const apQuantity = Number(item.quantity ?? 0) / yieldFactor
-  const priceUnit = item.price_unit ?? item.unit
   const quantityInPriceUnit = convertUnit(apQuantity, item.unit, priceUnit)
-  return money(quantityInPriceUnit * currentPrice)
+  return { cost: money(quantityInPriceUnit * currentPrice) }
 }
 
 export function calculateCost(inputs: CostInputs): CostResult {
-  const ingredientCost = money(
-    inputs.ingredients.reduce((sum, item) => sum + costLine(item), 0)
-  )
+  const lines = inputs.ingredients.map(costLine)
+  const ingredientCost = money(lines.reduce((sum, l) => sum + l.cost, 0))
+  const warnings = lines.flatMap((l) => (l.warning ? [l.warning] : []))
 
   const laborCost =
     inputs.laborMode === 'time'
@@ -76,7 +86,7 @@ export function calculateCost(inputs: CostInputs): CostResult {
   const wasteCost = money(subtotal * ((inputs.wastePercent ?? 0) / 100))
   const totalCost = money(subtotal + wasteCost)
   const isBatch = (inputs.yieldUnit ?? '').toLowerCase() === 'batch'
-  const yieldQty = isBatch && (inputs.yieldQty ?? 0) > 0 ? inputs.yieldQty ?? 1 : 1
+  const yieldQty = (inputs.yieldQty ?? 0) > 0 ? inputs.yieldQty! : 1
   const costPerUnit = Number((totalCost / yieldQty).toFixed(4))
   const sellingPrice = money(inputs.sellingPrice ?? 0)
   const profitPerUnit = money(sellingPrice - costPerUnit)
@@ -103,5 +113,6 @@ export function calculateCost(inputs: CostInputs): CostResult {
     foodCostPercent,
     vatAmount,
     incVatSellingPrice: money(sellingPrice + vatAmount),
+    warnings,
   }
 }

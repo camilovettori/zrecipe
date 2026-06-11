@@ -32,16 +32,7 @@ async function checkTenantStatus(
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-  console.log('[MW] checkTenantStatus — userId:', userId)
-  console.log('[MW] NEXT_PUBLIC_SUPABASE_URL set:', !!url)
-  console.log('[MW] SUPABASE_SERVICE_ROLE_KEY set:', !!key,
-    key ? `(prefix: ${key.slice(0, 20)}…)` : '(MISSING — will fail open!)'
-  )
-
-  if (!url || !key) {
-    console.error('[MW] Missing env vars — failing open (user passes through)')
-    return { hasTenant: true, isSuspended: false }
-  }
+  if (!url || !key) return { hasTenant: true, isSuspended: false }
 
   try {
     const adminClient = createClient(url, key, {
@@ -56,25 +47,23 @@ async function checkTenantStatus(
       .limit(1)
       .maybeSingle()
 
-    console.log('[MW] Admin query result:', JSON.stringify(tenantData))
-    console.log('[MW] Admin query error:', JSON.stringify(tenantError))
-
     if (tenantError) {
-      console.error('[MW] DB error (failing open):', tenantError.code, tenantError.message)
+      console.error('Middleware tenant check failed:', tenantError.message)
       return { hasTenant: true, isSuspended: false }
     }
 
     if (tenantData === null) {
-      console.log('[MW] hasTenant: false')
       return { hasTenant: false, isSuspended: false }
     }
 
     const status = tenantData.tenants?.subscription_status as string | undefined
     const isSuspended = status === 'suspended'
-    console.log('[MW] hasTenant: true, status:', status, 'isSuspended:', isSuspended)
     return { hasTenant: true, isSuspended }
-  } catch (e) {
-    console.error('[MW] Exception in checkTenantStatus (failing open):', e)
+  } catch (error) {
+    console.error(
+      'Middleware tenant check failed:',
+      error instanceof Error ? error.message : error
+    )
     return { hasTenant: true, isSuspended: false }
   }
 }
@@ -82,12 +71,7 @@ async function checkTenantStatus(
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  console.log('[MW] Path:', pathname)
-  console.log('[MW] has-tenant cookie:', request.cookies.get('has-tenant')?.value)
-
   const { response, user } = await updateSession(request)
-
-  console.log('[MW] User ID:', user?.id ?? '(none)')
 
   // ── Exempt paths bypass all checks ──────────────────────────────────────
   if (isExemptPath(pathname)) {
@@ -117,13 +101,11 @@ export async function middleware(request: NextRequest) {
 
   // ── Tenant presence check ────────────────────────────────────────────────
   const hasTenantCookie = request.cookies.get('has-tenant')?.value === 'true'
-  console.log('[MW] hasTenantCookie:', hasTenantCookie, '— proceeding to DB check:', !hasTenantCookie)
 
   if (!hasTenantCookie) {
     const { hasTenant, isSuspended } = await checkTenantStatus(user.id)
 
     if (isSuspended) {
-      console.log('[MW] Tenant is suspended — redirecting to /suspended')
       const redirectResponse = NextResponse.redirect(new URL('/suspended', request.url))
       response.cookies.getAll().forEach(({ name, value }) => {
         redirectResponse.cookies.set(name, value)
@@ -133,7 +115,6 @@ export async function middleware(request: NextRequest) {
     }
 
     if (!hasTenant) {
-      console.log('[MW] No tenant row found — redirecting to /workspace/setup')
       const redirectResponse = NextResponse.redirect(
         new URL('/workspace/setup', request.url)
       )
@@ -143,7 +124,6 @@ export async function middleware(request: NextRequest) {
       return redirectResponse
     }
 
-    console.log('[MW] Tenant confirmed — setting has-tenant cookie')
     response.cookies.set('has-tenant', 'true', {
       httpOnly: false, // false allows document.cookie to also write it as a fallback
       sameSite: 'lax',

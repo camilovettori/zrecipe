@@ -75,12 +75,6 @@ function guessIngredientCategory(description: string) {
 }
 
 export async function POST(request: NextRequest) {
-  console.log('[SAVE] Invoice save requested')
-  console.log(
-    '[SAVE] Using service role:',
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.substring(0, 20) ?? 'missing'
-  )
-
   const cookieStore = cookies()
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -101,16 +95,11 @@ export async function POST(request: NextRequest) {
     error: userError,
   } = await supabase.auth.getUser()
 
-  console.log('[SAVE] Auth user:', user?.id ?? 'none')
-  console.log('[SAVE] Auth error:', userError ? JSON.stringify(userError) : 'null')
-
   if (userError || !user) {
-    console.log('[SAVE] Aborting: unauthorized')
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const contentType = request.headers.get('content-type') ?? ''
-  console.log('[SAVE] Request content-type:', contentType)
 
   const admin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -123,7 +112,6 @@ export async function POST(request: NextRequest) {
     }
   ) as unknown as AdminClient
 
-  console.log('[SAVE] Looking up tenant membership...')
   const { data: memberData, error: memberError } = await admin
     .from('tenant_users')
     .select('tenant_id')
@@ -131,9 +119,6 @@ export async function POST(request: NextRequest) {
     .limit(1)
     .maybeSingle()
   const member = memberData as { tenant_id: string } | null
-
-  console.log('[SAVE] Tenant lookup result:', memberData)
-  console.log('[SAVE] Tenant lookup error:', memberError ? JSON.stringify(memberError) : 'null')
 
   if (memberError) {
     console.error('[/api/invoices/save] tenant lookup failed:', memberError)
@@ -161,16 +146,8 @@ export async function POST(request: NextRequest) {
       } else if (rawData instanceof Blob) {
         body = JSON.parse(await rawData.text())
       }
-
-      console.log('[SAVE] Multipart form data parsed:', {
-        hasFile: Boolean(uploadedFile),
-        fileName: uploadedFile?.name ?? null,
-        fileType: uploadedFile?.type ?? null,
-        dataKeys: Object.keys(body ?? {}),
-      })
     } else {
       body = await request.json()
-      console.log('[SAVE] JSON body keys:', Object.keys(body ?? {}))
     }
 
     const invoiceId = typeof body?.invoice_id === 'string' && body.invoice_id.trim()
@@ -201,28 +178,11 @@ export async function POST(request: NextRequest) {
     const normalizedSupplierName = supplierName.trim()
     let supplierId = typeof body?.supplier_id === 'string' ? body.supplier_id : null
 
-    console.log('[SAVE] Parsed payload:', {
-      invoiceId,
-      supplierName: normalizedSupplierName,
-      invoiceNumber,
-      invoiceDate,
-      currency,
-      totalAmount,
-      fileUrl: initialFileUrl,
-      fileType: initialFileType,
-      itemCount: items.length,
-      supplierMatch,
-      supplierId,
-      tenantId,
-      hasUploadedFile: Boolean(uploadedFile),
-    })
-
     if (supplierMatch?.type === 'existing' && supplierMatch.id) {
       supplierId = supplierMatch.id
     }
 
     if (!supplierId && supplierMatch?.type !== 'create') {
-      console.log('[SAVE] Step 1: Looking up supplier...')
       const { data: existingSupplierData, error: supplierLookupError } = await admin
         .from('suppliers')
         .select('id')
@@ -231,12 +191,6 @@ export async function POST(request: NextRequest) {
         .limit(1)
         .maybeSingle()
       const existingSupplier = existingSupplierData as { id: string } | null
-
-      console.log('[SAVE] Supplier lookup result:', existingSupplierData)
-      console.log(
-        '[SAVE] Supplier lookup error:',
-        supplierLookupError ? JSON.stringify(supplierLookupError) : 'null'
-      )
 
       if (supplierLookupError) {
         console.error('[/api/invoices/save] supplier lookup failed:', supplierLookupError)
@@ -247,25 +201,17 @@ export async function POST(request: NextRequest) {
     }
 
     if (!supplierId) {
-      console.log('[SAVE] Step 1: Creating supplier...')
       const supplierCreatePayload = {
         tenant_id: tenantId,
         name: normalizedSupplierName,
         notes: null,
       }
-      console.log('[SAVE] Supplier create payload:', supplierCreatePayload)
       const { data: createdSupplierData, error: createSupplierError } = await admin
         .from('suppliers')
         .insert(supplierCreatePayload)
         .select('id, tenant_id, name')
         .single()
       const createdSupplier = createdSupplierData as { id: string } | null
-
-      console.log('[SAVE] Supplier result:', createdSupplierData)
-      console.log(
-        '[SAVE] Supplier error:',
-        createSupplierError ? JSON.stringify(createSupplierError) : 'null'
-      )
 
       if (createSupplierError || !createdSupplier) {
         console.error('[/api/invoices/save] supplier create failed:', createSupplierError)
@@ -282,17 +228,9 @@ export async function POST(request: NextRequest) {
     let fileType = initialFileType
 
     if (uploadedFile) {
-      console.log('[SAVE] Step 2: Uploading invoice file...')
       const safeName = uploadedFile.name.replace(/\s+/g, '-')
       const storagePath = `${tenantId}/${invoiceId}/${safeName}`
       const fileBuffer = Buffer.from(await uploadedFile.arrayBuffer())
-
-      console.log('[SAVE] Storage upload payload:', {
-        storagePath,
-        fileName: uploadedFile.name,
-        fileType: uploadedFile.type,
-        size: uploadedFile.size,
-      })
 
       const { data: uploadData, error: uploadError } = await admin.storage
         .from('invoices')
@@ -300,9 +238,6 @@ export async function POST(request: NextRequest) {
           contentType: uploadedFile.type || undefined,
           upsert: true,
         })
-
-      console.log('[SAVE] Storage upload result:', uploadData)
-      console.log('[SAVE] Storage upload error:', uploadError ? JSON.stringify(uploadError) : 'null')
 
       if (uploadError) {
         console.error('[/api/invoices/save] storage upload failed:', uploadError)
@@ -316,7 +251,6 @@ export async function POST(request: NextRequest) {
         ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/invoices/${uploadData.path}`
         : fileUrl
       fileType = uploadedFile.type || fileType
-      console.log('[SAVE] Storage public URL:', fileUrl)
     }
 
     const invoicePayload = {
@@ -333,16 +267,11 @@ export async function POST(request: NextRequest) {
       notes: notes || null,
     }
 
-    console.log('[SAVE] Step 3: Creating invoice...')
-    console.log('[SAVE] Invoice payload:', invoicePayload)
     const { data: invoiceRow, error: invoiceError } = await admin
       .from('invoices')
       .upsert(invoicePayload, { onConflict: 'id' })
       .select('id, tenant_id, supplier_id, invoice_number, invoice_date, total_amount')
       .single()
-
-    console.log('[SAVE] Invoice result:', invoiceRow)
-    console.log('[SAVE] Invoice error:', invoiceError ? JSON.stringify(invoiceError) : 'null')
 
     if (invoiceError || !invoiceRow) {
       console.error('[/api/invoices/save] invoice upsert failed:', invoiceError)
@@ -352,16 +281,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log('[SAVE] Step 4: Deleting existing invoice items...')
     const { error: deleteItemsError } = await admin
       .from('invoice_items')
       .delete()
       .eq('invoice_id', invoiceId)
-
-    console.log(
-      '[SAVE] Delete existing invoice items error:',
-      deleteItemsError ? JSON.stringify(deleteItemsError) : 'null'
-    )
 
     if (deleteItemsError) {
       console.error('[/api/invoices/save] existing items delete failed:', deleteItemsError)
@@ -378,25 +301,11 @@ export async function POST(request: NextRequest) {
       const ingredientMatch = item.ingredientMatch ?? null
       const pricing = resolveIngredientPricing(item)
 
-      console.log('[SAVE] Processing item:', {
-        description: item.description,
-        quantity: item.quantity,
-        unit: item.unit,
-        packageSize: item.packageSize,
-        packageUnit: item.packageUnit,
-        unitPrice: item.unitPrice,
-        total: item.total,
-        ingredientId,
-        ingredientMatch,
-        pricing,
-      })
-
       if (ingredientMatch?.type === 'existing' && ingredientMatch.id) {
         ingredientId = ingredientMatch.id
       }
 
       if ((ingredientMatch?.type === 'create' || item.createIngredient) && !ingredientId) {
-        console.log('[SAVE] Step 5: Creating ingredient...')
         const ingredientName = (ingredientMatch?.type === 'create'
           ? ingredientMatch.name
           : item.newIngredientName ?? item.description ?? ''
@@ -423,19 +332,12 @@ export async function POST(request: NextRequest) {
           package_unit: pricing.packageUnit,
         }
 
-        console.log('[SAVE] Ingredient payload:', ingredientPayload)
         const { data: createdIngredientData, error: createIngredientError } = await admin
           .from('ingredients')
           .insert(ingredientPayload)
           .select('id, tenant_id, name')
           .single()
         const createdIngredient = createdIngredientData as { id: string } | null
-
-        console.log('[SAVE] Ingredient result:', createdIngredientData)
-        console.log(
-          '[SAVE] Ingredient error:',
-          createIngredientError ? JSON.stringify(createIngredientError) : 'null'
-        )
 
         if (createIngredientError || !createdIngredient) {
           console.error('[/api/invoices/save] ingredient create failed:', createIngredientError)
@@ -450,7 +352,6 @@ export async function POST(request: NextRequest) {
         // Image is now resolved client-side from the local manifest — no auto-fetch needed here.
       }
 
-      console.log('[SAVE] Step 6: Creating invoice item...')
       const itemPayload = {
         tenant_id: tenantId,
         invoice_id: invoiceId,
@@ -464,16 +365,12 @@ export async function POST(request: NextRequest) {
         total_price: item.total,
       }
 
-      console.log('[SAVE] Invoice item payload:', itemPayload)
       const { data: createdItemData, error: itemError } = await admin
         .from('invoice_items')
         .insert(itemPayload)
         .select('id, tenant_id, invoice_id, ingredient_id')
         .single()
       const createdItem = createdItemData as { id: string; ingredient_id?: string | null } | null
-
-      console.log('[SAVE] Invoice item result:', createdItemData)
-      console.log('[SAVE] Invoice item error:', itemError ? JSON.stringify(itemError) : 'null')
 
       if (itemError || !createdItem) {
         console.error('[/api/invoices/save] invoice item insert failed:', itemError)
@@ -486,8 +383,6 @@ export async function POST(request: NextRequest) {
       createdItems.push(createdItem)
 
       if (ingredientId) {
-        console.log('[SAVE] Step 7: Updating ingredient price...')
-
         const ingredientUpdatePayload = {
           current_price: pricing.currentPrice,
           price_unit: pricing.priceUnit,
@@ -496,19 +391,12 @@ export async function POST(request: NextRequest) {
           last_purchase_date: invoiceDate,
           last_supplier_id: supplierId,
         }
-        console.log('[SAVE] Ingredient update payload:', ingredientUpdatePayload)
-        const { data: ingredientUpdateData, error: ingredientUpdateError } = await admin
+        const { error: ingredientUpdateError } = await admin
           .from('ingredients')
           .update(ingredientUpdatePayload)
           .eq('id', ingredientId)
           .select('id, tenant_id, name')
           .single()
-
-        console.log('[SAVE] Ingredient update result:', ingredientUpdateData)
-        console.log(
-          '[SAVE] Ingredient update error:',
-          ingredientUpdateError ? JSON.stringify(ingredientUpdateError) : 'null'
-        )
 
         if (ingredientUpdateError) {
           console.error('[/api/invoices/save] ingredient update failed:', ingredientUpdateError)
@@ -518,7 +406,6 @@ export async function POST(request: NextRequest) {
           )
         }
 
-        console.log('[SAVE] Step 8: Creating ingredient price history...')
         const historyPayload = {
           ingredient_id: ingredientId,
           tenant_id: tenantId,
@@ -527,15 +414,11 @@ export async function POST(request: NextRequest) {
           invoice_id: invoiceId,
           recorded_at: invoiceDate,
         }
-        console.log('[SAVE] History payload:', historyPayload)
-        const { data: historyData, error: historyError } = await admin
+        const { error: historyError } = await admin
           .from('ingredient_price_history')
           .insert(historyPayload)
           .select('id, tenant_id, ingredient_id, invoice_id')
           .single()
-
-        console.log('[SAVE] History result:', historyData)
-        console.log('[SAVE] History error:', historyError ? JSON.stringify(historyError) : 'null')
 
         if (historyError) {
           console.error('[/api/invoices/save] price history insert failed:', historyError)

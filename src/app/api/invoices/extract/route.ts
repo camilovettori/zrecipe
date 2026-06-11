@@ -11,14 +11,6 @@ import { logAIUsage } from '@/lib/ai/usage-logger'
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
-// ── Env diagnostic ─────────────────────────────────────────────────────────
-console.log(
-  '[extract] ANTHROPIC_API_KEY:',
-  process.env.ANTHROPIC_API_KEY
-    ? `SET (${process.env.ANTHROPIC_API_KEY.substring(0, 15)}…)`
-    : 'NOT SET'
-)
-
 // ── Shared Anthropic client ────────────────────────────────────────────────
 
 function getAnthropic() {
@@ -163,10 +155,6 @@ async function extractWithClaude(text: string) {
 
   const content = response.content[0]
   if (content.type !== 'text') throw new Error('Claude returned no text content')
-
-  console.log('=== RAW CLAUDE EXTRACTION ===')
-  console.log(content.text)
-  console.log('=== END RAW ===')
 
   const cleaned = content.text
     .replace(/^```(?:json)?\n?/i, '')
@@ -360,8 +348,6 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      console.log('[extract] Sending to Claude, text length:', text.length)
-
       try {
         const result = await extractWithClaude(text)
         // Record rate-limit usage
@@ -376,7 +362,6 @@ export async function POST(request: NextRequest) {
           outputTokens: result.usage.outputTokens,
           model: 'claude-sonnet-4-6',
         })
-        console.log('[extract] Claude succeeded, items:', result.items.length)
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { usage: _u, ...responseData } = result
         return NextResponse.json(responseData)
@@ -388,10 +373,8 @@ export async function POST(request: NextRequest) {
     }
 
     // No tenant found — still allow extraction but don't track usage
-    console.log('[extract] No tenant, sending to Claude, text length:', text.length)
     try {
       const result = await extractWithClaude(text)
-      console.log('[extract] Claude succeeded, items:', result.items.length)
       return NextResponse.json(result)
     } catch (claudeErr) {
       const message = claudeErr instanceof Error ? claudeErr.message : 'AI extraction failed'
