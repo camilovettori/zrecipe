@@ -23,6 +23,7 @@ import {
   Printer,
   RefreshCw,
   Save,
+  StickyNote,
   Tag,
   Trash2,
   UploadCloud,
@@ -53,6 +54,7 @@ import { compressImage } from '@/lib/utils/image-compress'
 import { isConvertible } from '@/lib/utils/unit-converter'
 import CostBreakdown from './CostBreakdown'
 import NewIngredientModal, { type NewIngredientFormData } from './NewIngredientModal'
+import { IngredientNoteModal } from './IngredientNoteModal'
 
 
 const SUB_INGREDIENT_UNITS = ['g', 'kg', 'ml', 'L', 'unit', 'portion']
@@ -165,15 +167,21 @@ function IngredientRow({
   hasMismatch,
   onUpdate,
   onRemove,
+  onNoteClick,
 }: {
   item: RecipeIngredientDraft
   lineCost: number
   hasMismatch: boolean
   onUpdate: (patch: Partial<RecipeIngredientDraft>) => void
   onRemove: () => void
+  onNoteClick: () => void
 }) {
   const controls = useDragControls()
   const [epWeightDraft, setEpWeightDraft] = useState<string | null>(null)
+  const hasNote = !!item.notes && item.notes !== item.ingredientName
+  const notePreview = hasNote
+    ? (item.notes!.length > 60 ? item.notes!.substring(0, 60) + '…' : item.notes!)
+    : ''
 
   const yieldPct = item.yield_percent ?? 100
   const apQty = yieldPct > 0 && yieldPct < 100
@@ -209,7 +217,7 @@ function IngredientRow({
       className="group"
     >
       <div className="rounded-xl border border-slate-100 bg-white transition hover:border-slate-200 hover:shadow-sm">
-        <div className="grid grid-cols-[28px_1fr_70px_70px_60px_80px_65px_28px] items-center gap-1.5 px-2 py-1.5">
+        <div className="grid grid-cols-[28px_1fr_36px_70px_70px_60px_80px_65px_28px] items-center gap-1.5 px-2 py-1.5">
           <div
             className="cursor-grab touch-none text-slate-300 transition hover:text-slate-500 active:cursor-grabbing"
             onPointerDown={(e) => controls.start(e)}
@@ -228,6 +236,27 @@ function IngredientRow({
             </Link>
           ) : (
             <span className="min-w-0 truncate text-sm text-slate-800">{item.ingredientName}</span>
+          )}
+
+          {/* Note */}
+          {hasNote ? (
+            <button
+              type="button"
+              title={notePreview}
+              onClick={onNoteClick}
+              className="flex items-center justify-center rounded-full p-1 text-emerald-600 transition hover:bg-emerald-50"
+            >
+              <StickyNote className="h-3.5 w-3.5" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              title="Add note"
+              onClick={onNoteClick}
+              className="flex items-center justify-center rounded-full p-1 text-slate-300 transition hover:bg-slate-50 hover:text-slate-500"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
           )}
 
           {/* EP Qty */}
@@ -323,8 +352,8 @@ function IngredientRow({
 
         {/* AP sub-row — only when yield factor is applied */}
         {apQty != null && (
-          <div className="grid grid-cols-[28px_1fr_70px_70px_60px_80px_65px_28px] gap-1.5 px-2 pb-1">
-            <div className="col-start-6 text-center text-[10px] text-slate-400">
+          <div className="grid grid-cols-[28px_1fr_36px_70px_70px_60px_80px_65px_28px] gap-1.5 px-2 pb-1">
+            <div className="col-start-7 text-center text-[10px] text-slate-400">
               AP: {apQty}{item.unit}
             </div>
           </div>
@@ -378,6 +407,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const [newIngredientSaving, setNewIngredientSaving] = useState(false)
   const [newIngredientError, setNewIngredientError] = useState<string | null>(null)
   const [laborHourlyRate, setLaborHourlyRate] = useState(0)
+  const [noteModalIngredientId, setNoteModalIngredientId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const hasLoaded = useRef(false)
@@ -1131,12 +1161,15 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     const yieldQty = recipe.yieldQuantity
     const allergenText = recipeAllergens.contains.map((a) => `${a.icon} ${a.shortName}`).join(', ')
 
-    const ingredientRows = computedIngredients.map((ri) => `
+    const ingredientRows = computedIngredients.map((ri) => {
+      const noteText = (ri.notes && ri.notes !== ri.ingredientName) ? ri.notes : ''
+      return `
       <tr>
-        <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:16px;font-weight:500;">${ri.ingredientName}</td>
-        <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-size:16px;font-weight:600;">${ri.quantity} ${ri.unit}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:16px;font-weight:500;width:45%;">${ri.ingredientName}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;color:#64748b;font-style:italic;width:35%;">${noteText}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-size:16px;font-weight:600;width:20%;">${ri.quantity} ${ri.unit}</td>
       </tr>
-    `).join('')
+    `}).join('')
 
     const instructionSteps = recipe.instructions
       .filter((s) => s.text.trim())
@@ -1157,7 +1190,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     .section { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#9ca3af; margin:24px 0 12px; }
     table { width:100%; border-collapse:collapse; margin-bottom:24px; }
     th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#9ca3af; padding:8px 12px; border-bottom:2px solid #e5e7eb; }
-    th:last-child { text-align:right; }
+    th:nth-child(3) { text-align:right; }
     .allergen-box { padding:16px; background:#fef2f2; border:1px solid #fecaca; border-radius:12px; margin-top:24px; }
     .print-btn { position:fixed; bottom:20px; right:20px; background:#059669; color:white; border:none; padding:12px 24px; border-radius:12px; font-size:14px; font-weight:600; cursor:pointer; }
   </style>
@@ -1173,7 +1206,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   ${imagePreview ? `<img src="${imagePreview}" style="width:100%;max-height:300px;object-fit:cover;border-radius:12px;margin-bottom:24px;" />` : ''}
   <p class="section">Ingredients</p>
   <table>
-    <thead><tr><th>Ingredient</th><th style="text-align:right;">Quantity</th></tr></thead>
+    <thead><tr><th style="width:45%;">Ingredient</th><th style="width:35%;">Notes</th><th style="width:20%;text-align:right;">Quantity</th></tr></thead>
     <tbody>${ingredientRows}</tbody>
   </table>
   ${instructionSteps ? `<p class="section">Instructions</p><ol style="padding-left:0;list-style:none;">${instructionSteps}</ol>` : ''}
@@ -1700,9 +1733,10 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
           {computedIngredients.length > 0 && (
             <div className="mt-4">
               {/* Table header */}
-              <div className="mb-1 grid grid-cols-[28px_1fr_70px_70px_60px_80px_65px_28px] items-center gap-1.5 px-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+              <div className="mb-1 grid grid-cols-[28px_1fr_36px_70px_70px_60px_80px_65px_28px] items-center gap-1.5 px-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
                 <div />
                 <div>Ingredient</div>
+                <div />
                 <div className="text-center">Qty</div>
                 <div className="text-center">Unit</div>
                 <div className="text-center">Yield</div>
@@ -1725,6 +1759,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                     hasMismatch={computedIngredients[idx]?.hasMismatch ?? false}
                     onUpdate={(patch) => updateIngredient(item.id, patch)}
                     onRemove={() => removeIngredient(item.id)}
+                    onNoteClick={() => setNoteModalIngredientId(item.id)}
                   />
                 ))}
               </Reorder.Group>
@@ -1878,6 +1913,27 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       </div>
 
       <YieldFactorModal open={yieldModalOpen} onClose={() => setYieldModalOpen(false)} />
+
+      {(() => {
+        const noteIng = noteModalIngredientId
+          ? recipe.ingredients.find((i) => i.id === noteModalIngredientId) ?? null
+          : null
+        const isRealNote = noteIng != null && !!noteIng.notes && noteIng.notes !== noteIng.ingredientName
+        return (
+          <IngredientNoteModal
+            open={noteModalIngredientId !== null}
+            ingredientName={noteIng?.ingredientName ?? ''}
+            initialNote={isRealNote ? noteIng!.notes! : null}
+            onSave={(note) => {
+              if (noteModalIngredientId) updateIngredient(noteModalIngredientId, { notes: note })
+            }}
+            onDelete={() => {
+              if (noteModalIngredientId) updateIngredient(noteModalIngredientId, { notes: null })
+            }}
+            onClose={() => setNoteModalIngredientId(null)}
+          />
+        )
+      })()}
 
       <NewIngredientModal
         open={newIngredientModalOpen}
