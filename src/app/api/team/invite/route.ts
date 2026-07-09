@@ -38,7 +38,14 @@ export async function POST(request: NextRequest) {
     .eq('id', tenantId)
     .single()
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? `https://${process.env.VERCEL_URL ?? 'localhost:3000'}`
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL
+  if (!appUrl) {
+    console.error('NEXT_PUBLIC_APP_URL is not set — cannot build invite link')
+    return NextResponse.json(
+      { error: 'Server misconfiguration: app URL not set. Contact support.' },
+      { status: 500 }
+    )
+  }
 
   const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
     redirectTo: `${appUrl}/auth/accept-invite`,

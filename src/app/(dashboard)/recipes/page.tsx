@@ -245,7 +245,7 @@ export default function RecipesPage() {
           </div>
         ) : (
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-            <table className="min-w-full">
+            <table className="w-full table-fixed">
               <tbody className="divide-y divide-slate-100">
                 {Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} />)}
               </tbody>
@@ -295,19 +295,18 @@ export default function RecipesPage() {
       ) : (
         /* List view */
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-100">
-              <thead className="bg-slate-50">
-                <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <th className="px-5 py-3.5">Recipe</th>
-                  <th className="px-5 py-3.5">Category</th>
-                  <th className="px-5 py-3.5">Cost</th>
-                  <th className="px-5 py-3.5">Selling</th>
-                  <th className="px-5 py-3.5">Profit</th>
-                  <th className="px-5 py-3.5">Margin</th>
-                  <th className="px-5 py-3.5">Updated</th>
-                </tr>
-              </thead>
+          <table className="w-full table-fixed divide-y divide-slate-100">
+            <thead className="bg-slate-50">
+              <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-5 py-3.5">Recipe</th>
+                <th className="w-28 px-5 py-3.5">Category</th>
+                <th className="w-24 px-5 py-3.5">Cost</th>
+                <th className="w-24 px-5 py-3.5">Selling</th>
+                <th className="w-24 px-5 py-3.5">Profit</th>
+                <th className="w-24 px-5 py-3.5">Margin</th>
+                <th className="w-28 px-5 py-3.5">Updated</th>
+              </tr>
+            </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredRecipes.map((recipe) => {
                   const profitPerUnit = recipe.cost.sellingPrice - recipe.cost.costPerUnit
@@ -338,7 +337,7 @@ export default function RecipesPage() {
                                 <span className="ml-1.5 text-xs font-semibold text-emerald-600">(Sub)</span>
                               )}
                             </p>
-                            <p className="text-xs text-slate-400 truncate">{recipe.description || 'No description'}</p>
+                            <p className="text-xs text-slate-400 line-clamp-2">{recipe.description || 'No description'}</p>
                           </div>
                         </div>
                       </td>
@@ -391,7 +390,6 @@ export default function RecipesPage() {
                 })}
               </tbody>
             </table>
-          </div>
         </div>
       )}
     </div>

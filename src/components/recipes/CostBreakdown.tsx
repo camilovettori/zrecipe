@@ -88,6 +88,7 @@ export default function CostBreakdown({
   const [lastEdited, setLastEdited] = useState<'price' | 'margin'>('price')
   const [targetMargin, setTargetMargin] = useState<number | null>(null)
   const [sellingPriceFocused, setSellingPriceFocused] = useState(false)
+  const [focusedIncVatStr, setFocusedIncVatStr] = useState('')
   const [vatEnabled, setVatEnabled] = useState(true)
   const [vatRate, setVatRate] = useState(13.5)
 
@@ -101,10 +102,36 @@ export default function CostBreakdown({
     if (Math.abs(next - cost.sellingPrice) > 0.005) onSellingPriceChange(next)
   }, [cost.sellingPrice, cost.costPerUnit, lastEdited, onSellingPriceChange, targetMargin])
 
-  const handlePriceChange = (v: string) => {
+  // The large input field represents the inc-VAT price when VAT is enabled.
+  // Ex-VAT is derived from it and is what gets stored / used in margin math.
+  const displayIncVat = vatEnabled && vatRate > 0
+    ? cost.sellingPrice * (1 + vatRate / 100)
+    : cost.sellingPrice
+
+  const handleIncVatChange = (v: string) => {
+    setFocusedIncVatStr(v)
     setLastEdited('price')
     setTargetMargin(null)
-    onSellingPriceChange(parseMoney(v))
+    const incVat = parseMoney(v)
+    if (vatEnabled && vatRate > 0) {
+      onSellingPriceChange(incVat / (1 + vatRate / 100))
+    } else {
+      onSellingPriceChange(incVat)
+    }
+  }
+
+  // When VAT rate changes: keep the inc-VAT price the user entered fixed,
+  // recompute ex-VAT from the new rate so the shelf price stays the same.
+  const handleVatRateChange = (newRate: number) => {
+    const currentIncVat = vatEnabled && vatRate > 0
+      ? cost.sellingPrice * (1 + vatRate / 100)
+      : cost.sellingPrice
+    setVatRate(newRate)
+    if (newRate > 0) {
+      onSellingPriceChange(currentIncVat / (1 + newRate / 100))
+    } else {
+      onSellingPriceChange(currentIncVat)
+    }
   }
 
   const handleMarginSlider = (v: number) => {
@@ -316,13 +343,18 @@ export default function CostBreakdown({
           )}
         </div>
 
-        {/* RIGHT — Selling Price (editable) */}
+        {/* RIGHT — Selling Price (editable, inc VAT when VAT is on) */}
         <div className="rounded-2xl border-2 border-emerald-500 bg-white p-4 shadow-sm shadow-emerald-100">
-          <div className="mb-2 flex items-center">
+          <div className="mb-2 flex items-center gap-1">
             <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">
               {yieldQty > 1 ? 'Price per Unit' : 'Selling Price'}
             </p>
-            <InfoTooltip text="The price you charge per unit. Drag the margin slider below to adjust automatically." />
+            {vatEnabled && vatRate > 0 && (
+              <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-400">
+                inc VAT
+              </span>
+            )}
+            <InfoTooltip text="The price you charge per unit (inc. VAT when enabled). Margin and profit are always calculated on the ex-VAT (net) price." />
           </div>
           <div className="mb-1 flex items-baseline gap-1">
             <span className="text-base text-gray-400">€</span>
@@ -331,18 +363,21 @@ export default function CostBreakdown({
               min="0"
               step="0.01"
               value={sellingPriceFocused
-                ? (cost.sellingPrice > 0 ? cost.sellingPrice : '')
-                : (cost.sellingPrice > 0 ? Number(cost.sellingPrice).toFixed(2) : '')}
+                ? focusedIncVatStr
+                : (displayIncVat > 0 ? displayIncVat.toFixed(2) : '')}
               placeholder="0.00"
-              onFocus={() => setSellingPriceFocused(true)}
+              onFocus={() => {
+                setSellingPriceFocused(true)
+                setFocusedIncVatStr(displayIncVat > 0 ? displayIncVat.toFixed(2) : '')
+              }}
               onBlur={() => setSellingPriceFocused(false)}
-              onChange={(e) => handlePriceChange(e.target.value)}
+              onChange={(e) => handleIncVatChange(e.target.value)}
               className="w-full bg-transparent text-2xl font-black leading-none text-gray-900 outline-none placeholder:text-gray-300"
             />
           </div>
           {vatEnabled && vatRate > 0 && (
             <p className="text-xs text-gray-400">
-              €{(cost.sellingPrice * (1 + vatRate / 100)).toFixed(2)} inc {vatRate}% VAT
+              €{cost.sellingPrice.toFixed(2)} ex VAT
             </p>
           )}
         </div>
@@ -444,9 +479,9 @@ export default function CostBreakdown({
           <div>
             <div className="flex items-center">
               <p className="text-sm font-semibold text-gray-700">VAT</p>
-              <InfoTooltip text="Value Added Tax applied to the selling price. Standard rate in Ireland is 23%, reduced rate for food is 13.5% or 9%." />
+              <InfoTooltip text="Value Added Tax included in the selling price. Standard rate in Ireland is 23%, reduced rate for food is 13.5% or 9%. Margin is always computed on the ex-VAT price." />
             </div>
-            <p className="text-xs text-gray-400">Applied to selling price</p>
+            <p className="text-xs text-gray-400">Included in selling price</p>
           </div>
           <button
             type="button"
@@ -471,7 +506,7 @@ export default function CostBreakdown({
                   <button
                     key={rate}
                     type="button"
-                    onClick={() => setVatRate(rate)}
+                    onClick={() => handleVatRateChange(rate)}
                     className={cn(
                       'rounded-lg border px-2.5 py-1 text-xs transition-colors',
                       vatRate === rate
@@ -489,7 +524,7 @@ export default function CostBreakdown({
                   min="0"
                   step="0.5"
                   value={vatRate}
-                  onChange={(e) => setVatRate(Math.max(0, Number(e.target.value)))}
+                  onChange={(e) => handleVatRateChange(Math.max(0, Number(e.target.value)))}
                   className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-right text-sm focus:border-emerald-400 focus:outline-none"
                 />
                 <span className="text-xs text-gray-400">%</span>

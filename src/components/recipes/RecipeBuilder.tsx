@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useDropzone } from 'react-dropzone'
@@ -55,9 +56,9 @@ import { isConvertible } from '@/lib/utils/unit-converter'
 import CostBreakdown from './CostBreakdown'
 import NewIngredientModal, { type NewIngredientFormData } from './NewIngredientModal'
 import { IngredientNoteModal } from './IngredientNoteModal'
+import { SubstituteIngredientModal, type SubstituteReplacement } from './SubstituteIngredientModal'
 
 
-const SUB_INGREDIENT_UNITS = ['g', 'kg', 'ml', 'L', 'unit', 'portion']
 
 const INGREDIENT_ROW_UNITS = [
   { value: 'g',    label: 'g' },
@@ -168,6 +169,7 @@ function IngredientRow({
   onUpdate,
   onRemove,
   onNoteClick,
+  onSubstituteClick,
 }: {
   item: RecipeIngredientDraft
   lineCost: number
@@ -175,6 +177,7 @@ function IngredientRow({
   onUpdate: (patch: Partial<RecipeIngredientDraft>) => void
   onRemove: () => void
   onNoteClick: () => void
+  onSubstituteClick: () => void
 }) {
   const controls = useDragControls()
   const [epWeightDraft, setEpWeightDraft] = useState<string | null>(null)
@@ -226,16 +229,33 @@ function IngredientRow({
           </div>
 
           {item.subRecipeId ? (
-            <Link
-              href={`/recipes/${item.subRecipeId}`}
-              target="_blank"
-              className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-emerald-700 hover:text-emerald-600"
-            >
-              <Link2 className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{item.ingredientName}</span>
-            </Link>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <Link
+                href={`/recipes/${item.subRecipeId}`}
+                target="_blank"
+                className="shrink-0 text-emerald-600 hover:text-emerald-500"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Link2 className="h-3.5 w-3.5" />
+              </Link>
+              <button
+                type="button"
+                onClick={onSubstituteClick}
+                title="Substitute ingredient"
+                className="min-w-0 truncate text-left text-sm font-medium text-emerald-700 transition hover:text-emerald-500 hover:underline"
+              >
+                {item.ingredientName}
+              </button>
+            </div>
           ) : (
-            <span className="min-w-0 truncate text-sm text-slate-800">{item.ingredientName}</span>
+            <button
+              type="button"
+              onClick={onSubstituteClick}
+              title="Substitute ingredient"
+              className="min-w-0 truncate text-left text-sm text-slate-800 transition hover:text-emerald-600 hover:underline"
+            >
+              {item.ingredientName}
+            </button>
           )}
 
           {/* Note */}
@@ -408,6 +428,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const [newIngredientError, setNewIngredientError] = useState<string | null>(null)
   const [laborHourlyRate, setLaborHourlyRate] = useState(0)
   const [noteModalIngredientId, setNoteModalIngredientId] = useState<string | null>(null)
+  const [substituteIngredientId, setSubstituteIngredientId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const hasLoaded = useRef(false)
@@ -936,6 +957,9 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const doSave = useCallback(async (currentRecipe: RecipeEditorData, currentIngredients: typeof computedIngredients, silent = false) => {
     const payload: RecipeEditorData = {
       ...currentRecipe,
+      // When used as a sub-recipe, pin the unit to the recipe's own yield unit so
+      // convertUnit(yieldQty, yieldUnit, yieldUnit) = yieldQty and cost-per-unit = totalCost / yieldQty.
+      subIngredientUnit: currentRecipe.isSubIngredient ? currentRecipe.yieldUnit : currentRecipe.subIngredientUnit,
       ingredients: currentIngredients.map((item) => ({ ...item, lineCost: calculateLineCost(item) })),
     }
 
@@ -1652,39 +1676,19 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
           {/* Sub-ingredient toggle */}
           <div className="mt-4 border-t border-slate-100 pt-4">
-            <label className="flex cursor-pointer items-center gap-2.5">
+            <div className="flex items-center gap-2.5">
               <input
+                id="sub-recipe-checkbox"
                 type="checkbox"
                 checked={recipe.isSubIngredient}
                 onChange={(e) => updateRecipeField('isSubIngredient', e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-emerald-600 outline-none focus:ring-emerald-500"
+                className="h-4 w-4 shrink-0 rounded border-slate-300 text-emerald-600 outline-none focus:ring-emerald-500"
               />
-              <span className="text-sm font-medium text-slate-700">Sub-Recipe</span>
-              <span className="text-xs text-slate-400">(use as an ingredient in other recipes)</span>
-            </label>
-
-            {recipe.isSubIngredient && (
-              <div className="mt-3 flex flex-wrap items-center gap-4">
-                <label className="flex items-center gap-2 text-sm">
-                  <span className="text-slate-600">Base unit:</span>
-                  <CustomSelect
-                    value={recipe.subIngredientUnit}
-                    onChange={(v) => updateRecipeField('subIngredientUnit', v)}
-                    options={SUB_INGREDIENT_UNITS.map((u) => ({ value: u, label: u }))}
-                    size="sm"
-                  />
-                </label>
-
-                {cost.totalCost > 0 && recipe.yieldQuantity > 0 && (
-                  <div className="flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1.5">
-                    <ChefHat className="h-3.5 w-3.5 text-emerald-600" />
-                    <span className="text-xs font-medium text-emerald-700">
-                      Cost: €{(cost.totalCost / recipe.yieldQuantity).toFixed(4)} / unit
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
+              <label htmlFor="sub-recipe-checkbox" className="inline-flex cursor-pointer items-center gap-1.5">
+                <span className="text-sm font-medium text-slate-700">Sub-Recipe</span>
+                <span className="text-xs text-slate-400">(use as an ingredient in other recipes)</span>
+              </label>
+            </div>
           </div>
         </div>
       </div>
@@ -1760,6 +1764,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                     onUpdate={(patch) => updateIngredient(item.id, patch)}
                     onRemove={() => removeIngredient(item.id)}
                     onNoteClick={() => setNoteModalIngredientId(item.id)}
+                    onSubstituteClick={() => setSubstituteIngredientId(item.id)}
                   />
                 ))}
               </Reorder.Group>
@@ -1935,6 +1940,76 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
         )
       })()}
 
+      {(() => {
+        const subIng = substituteIngredientId
+          ? recipe.ingredients.find((i) => i.id === substituteIngredientId) ?? null
+          : null
+        const subIngHasNote = subIng != null && !!subIng.notes && subIng.notes !== subIng.ingredientName
+        return (
+          <SubstituteIngredientModal
+            open={substituteIngredientId !== null}
+            currentIngredientId={subIng?.ingredientId ?? null}
+            currentSubRecipeId={subIng?.subRecipeId ?? null}
+            currentIngredientName={subIng?.ingredientName ?? ''}
+            hasNote={subIngHasNote}
+            onSubstitute={(replacement: SubstituteReplacement, keepNote: boolean) => {
+              if (!substituteIngredientId) return
+              const currentItem = recipe.ingredients.find((i) => i.id === substituteIngredientId)
+              if (!currentItem) return
+              const lineId = substituteIngredientId
+              updateIngredient(lineId, {
+                ingredientId: replacement.kind === 'ingredient' ? replacement.data.id : null,
+                subRecipeId: replacement.kind === 'sub-recipe' ? replacement.data.id : null,
+                ingredientName: replacement.data.name,
+                currentPrice: replacement.kind === 'ingredient'
+                  ? (replacement.data.currentPrice ?? null)
+                  : (replacement.data.costPerUnit ?? null),
+                priceUnit: replacement.kind === 'ingredient'
+                  ? (replacement.data.priceUnit ?? null)
+                  : replacement.data.unit,
+                notes: keepNote ? currentItem.notes : null,
+                allergens: [],
+              })
+              // Async: refresh allergens for the new ingredient
+              if (replacement.kind === 'ingredient') {
+                fetch(`/api/ingredients/allergens?id=${replacement.data.id}`)
+                  .then((r) => r.json() as Promise<Record<string, import('@/lib/allergens').IngredientAllergen[]>>)
+                  .then((data) => {
+                    const allergens = data[replacement.data.id]
+                    if (allergens?.length) {
+                      setRecipe((c) => ({
+                        ...c,
+                        ingredients: c.ingredients.map((i) =>
+                          i.id === lineId ? { ...i, allergens } : i
+                        ),
+                      }))
+                    }
+                  })
+                  .catch(() => {})
+              } else {
+                const draftForHydration = createIngredientLine({
+                  ...currentItem,
+                  ingredientId: null,
+                  subRecipeId: replacement.data.id,
+                  allergens: [],
+                })
+                void hydrateIngredientAllergens([draftForHydration]).then((hydrated) => {
+                  const h = hydrated[0]
+                  if (!h) return
+                  setRecipe((c) => ({
+                    ...c,
+                    ingredients: c.ingredients.map((i) =>
+                      i.id === lineId ? { ...i, allergens: h.allergens } : i
+                    ),
+                  }))
+                })
+              }
+            }}
+            onClose={() => setSubstituteIngredientId(null)}
+          />
+        )
+      })()}
+
       <NewIngredientModal
         open={newIngredientModalOpen}
         initialName={newIngredientName}
@@ -1977,7 +2052,7 @@ function PrintOptionsModal({
 }) {
   if (!isOpen) return null
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={onClose}
@@ -2059,7 +2134,8 @@ function PrintOptionsModal({
           Cancel
         </button>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 

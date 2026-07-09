@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Camera, Check, ChefHat, Loader2, Save, Trash2, X } from 'lucide-react'
+import { ArrowLeft, Calculator, Camera, Check, ChefHat, Loader2, Save, Trash2, X } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
 import IngredientForm, { type AutoSaveStatus } from '@/components/ingredients/IngredientForm'
@@ -14,6 +14,7 @@ import type { IngredientRow } from '@/hooks/useIngredients'
 import { EU_ALLERGENS, type AllergenStatus, type IngredientAllergen } from '@/lib/allergens'
 import { findIngredientImage } from '@/lib/utils/ingredient-image'
 import { compressImage } from '@/lib/utils/image-compress'
+import { PriceSimulatorModal } from '@/components/ingredients/PriceSimulatorModal'
 
 function formatMoney(value: number) {
   return `\u20ac${value.toFixed(2)}`
@@ -156,6 +157,7 @@ export default function IngredientDetailPage() {
   // Manifest image resolved client-side — never saved to DB
   const [manifestImageUrl, setManifestImageUrl] = useState<string | null>(null)
   const [uploadingImage, setUploadingImage] = useState(false)
+  const [simulatorOpen, setSimulatorOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   type IngredientDbRow = IngredientRow & { price_unit?: string | null }
@@ -488,9 +490,22 @@ export default function IngredientDetailPage() {
 
           {/* Price history chart */}
           <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-800">
-            <h2 className="mb-4 text-sm font-semibold text-slate-900 dark:text-white">
-              Price History
-            </h2>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+                Price History
+              </h2>
+              {!isNew && ingredient && (
+                <button
+                  type="button"
+                  onClick={() => setSimulatorOpen(true)}
+                  title="Price simulator"
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                >
+                  <Calculator className="h-3.5 w-3.5" />
+                  Simulate
+                </button>
+              )}
+            </div>
             <PriceHistoryChart
               priceHistory={priceHistory}
               unit={ingredient?.base_unit ?? 'unit'}
@@ -622,6 +637,15 @@ export default function IngredientDetailPage() {
         itemName={ingredient?.name ?? ''}
         loading={deleting}
       />
+
+      {ingredient && (
+        <PriceSimulatorModal
+          open={simulatorOpen}
+          onClose={() => setSimulatorOpen(false)}
+          ingredient={ingredient}
+          usedRecipeIds={usedRecipes.map((r) => r.id)}
+        />
+      )}
     </div>
   )
 }
