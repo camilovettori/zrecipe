@@ -54,12 +54,14 @@ function InfoTooltip({ text }: { text: string }) {
 export default function CostBreakdown({
   cost,
   yieldQuantity,
+  yieldUnit,
   prepTimeMinutes,
   laborHourlyRate,
   laborMode,
   overheadMode,
   overheadPercent,
   wastePercent,
+  batchMultiplier = 1,
   onLaborModeChange,
   onLaborCostChange,
   onOverheadModeChange,
@@ -77,6 +79,7 @@ export default function CostBreakdown({
   overheadMode?: 'fixed' | 'percent'
   overheadPercent?: number
   wastePercent?: number
+  batchMultiplier?: number
   onLaborModeChange: (v: 'fixed' | 'time') => void
   onLaborCostChange: (v: number) => void
   onOverheadModeChange: (v: 'fixed' | 'percent') => void
@@ -142,6 +145,7 @@ export default function CostBreakdown({
   }
 
   const yieldQty = Math.max(1, yieldQuantity ?? 1)
+  const yieldUnitLabel = (yieldUnit ?? '').trim()
   const laborIsTime = laborMode === 'time'
   const overheadIsPercent = overheadMode === 'percent'
   const profitPerUnit = cost.sellingPrice - cost.costPerUnit
@@ -151,7 +155,14 @@ export default function CostBreakdown({
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       {/* Header */}
       <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-900">Cost Breakdown</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-slate-900">Cost Breakdown</h3>
+          {batchMultiplier > 1 && (
+            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">
+              Batch ×{batchMultiplier}
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-1">
           <span className={cn(
             'rounded-full px-2.5 py-1 text-xs font-semibold',
@@ -173,7 +184,7 @@ export default function CostBreakdown({
             <InfoTooltip text="Total cost of all ingredients in this recipe, adjusted for yield factor." />
           </div>
           <span className="text-sm font-semibold text-gray-800">
-            €{cost.ingredientCost.toFixed(2)}
+            €{(cost.ingredientCost * batchMultiplier).toFixed(2)}
           </span>
         </div>
 
@@ -208,23 +219,29 @@ export default function CostBreakdown({
           {laborIsTime ? (
             <div className="text-right">
               <div className="text-sm font-semibold text-gray-800">
-                €{cost.laborCost.toFixed(2)}
+                €{(cost.laborCost * batchMultiplier).toFixed(2)}
               </div>
               <div className="text-xs text-gray-400">
-                {prepTimeMinutes ?? 0}min × €{laborHourlyRate ?? 0}/hr
+                {batchMultiplier > 1 ? `×${batchMultiplier} batches · ` : ''}{prepTimeMinutes ?? 0}min × €{laborHourlyRate ?? 0}/hr
               </div>
             </div>
           ) : (
             <div className="flex items-center gap-1">
-              <span className="text-xs text-gray-400">€</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={cost.laborCost || ''}
-                onChange={(e) => onLaborCostChange(e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
-                className="w-16 rounded border border-gray-200 px-2 py-0.5 text-right text-sm focus:border-emerald-400 focus:outline-none"
-              />
+              {batchMultiplier > 1 ? (
+                <span className="text-sm font-semibold text-gray-800">€{(cost.laborCost * batchMultiplier).toFixed(2)}</span>
+              ) : (
+                <>
+                  <span className="text-xs text-gray-400">€</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={cost.laborCost || ''}
+                    onChange={(e) => onLaborCostChange(e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
+                    className="w-16 rounded border border-gray-200 px-2 py-0.5 text-right text-sm focus:border-emerald-400 focus:outline-none"
+                  />
+                </>
+              )}
             </div>
           )}
         </div>
@@ -269,20 +286,26 @@ export default function CostBreakdown({
               />
               <span className="text-xs text-gray-400">%</span>
               <span className="w-14 text-right text-sm font-semibold text-gray-800">
-                €{cost.overheadCost.toFixed(2)}
+                €{(cost.overheadCost * batchMultiplier).toFixed(2)}
               </span>
             </div>
           ) : (
             <div className="flex items-center gap-1">
-              <span className="text-xs text-gray-400">€</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={cost.overheadCost || ''}
-                onChange={(e) => onOverheadCostChange(e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
-                className="w-16 rounded border border-gray-200 px-2 py-0.5 text-right text-sm focus:border-emerald-400 focus:outline-none"
-              />
+              {batchMultiplier > 1 ? (
+                <span className="text-sm font-semibold text-gray-800">€{(cost.overheadCost * batchMultiplier).toFixed(2)}</span>
+              ) : (
+                <>
+                  <span className="text-xs text-gray-400">€</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={cost.overheadCost || ''}
+                    onChange={(e) => onOverheadCostChange(e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
+                    className="w-16 rounded border border-gray-200 px-2 py-0.5 text-right text-sm focus:border-emerald-400 focus:outline-none"
+                  />
+                </>
+              )}
             </div>
           )}
         </div>
@@ -313,7 +336,7 @@ export default function CostBreakdown({
             <span className="text-xs text-gray-400">%</span>
             {(wastePercent ?? 0) > 0 && (
               <span className="w-14 text-right text-sm text-gray-500">
-                +€{cost.wasteCost.toFixed(2)}
+                +€{(cost.wasteCost * batchMultiplier).toFixed(2)}
               </span>
             )}
           </div>
@@ -325,29 +348,36 @@ export default function CostBreakdown({
       {/* SECTION 2: Summary strip — 2 cards side by side */}
       <div className="mb-4 grid grid-cols-2 gap-3">
 
-        {/* LEFT — Total Cost */}
+        {/* LEFT — Total cost */}
         <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
           <div className="mb-2 flex items-center">
             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-              Total Cost
+              {batchMultiplier > 1 ? `Batch total cost ×${batchMultiplier}` : 'Total cost'}
             </p>
             <InfoTooltip text="Sum of ingredients + labor + overhead + waste. This is what it costs you to produce this recipe." />
           </div>
           <p className="mb-1 text-2xl font-black text-gray-800">
-            €{cost.totalCost.toFixed(2)}
+            €{(cost.totalCost * batchMultiplier).toFixed(2)}
           </p>
-          {yieldQty > 1 && (
+          {batchMultiplier > 1 ? (
+            <p className="text-xs text-gray-400">
+              ×1 base: €{cost.totalCost.toFixed(2)}
+              {yieldQty > 1 && <> · €{cost.costPerUnit.toFixed(3)}/unit</>}
+            </p>
+          ) : yieldQty > 1 ? (
             <p className="text-xs text-gray-400">
               €{cost.costPerUnit.toFixed(3)} per unit · {yieldQty} units
             </p>
-          )}
+          ) : null}
         </div>
 
-        {/* RIGHT — Selling Price (editable, inc VAT when VAT is on) */}
+        {/* RIGHT — Selling Price */}
         <div className="rounded-2xl border-2 border-emerald-500 bg-white p-4 shadow-sm shadow-emerald-100">
           <div className="mb-2 flex items-center gap-1">
             <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">
-              {yieldQty > 1 ? 'Price per Unit' : 'Selling Price'}
+              {batchMultiplier > 1
+                ? `Batch selling price ×${batchMultiplier}`
+                : yieldQty > 1 ? 'Price per unit' : 'Selling price'}
             </p>
             {vatEnabled && vatRate > 0 && (
               <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-400">
@@ -356,29 +386,48 @@ export default function CostBreakdown({
             )}
             <InfoTooltip text="The price you charge per unit (inc. VAT when enabled). Margin and profit are always calculated on the ex-VAT (net) price." />
           </div>
-          <div className="mb-1 flex items-baseline gap-1">
-            <span className="text-base text-gray-400">€</span>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={sellingPriceFocused
-                ? focusedIncVatStr
-                : (displayIncVat > 0 ? displayIncVat.toFixed(2) : '')}
-              placeholder="0.00"
-              onFocus={() => {
-                setSellingPriceFocused(true)
-                setFocusedIncVatStr(displayIncVat > 0 ? displayIncVat.toFixed(2) : '')
-              }}
-              onBlur={() => setSellingPriceFocused(false)}
-              onChange={(e) => handleIncVatChange(e.target.value)}
-              className="w-full bg-transparent text-2xl font-black leading-none text-gray-900 outline-none placeholder:text-gray-300"
-            />
-          </div>
-          {vatEnabled && vatRate > 0 && (
-            <p className="text-xs text-gray-400">
-              €{cost.sellingPrice.toFixed(2)} ex VAT
-            </p>
+
+          {batchMultiplier > 1 ? (
+            /* Batch mode — static scaled display, mirrors Total cost card */
+            <>
+              <p className="mb-1 text-2xl font-black text-gray-900">
+                €{(displayIncVat * batchMultiplier).toFixed(2)}
+              </p>
+              <div className="space-y-0.5 text-xs text-gray-400">
+                <p>Batch total · ×1 base: €{displayIncVat.toFixed(2)}</p>
+                {vatEnabled && vatRate > 0 && (
+                  <p>Ex VAT base: €{cost.sellingPrice.toFixed(2)} per unit</p>
+                )}
+              </div>
+            </>
+          ) : (
+            /* Normal mode — editable input */
+            <>
+              <div className="mb-1 flex items-baseline gap-1">
+                <span className="text-base text-gray-400">€</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={sellingPriceFocused
+                    ? focusedIncVatStr
+                    : (displayIncVat > 0 ? displayIncVat.toFixed(2) : '')}
+                  placeholder="0.00"
+                  onFocus={() => {
+                    setSellingPriceFocused(true)
+                    setFocusedIncVatStr(displayIncVat > 0 ? displayIncVat.toFixed(2) : '')
+                  }}
+                  onBlur={() => setSellingPriceFocused(false)}
+                  onChange={(e) => handleIncVatChange(e.target.value)}
+                  className="w-full bg-transparent text-2xl font-black leading-none text-gray-900 outline-none placeholder:text-gray-300"
+                />
+              </div>
+              {vatEnabled && vatRate > 0 && (
+                <p className="text-xs text-gray-400">
+                  €{cost.sellingPrice.toFixed(2)} ex VAT
+                </p>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -442,17 +491,49 @@ export default function CostBreakdown({
           </span>
         </div>
 
-        {/* Batch rows */}
-        {yieldQty > 1 && cost.sellingPrice > 0 && (
+        {/* Batch rows — batchMultiplier takes priority over yieldQty */}
+        {batchMultiplier > 1 && cost.sellingPrice > 0 && (
           <>
-            <div className="flex items-center justify-between py-1.5">
-              <span className="text-sm text-gray-500">Batch revenue ({yieldQty} units)</span>
+            <div className="flex items-start justify-between gap-3 py-1.5">
+              <div className="flex flex-col">
+                <span className="text-sm text-gray-500">Batch revenue ×{batchMultiplier}</span>
+                <span className="text-[11px] text-gray-400">×1 base: €{cost.sellingPrice.toFixed(2)} per unit</span>
+              </div>
+              <span className="text-sm font-semibold text-gray-700">
+                €{(cost.sellingPrice * batchMultiplier).toFixed(2)}
+                {vatEnabled && vatRate > 0 && <span className="ml-1 text-xs font-normal text-gray-400">ex VAT</span>}
+              </span>
+            </div>
+            <div className="flex items-start justify-between gap-3 py-1.5">
+              <div className="flex flex-col">
+                <span className="text-sm text-gray-500">Batch profit ×{batchMultiplier}</span>
+                <span className="text-[11px] text-gray-400">×1 base: €{profitPerUnit.toFixed(2)} per unit</span>
+              </div>
+              <span className={cn(
+                'text-sm font-semibold',
+                profitPerUnit >= 0 ? 'text-emerald-600' : 'text-red-500'
+              )}>
+                {profitPerUnit >= 0 ? '+' : ''}€{(profitPerUnit * batchMultiplier).toFixed(2)}
+              </span>
+            </div>
+          </>
+        )}
+        {batchMultiplier === 1 && yieldQty > 1 && cost.sellingPrice > 0 && (
+          <>
+            <div className="flex items-start justify-between gap-3 py-1.5">
+              <div className="flex flex-col">
+                <span className="text-sm text-gray-500">Batch revenue ({yieldQty} {yieldUnitLabel || 'units'})</span>
+                <span className="text-[11px] text-gray-400">Per unit: €{cost.sellingPrice.toFixed(2)} ex VAT</span>
+              </div>
               <span className="text-sm font-semibold text-gray-700">
                 €{(cost.sellingPrice * yieldQty).toFixed(2)}
               </span>
             </div>
-            <div className="flex items-center justify-between py-1.5">
-              <span className="text-sm text-gray-500">Batch profit</span>
+            <div className="flex items-start justify-between gap-3 py-1.5">
+              <div className="flex flex-col">
+                <span className="text-sm text-gray-500">Batch profit ({yieldQty} {yieldUnitLabel || 'units'})</span>
+                <span className="text-[11px] text-gray-400">Per unit: €{profitPerUnit.toFixed(2)}</span>
+              </div>
               <span className={cn(
                 'text-sm font-semibold',
                 profitPerUnit >= 0 ? 'text-emerald-600' : 'text-red-500'
@@ -531,14 +612,21 @@ export default function CostBreakdown({
               </div>
             </div>
             <div className="flex justify-between pt-1 text-sm">
-              <span className="text-gray-500">VAT amount</span>
+              <span className="text-gray-500">{batchMultiplier > 1 ? `VAT total ×${batchMultiplier}` : 'VAT amount'}</span>
               <span className="font-medium text-gray-700">
-                €{(cost.sellingPrice * vatRate / 100).toFixed(2)}
+                €{(cost.sellingPrice * batchMultiplier * vatRate / 100).toFixed(2)}
               </span>
             </div>
+            {batchMultiplier > 1 && (
+              <div className="mt-1 text-right text-[11px] text-gray-400">
+                ×1 base: €{(cost.sellingPrice * vatRate / 100).toFixed(2)}
+              </div>
+            )}
           </div>
         )}
       </div>
     </section>
   )
 }
+
+

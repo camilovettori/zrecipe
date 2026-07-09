@@ -976,7 +976,7 @@ function KitchenCardDocument({
         {/* ── Cost summary ── */}
         {includesCosts && (
           <>
-            <Text style={kitchen.sectionTitle}>Cost Summary</Text>
+            <Text style={kitchen.sectionTitle}>Cost Summary{yieldQty > 1 ? ' (batch total)' : ''}</Text>
             <View style={kitchen.costBox}>
               <CostRow label="Ingredient cost" value={fmt(pdfCosts.ingredientCost)} />
               <CostRow
@@ -1002,15 +1002,28 @@ function KitchenCardDocument({
                 />
               )}
               <View style={kitchen.costDivider} />
-              <CostRow label="Total cost" value={fmt(pdfCosts.totalCost)} bold />
+              <CostRow label={yieldQty > 1 ? 'Batch total cost' : 'Total cost'} value={fmt(pdfCosts.totalCost)} bold />
               {yieldQty > 1 && (
                 <CostRow
-                  label={`Cost per unit (/ ${yieldQty})`}
+                  label="Base cost per unit"
                   value={`\u20ac${pdfCosts.costPerUnit.toFixed(3)}`}
                 />
               )}
-              <CostRow label="Selling price" value={fmt(pdfCosts.sellingPrice)} />
-              <CostRow label="Profit per unit" value={`${pdfCosts.profitPerUnit >= 0 ? '+' : ''}${fmt(pdfCosts.profitPerUnit)}`} />
+              <CostRow label={yieldQty > 1 ? 'Price per unit' : 'Selling price'} value={fmt(pdfCosts.sellingPrice)} />
+              {yieldQty > 1 && (
+                <CostRow
+                  label="Batch total revenue"
+                  value={fmt(pdfCosts.sellingPrice * yieldQty)}
+                />
+              )}
+              <CostRow label={yieldQty > 1 ? 'Profit per unit (base)' : 'Profit per unit'} value={`${pdfCosts.profitPerUnit >= 0 ? '+' : ''}${fmt(pdfCosts.profitPerUnit)}`} />
+              {yieldQty > 1 && (
+                <CostRow
+                  label="Batch total profit"
+                  value={`${pdfCosts.profitPerUnit >= 0 ? '+' : ''}${fmt(pdfCosts.profitPerUnit * yieldQty)}`}
+                  valueColor={pdfCosts.profitPerUnit >= 0 ? C.emerald : C.red}
+                />
+              )}
               <CostRow
                 label="Margin"
                 value={`${pdfCosts.margin.toFixed(1)}%`}
@@ -1163,7 +1176,7 @@ function CostReportDocument({
             )}
 
             <View style={report.analysisTotalRow}>
-              <Text style={report.analysisTotalLabel}>Total Cost</Text>
+              <Text style={report.analysisTotalLabel}>{yieldQty > 1 ? 'Batch total cost' : 'Total cost'}</Text>
               <Text style={report.analysisTotalValue}>{fmt(pdfCosts.totalCost)}</Text>
             </View>
 
@@ -1173,20 +1186,34 @@ function CostReportDocument({
             <Text style={report.analysisSectionLabel}>Performance</Text>
             {yieldQty > 1 && (
               <View style={report.analysisRow}>
-                <Text style={report.analysisLabel}>Cost per unit (÷ {yieldQty})</Text>
+                <Text style={report.analysisLabel}>Base cost per unit</Text>
                 <Text style={report.analysisValue}>€{pdfCosts.costPerUnit.toFixed(3)}</Text>
               </View>
             )}
             <View style={report.analysisRow}>
-              <Text style={report.analysisLabel}>Selling price</Text>
+              <Text style={report.analysisLabel}>{yieldQty > 1 ? 'Price per unit' : 'Selling price'}</Text>
               <Text style={report.analysisValue}>{fmt(pdfCosts.sellingPrice)}</Text>
             </View>
+            {yieldQty > 1 && (
+              <View style={report.analysisRow}>
+                <Text style={report.analysisLabel}>Batch total revenue</Text>
+                <Text style={report.analysisValue}>{fmt(pdfCosts.sellingPrice * yieldQty)}</Text>
+              </View>
+            )}
             <View style={report.analysisKeyRow}>
-              <Text style={report.analysisKeyLabel}>Profit per unit</Text>
+              <Text style={report.analysisKeyLabel}>{yieldQty > 1 ? 'Profit per unit (base)' : 'Profit per unit'}</Text>
               <Text style={[report.analysisKeyValue, { color: pdfCosts.profitPerUnit >= 0 ? C.emerald : C.red }]}>
                 {pdfCosts.profitPerUnit >= 0 ? '+' : ''}{fmt(pdfCosts.profitPerUnit)}
               </Text>
             </View>
+            {yieldQty > 1 && (
+              <View style={report.analysisRow}>
+                <Text style={report.analysisLabel}>Batch total profit</Text>
+                <Text style={[report.analysisValue, { color: pdfCosts.profitPerUnit >= 0 ? C.emerald : C.red }]}>
+                  {pdfCosts.profitPerUnit >= 0 ? '+' : ''}{fmt(pdfCosts.profitPerUnit * yieldQty)}
+                </Text>
+              </View>
+            )}
 
             <View style={report.analysisDivider} />
 

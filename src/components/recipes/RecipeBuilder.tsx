@@ -19,6 +19,7 @@ import {
   ImageIcon,
   Link2,
   Loader2,
+  Info,
   Pencil,
   Plus,
   Printer,
@@ -160,12 +161,39 @@ function mapRecipeToState(recipe: RecipeRecord): RecipeEditorData {
   }
 }
 
+function FieldHint({ text }: { text: string }) {
+  const [show, setShow] = useState(false)
+
+  return (
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        onMouseEnter={() => setShow(true)}
+        onMouseLeave={() => setShow(false)}
+        onFocus={() => setShow(true)}
+        onBlur={() => setShow(false)}
+        className="ml-1 inline-flex items-center text-slate-300 transition hover:text-slate-500 focus:outline-none"
+        aria-label={text}
+      >
+        <Info className="h-3.5 w-3.5" />
+      </button>
+
+      {show && (
+        <span className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 w-64 -translate-x-1/2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs leading-relaxed text-slate-600 shadow-lg">
+          {text}
+        </span>
+      )}
+    </span>
+  )
+}
+
 // ── Draggable ingredient row ─────────────────────────────────────────────────
 
 function IngredientRow({
   item,
   lineCost,
   hasMismatch,
+  batchMultiplier,
   onUpdate,
   onRemove,
   onNoteClick,
@@ -174,6 +202,7 @@ function IngredientRow({
   item: RecipeIngredientDraft
   lineCost: number
   hasMismatch: boolean
+  batchMultiplier: number
   onUpdate: (patch: Partial<RecipeIngredientDraft>) => void
   onRemove: () => void
   onNoteClick: () => void
@@ -279,7 +308,7 @@ function IngredientRow({
             </button>
           )}
 
-          {/* EP Qty */}
+          {/* EP Qty — always editable (base value); scaled quantity is visible in NET WT column */}
           <input
             type="number"
             min="0"
@@ -309,42 +338,50 @@ function IngredientRow({
             )}
           </div>
 
-          {/* EP WT — always editable */}
-          <input
-            type="number"
-            min="0"
-            step="1"
-            value={epWeight
-              ? (epWeightDraft ?? (Math.round(epWeight.value) || ''))
-              : (item.ep_weight_manual || '')}
-            onChange={(e) => {
-              if (epWeight) {
-                setEpWeightDraft(e.target.value)
-              } else {
-                const num = e.target.value === '' ? 0 : parseFloat(e.target.value)
-                onUpdate({ ep_weight_manual: isNaN(num) ? 0 : num })
-              }
-            }}
-            onBlur={(e) => {
-              if (epWeight) {
-                const v = parseFloat(e.target.value || '0')
-                if (!isNaN(v) && v >= 0) handleEpWeightChange(v)
-                setEpWeightDraft(null)
-              }
-            }}
-            onKeyDown={(e) => {
-              if (epWeight) {
-                if (e.key === 'Enter') {
-                  const v = parseFloat(e.currentTarget.value || '0')
+          {/* EP WT */}
+          {batchMultiplier > 1 ? (
+            <span className="text-right text-sm tabular-nums text-slate-600">
+              {epWeight
+                ? `${Math.round(epWeight.value * batchMultiplier)}${epWeight.unitLabel}`
+                : (item.ep_weight_manual ? `${Math.round(item.ep_weight_manual * batchMultiplier)}g` : '—')}
+            </span>
+          ) : (
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={epWeight
+                ? (epWeightDraft ?? (Math.round(epWeight.value) || ''))
+                : (item.ep_weight_manual || '')}
+              onChange={(e) => {
+                if (epWeight) {
+                  setEpWeightDraft(e.target.value)
+                } else {
+                  const num = e.target.value === '' ? 0 : parseFloat(e.target.value)
+                  onUpdate({ ep_weight_manual: isNaN(num) ? 0 : num })
+                }
+              }}
+              onBlur={(e) => {
+                if (epWeight) {
+                  const v = parseFloat(e.target.value || '0')
                   if (!isNaN(v) && v >= 0) handleEpWeightChange(v)
                   setEpWeightDraft(null)
                 }
-                if (e.key === 'Escape') setEpWeightDraft(null)
-              }
-            }}
-            placeholder={epWeight ? '' : 'g'}
-            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-right text-sm outline-none transition focus:border-emerald-500 focus:bg-white"
-          />
+              }}
+              onKeyDown={(e) => {
+                if (epWeight) {
+                  if (e.key === 'Enter') {
+                    const v = parseFloat(e.currentTarget.value || '0')
+                    if (!isNaN(v) && v >= 0) handleEpWeightChange(v)
+                    setEpWeightDraft(null)
+                  }
+                  if (e.key === 'Escape') setEpWeightDraft(null)
+                }
+              }}
+              placeholder={epWeight ? '' : 'g'}
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-right text-sm outline-none transition focus:border-emerald-500 focus:bg-white"
+            />
+          )}
 
           {/* Cost */}
           <span className="flex items-center justify-end gap-1 text-right text-sm font-medium tabular-nums text-slate-700">
@@ -356,7 +393,7 @@ function IngredientRow({
                 <AlertTriangle className="h-3.5 w-3.5" />
               </span>
             )}
-            €{lineCost.toFixed(2)}
+            €{(lineCost * batchMultiplier).toFixed(2)}
           </span>
 
           {/* Delete */}
@@ -429,6 +466,12 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const [laborHourlyRate, setLaborHourlyRate] = useState(0)
   const [noteModalIngredientId, setNoteModalIngredientId] = useState<string | null>(null)
   const [substituteIngredientId, setSubstituteIngredientId] = useState<string | null>(null)
+
+  // Batch multiplier — session-only, never saved to DB
+  const [batchEnabled, setBatchEnabled] = useState(false)
+  const [batchQty, setBatchQty] = useState(2)
+  const effectiveN = batchEnabled && batchQty > 1 ? Math.max(2, batchQty) : 1
+
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const hasLoaded = useRef(false)
@@ -1047,6 +1090,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     const isBatch = yieldQty > 1
     const profitPerUnit = cost.sellingPrice - cost.costPerUnit
     const margin = cost.marginPercent
+    const N = effectiveN
 
     const allergensList = recipeAllergens.contains.length > 0
       ? `<div style="margin-top:16px;padding:12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;">
@@ -1055,22 +1099,26 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
          </div>`
       : '<p style="color:#059669;font-size:13px;">✓ No allergens declared</p>'
 
-    const ingredientRows = computedIngredients.map((ri) => `
+    const ingredientRows = computedIngredients.map((ri) => {
+      const scaledQty = ri.quantity * N
+      const scaledCost = ri.lineCost * N
+      const qtyStr = scaledQty % 1 === 0 ? scaledQty.toString() : scaledQty.toFixed(3).replace(/\.?0+$/, '')
+      return `
       <tr>
         <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;">
           ${ri.ingredientName}${(ri.yield_percent ?? 100) < 100 ? ` <span style="color:#d97706;font-size:11px;">(YF ${Math.round(ri.yield_percent ?? 100)}%)</span>` : ''}
         </td>
-        <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;">${ri.quantity} ${ri.unit}</td>
-        <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;">€${ri.lineCost.toFixed(2)}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;">${qtyStr} ${ri.unit}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;">€${scaledCost.toFixed(2)}</td>
       </tr>
-    `).join('')
+    `}).join('')
 
     const today = new Date().toLocaleDateString('en-IE', { day: 'numeric', month: 'long', year: 'numeric' })
 
     printWindow.document.write(`<!DOCTYPE html>
 <html>
 <head>
-  <title>${recipe.name} — ZRecipe</title>
+  <title>${recipe.name}${N > 1 ? ` — Batch ×${N}` : ''} — ZRecipe</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1e293b; padding: 40px; max-width: 800px; margin: 0 auto; }
@@ -1080,6 +1128,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     .brand { color: #059669; font-size: 14px; font-weight: 600; }
     .meta-badges { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
     .badge { font-size: 11px; padding: 4px 10px; border-radius: 20px; background: #f1f5f9; color: #475569; font-weight: 500; }
+    .badge-batch { background: #ede9fe; color: #7c3aed; font-weight: 700; }
     .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: #9ca3af; margin: 24px 0 12px; }
     table { width: 100%; border-collapse: collapse; }
     th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #9ca3af; padding: 8px 12px; border-bottom: 2px solid #e5e7eb; }
@@ -1106,6 +1155,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       <h1 class="recipe-name">${recipe.name}</h1>
       <div class="meta-badges">
         <span class="badge">${recipe.category || 'Uncategorised'}</span>
+        ${N > 1 ? `<span class="badge badge-batch">Batch ×${N}</span>` : ''}
         <span class="badge">Yield: ${yieldQty}${isBatch ? ' units' : ''}</span>
         <span class="badge">Prep: ${recipe.prepTimeMinutes} min</span>
         <span class="badge">Cook: ${recipe.cookTimeMinutes} min</span>
@@ -1116,7 +1166,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
   ${imagePreview ? `<img src="${imagePreview}" style="width:100%;max-height:250px;object-fit:cover;border-radius:12px;margin-bottom:20px;" />` : ''}
 
-  <p class="section-title">Ingredients</p>
+  <p class="section-title">Ingredients${N > 1 ? ` (×${N} batch)` : ''}</p>
   <table>
     <thead><tr><th>Ingredient</th><th style="text-align:right;">Quantity</th><th style="text-align:right;">Cost</th></tr></thead>
     <tbody>
@@ -1124,7 +1174,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       <tr style="font-weight:700;">
         <td style="padding:10px 12px;border-top:2px solid #e5e7eb;">Total ingredient cost</td>
         <td style="padding:10px 12px;border-top:2px solid #e5e7eb;"></td>
-        <td style="padding:10px 12px;border-top:2px solid #e5e7eb;text-align:right;">€${cost.ingredientCost.toFixed(2)}</td>
+        <td style="padding:10px 12px;border-top:2px solid #e5e7eb;text-align:right;">€${(cost.ingredientCost * N).toFixed(2)}</td>
       </tr>
     </tbody>
   </table>
@@ -1132,36 +1182,41 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   <p class="section-title">Allergen Information (EU Reg. 1169/2011)</p>
   ${allergensList}
 
-  <p class="section-title">Cost Summary</p>
-  <div class="cost-row"><span class="cost-row-label">Ingredient cost</span><span class="cost-row-value">€${cost.ingredientCost.toFixed(2)}</span></div>
-  <div class="cost-row"><span class="cost-row-label">Labor${recipe.laborMode === 'time' ? ` (${recipe.prepTimeMinutes}min × €${laborHourlyRate}/hr)` : ''}</span><span class="cost-row-value">€${cost.laborCost.toFixed(2)}</span></div>
-  <div class="cost-row"><span class="cost-row-label">Overhead${recipe.overheadMode === 'percent' ? ` (${recipe.overheadPercent}%)` : ''}</span><span class="cost-row-value">€${cost.overheadCost.toFixed(2)}</span></div>
-  ${(recipe.wastePercent ?? 0) > 0 ? `<div class="cost-row"><span class="cost-row-label">Waste (${recipe.wastePercent}%)</span><span class="cost-row-value">+€${cost.wasteCost.toFixed(2)}</span></div>` : ''}
+  <p class="section-title">Cost Summary${N > 1 ? ` — Batch total ×${N}` : ''}</p>
+  <div class="cost-row"><span class="cost-row-label">Ingredient cost</span><span class="cost-row-value">€${(cost.ingredientCost * N).toFixed(2)}</span></div>
+  <div class="cost-row"><span class="cost-row-label">Labor${recipe.laborMode === 'time' ? ` (${recipe.prepTimeMinutes}min × €${laborHourlyRate}/hr)` : ''}</span><span class="cost-row-value">€${(cost.laborCost * N).toFixed(2)}</span></div>
+  <div class="cost-row"><span class="cost-row-label">Overhead${recipe.overheadMode === 'percent' ? ` (${recipe.overheadPercent}%)` : ''}</span><span class="cost-row-value">€${(cost.overheadCost * N).toFixed(2)}</span></div>
+  ${(recipe.wastePercent ?? 0) > 0 ? `<div class="cost-row"><span class="cost-row-label">Waste (${recipe.wastePercent}%)</span><span class="cost-row-value">+€${(cost.wasteCost * N).toFixed(2)}</span></div>` : ''}
 
   <div class="cost-grid">
     <div class="cost-card">
-      <p class="cost-label">Total Cost</p>
-      <p class="cost-value">€${cost.totalCost.toFixed(2)}</p>
-      ${isBatch ? `<p class="cost-sub">€${cost.costPerUnit.toFixed(3)} per unit · ${yieldQty} units</p>` : ''}
+      <p class="cost-label">${N > 1 ? `Batch total cost ×${N}` : 'Total cost'}</p>
+      <p class="cost-value">€${(cost.totalCost * N).toFixed(2)}</p>
+      ${N > 1 ? `<p class="cost-sub">×1 base: €${cost.totalCost.toFixed(2)}</p>`
+        : isBatch ? `<p class="cost-sub">€${cost.costPerUnit.toFixed(3)} per unit · ${yieldQty} units</p>` : ''}
     </div>
     <div class="cost-card primary">
-      <p class="cost-label" style="color:#059669;">Selling Price${isBatch ? ' (per unit)' : ''}</p>
+      <p class="cost-label" style="color:#059669;">${N > 1 ? `Batch selling price ×${N}` : isBatch ? 'Price per unit' : 'Selling price'}</p>
       <p class="cost-value">€${cost.sellingPrice.toFixed(2)}</p>
+      ${N > 1 ? `<p class="cost-sub" style="color:#059669;">×1 base: €${cost.sellingPrice.toFixed(2)}</p>` : ''}
     </div>
   </div>
 
   <div style="margin-top:16px;">
     <div class="cost-row">
-      <span class="cost-row-label">Profit per unit</span>
+      <span class="cost-row-label">Profit per unit${N > 1 ? ' (base)' : ''}</span>
       <span class="cost-row-value ${profitPerUnit >= 0 ? 'profit-positive' : 'profit-negative'}">${profitPerUnit >= 0 ? '+' : ''}€${profitPerUnit.toFixed(2)}</span>
     </div>
     <div class="cost-row">
       <span class="cost-row-label">Margin</span>
       <span class="cost-row-value" style="color:${margin >= 40 ? '#059669' : margin >= 20 ? '#d97706' : '#ef4444'};">${margin.toFixed(1)}%</span>
     </div>
-    ${isBatch ? `
-      <div class="cost-row"><span class="cost-row-label">Batch revenue (${yieldQty} units)</span><span class="cost-row-value">€${(cost.sellingPrice * yieldQty).toFixed(2)}</span></div>
-      <div class="cost-row"><span class="cost-row-label">Batch profit</span><span class="cost-row-value ${profitPerUnit >= 0 ? 'profit-positive' : 'profit-negative'}">${profitPerUnit >= 0 ? '+' : ''}€${(profitPerUnit * yieldQty).toFixed(2)}</span></div>
+    ${N > 1 ? `
+      <div class="cost-row"><span class="cost-row-label">Batch total revenue ×${N}</span><span class="cost-row-value">€${(cost.sellingPrice * N).toFixed(2)}</span></div>
+      <div class="cost-row"><span class="cost-row-label">Batch total profit ×${N}</span><span class="cost-row-value ${profitPerUnit >= 0 ? 'profit-positive' : 'profit-negative'}">${profitPerUnit >= 0 ? '+' : ''}€${(profitPerUnit * N).toFixed(2)}</span></div>
+    ` : isBatch ? `
+      <div class="cost-row"><span class="cost-row-label">Batch total revenue (${yieldQty} units)</span><span class="cost-row-value">€${(cost.sellingPrice * yieldQty).toFixed(2)}</span></div>
+      <div class="cost-row"><span class="cost-row-label">Batch total profit (${yieldQty} units)</span><span class="cost-row-value ${profitPerUnit >= 0 ? 'profit-positive' : 'profit-negative'}">${profitPerUnit >= 0 ? '+' : ''}€${(profitPerUnit * yieldQty).toFixed(2)}</span></div>
     ` : ''}
   </div>
 
@@ -1176,7 +1231,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 </html>`)
 
     printWindow.document.close()
-  }, [recipe, cost, computedIngredients, recipeAllergens, imagePreview, laborHourlyRate])
+  }, [recipe, cost, computedIngredients, recipeAllergens, imagePreview, laborHourlyRate, effectiveN])
 
   const handlePrintKitchen = useCallback(() => {
     const printWindow = window.open('', '_blank')
@@ -1184,14 +1239,17 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
     const yieldQty = recipe.yieldQuantity
     const allergenText = recipeAllergens.contains.map((a) => `${a.icon} ${a.shortName}`).join(', ')
+    const N = effectiveN
 
     const ingredientRows = computedIngredients.map((ri) => {
       const noteText = (ri.notes && ri.notes !== ri.ingredientName) ? ri.notes : ''
+      const scaledQty = ri.quantity * N
+      const qtyStr = scaledQty % 1 === 0 ? scaledQty.toString() : scaledQty.toFixed(3).replace(/\.?0+$/, '')
       return `
       <tr>
         <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:16px;font-weight:500;width:45%;">${ri.ingredientName}</td>
         <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;color:#64748b;font-style:italic;width:35%;">${noteText}</td>
-        <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-size:16px;font-weight:600;width:20%;">${ri.quantity} ${ri.unit}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-size:16px;font-weight:600;width:20%;">${qtyStr} ${ri.unit}</td>
       </tr>
     `}).join('')
 
@@ -1203,7 +1261,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     printWindow.document.write(`<!DOCTYPE html>
 <html>
 <head>
-  <title>${recipe.name} — Kitchen Card</title>
+  <title>${recipe.name}${N > 1 ? ` — Batch ×${N}` : ''} — Kitchen Card</title>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
     body { font-family:-apple-system,BlinkMacSystemFont,sans-serif; color:#1e293b; padding:40px; max-width:700px; margin:0 auto; }
@@ -1211,6 +1269,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     h1 { font-size:32px; font-weight:800; margin-bottom:8px; }
     .meta { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:24px; }
     .badge { font-size:12px; padding:4px 12px; border-radius:20px; background:#f1f5f9; color:#475569; font-weight:500; }
+    .badge-batch { background:#ede9fe; color:#7c3aed; font-weight:700; }
     .section { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#9ca3af; margin:24px 0 12px; }
     table { width:100%; border-collapse:collapse; margin-bottom:24px; }
     th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#9ca3af; padding:8px 12px; border-bottom:2px solid #e5e7eb; }
@@ -1223,12 +1282,13 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   <h1>${recipe.name}</h1>
   <div class="meta">
     <span class="badge">${recipe.category || 'Uncategorised'}</span>
+    ${N > 1 ? `<span class="badge badge-batch">Batch ×${N}</span>` : ''}
     <span class="badge">Yield: ${yieldQty} unit${yieldQty !== 1 ? 's' : ''}</span>
     <span class="badge">Prep: ${recipe.prepTimeMinutes} min</span>
     <span class="badge">Cook: ${recipe.cookTimeMinutes} min</span>
   </div>
   ${imagePreview ? `<img src="${imagePreview}" style="width:100%;max-height:300px;object-fit:cover;border-radius:12px;margin-bottom:24px;" />` : ''}
-  <p class="section">Ingredients</p>
+  <p class="section">Ingredients${N > 1 ? ` (batch total ×${N})` : ''}</p>
   <table>
     <thead><tr><th style="width:45%;">Ingredient</th><th style="width:35%;">Notes</th><th style="width:20%;text-align:right;">Quantity</th></tr></thead>
     <tbody>${ingredientRows}</tbody>
@@ -1241,7 +1301,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 </body>
 </html>`)
     printWindow.document.close()
-  }, [recipe, computedIngredients, recipeAllergens, imagePreview])
+  }, [recipe, computedIngredients, recipeAllergens, imagePreview, effectiveN])
 
   const handlePrintLabel = useCallback((labelData: LabelData) => {
     const printWindow = window.open('', '_blank')
@@ -1622,19 +1682,74 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
               )}
             </div>
 
-            <div>
-              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Yield qty</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={recipe.yieldQuantity || ''}
-                onChange={(e) => {
-                  const v = e.target.value === '' ? 0 : parseFloat(e.target.value)
-                  if (!isNaN(v)) updateRecipeField('yieldQuantity', v)
-                }}
-                className="w-24 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500"
-              />
+            {/* Yield qty + Batch — same grid cell, side by side */}
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1.1fr)_minmax(0,0.95fr)]">
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="mb-2 flex items-center gap-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">YIELD QTY</span>
+                  <FieldHint text="How many units this recipe makes (e.g. 12 muffins, 1 cake)." />
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={recipe.yieldQuantity || ''}
+                    onChange={(e) => {
+                      const v = e.target.value === '' ? 0 : parseFloat(e.target.value)
+                      if (!isNaN(v)) updateRecipeField('yieldQuantity', v)
+                    }}
+                    className="w-20 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500"
+                  />
+                  <input
+                    type="text"
+                    value={recipe.yieldUnit}
+                    onChange={(e) => updateRecipeField('yieldUnit', e.target.value)}
+                    placeholder="e.g. muffins"
+                    className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500"
+                  />
+                </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+                  Permanent recipe output. Example: 1 cake, 12 muffins, 24 cookies.
+                </p>
+              </div>
+
+              {/* Batch multiplier — session-only view toggle, never saved */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+                <div className="mb-2 flex items-center gap-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">BATCH</span>
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                    Temporary
+                  </span>
+                  <FieldHint text="Making a large order? Scale the whole recipe to make it multiple times." />
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBatchEnabled((v) => !v)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${batchEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`}
+                    aria-pressed={batchEnabled}
+                  >
+                    <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${batchEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                  {batchEnabled && (
+                    <input
+                      type="number"
+                      min="2"
+                      step="1"
+                      value={batchQty}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10)
+                        if (!isNaN(v) && v >= 2) setBatchQty(v)
+                      }}
+                      className="w-14 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500"
+                    />
+                  )}
+                </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+                  This only changes the shopping list and totals for the current view.
+                </p>
+              </div>
             </div>
 
             <label className="block">
@@ -1761,6 +1876,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                     item={item}
                     lineCost={computedIngredients[idx]?.lineCost ?? 0}
                     hasMismatch={computedIngredients[idx]?.hasMismatch ?? false}
+                    batchMultiplier={effectiveN}
                     onUpdate={(patch) => updateIngredient(item.id, patch)}
                     onRemove={() => removeIngredient(item.id)}
                     onNoteClick={() => setNoteModalIngredientId(item.id)}
@@ -1771,8 +1887,10 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
               <div className="mt-3 border-t border-slate-100 pt-3 text-sm">
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Total ingredient cost</span>
-                  <span className="font-semibold text-slate-900">€{cost.ingredientCost.toFixed(2)}</span>
+                  <span className="text-slate-500">
+                    Total ingredient cost{effectiveN > 1 && <span className="ml-1 text-slate-400">×{effectiveN}</span>}
+                  </span>
+                  <span className="font-semibold text-slate-900">€{(cost.ingredientCost * effectiveN).toFixed(2)}</span>
                 </div>
 
                 {(() => {
@@ -1871,6 +1989,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
             overheadMode={recipe.overheadMode}
             overheadPercent={recipe.overheadPercent}
             wastePercent={recipe.wastePercent}
+            batchMultiplier={effectiveN}
             onLaborModeChange={(v) => updateRecipeField('laborMode', v)}
             onLaborCostChange={(v) => updateRecipeField('laborCost', v)}
             onOverheadModeChange={(v) => updateRecipeField('overheadMode', v)}
