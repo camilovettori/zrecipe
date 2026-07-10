@@ -31,6 +31,8 @@ export const DEFAULT_KITCHEN_CARD_OPTIONS: KitchenCardOptions = {
 }
 
 const STORAGE_KEY = 'zrecipe:kitchenCardOptions'
+const LANDSCAPE_PHOTO_MAX_HEIGHT_MM = 132
+const PORTRAIT_PHOTO_MAX_HEIGHT_MM = 72
 
 export function loadKitchenCardOptions(): KitchenCardOptions {
   if (typeof window === 'undefined') return DEFAULT_KITCHEN_CARD_OPTIONS
@@ -102,9 +104,9 @@ function collageLayout(count: number): { cols: number; rows: number; spanFirstRo
 
 // Renders a tight, gap-free photo collage. `fillHeight` makes the grid stretch
 // to 100% of its (flex-stretched) container — used for the landscape left
-// column, which fills the full page height. For the portrait top strip,
-// pass a fixed pixel height instead so the strip stays a bounded banner.
-function photoGrid(images: string[], fillHeight: boolean, fixedHeightPx?: number): string {
+// column, which fills the available page height up to its CSS cap. For the
+// portrait top strip, pass a fixed millimetre height so printing is stable.
+function photoGrid(images: string[], fillHeight: boolean, fixedHeightMm?: number): string {
   if (images.length === 0) return ''
   const { cols, rows, spanFirstRow, spanLastCol } = collageLayout(images.length)
   const cells = images
@@ -117,7 +119,7 @@ function photoGrid(images: string[], fillHeight: boolean, fixedHeightPx?: number
     .join('')
   const sizeStyle = fillHeight
     ? 'height:100%;width:100%;'
-    : `height:${fixedHeightPx ?? 220}px;width:100%;margin-bottom:12px;`
+    : `height:${fixedHeightMm ?? PORTRAIT_PHOTO_MAX_HEIGHT_MM}mm;max-height:${PORTRAIT_PHOTO_MAX_HEIGHT_MM}mm;width:100%;margin-bottom:12px;`
   return `<div class="photo-grid" style="grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr);${sizeStyle}">${cells}</div>`
 }
 
@@ -314,8 +316,8 @@ function buildBaseStyle(sizes: TierSizes): string {
   * { margin:0; padding:0; box-sizing:border-box; }
   html, body { height:100%; }
   body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; color:#1e293b; }
-  .page { padding:28px; min-height:100vh; display:flex; flex-direction:column; }
-  .header { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid #059669; padding-bottom:14px; margin-bottom:16px; }
+  .page { padding:28px; display:flex; flex-direction:column; overflow:hidden; }
+  .header { display:flex; justify-content:space-between; align-items:flex-start; flex-shrink:0; border-bottom:3px solid #059669; padding-bottom:14px; margin-bottom:16px; }
   .title { font-size:${sizes.title}px; font-weight:800; line-height:1.15; }
   .meta { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
   .badge { font-size:${sizes.badge}px; padding:3px 10px; border-radius:20px; background:#f1f5f9; color:#475569; font-weight:600; border:1px solid #e2e8f0; }
@@ -324,7 +326,7 @@ function buildBaseStyle(sizes: TierSizes): string {
   .brand img { height:30px; object-fit:contain; display:block; margin-left:auto; }
   .brand .sub { font-size:9px; color:#94a3b8; margin-top:2px; }
   .section-title { font-size:${sizes.sectionTitle}px; font-weight:800; text-transform:uppercase; letter-spacing:1.2px; color:#94a3b8; margin:${sizes.sectionMarginTop}px 0 ${sectionMarginBottom}px; }
-  .photo-grid { display:grid; gap:6px; overflow:hidden; }
+  .photo-grid { display:grid; gap:6px; overflow:hidden; min-height:0; break-inside:avoid; page-break-inside:avoid; }
   .photo-grid img { width:100%; height:100%; min-height:0; min-width:0; object-fit:cover; border-radius:8px; display:block; }
   table.ingredients { width:100%; border-collapse:collapse; }
   table.ingredients th { text-align:left; font-size:${sizes.tableHeader}px; text-transform:uppercase; letter-spacing:0.8px; color:#94a3b8; padding:6px 8px; border-bottom:2px solid #e5e7eb; }
@@ -351,7 +353,7 @@ function buildBaseStyle(sizes: TierSizes): string {
   .shopping-check { width:13px; height:13px; border:1.5px solid #94a3b8; border-radius:3px; flex-shrink:0; }
   .shopping-name { flex:1; font-size:${sizes.shoppingName}px; font-weight:600; }
   .shopping-qty { font-size:${sizes.shoppingName}px; font-weight:600; white-space:nowrap; }
-  .footer { margin-top:auto; padding-top:10px; border-top:1px solid #e5e7eb; display:flex; justify-content:space-between; font-size:9.5px; color:#94a3b8; }
+  .footer { margin-top:auto; padding-top:10px; border-top:1px solid #e5e7eb; display:flex; justify-content:space-between; flex-shrink:0; font-size:9.5px; color:#94a3b8; }
   .print-btn { position:fixed; bottom:20px; right:20px; background:#059669; color:#fff; border:none; padding:12px 24px; border-radius:12px; font-size:14px; font-weight:600; cursor:pointer; }
   @media print { .no-print { display:none !important; } }
 `
@@ -389,8 +391,7 @@ export function buildKitchenCardHtml(
     </div>
     <div class="brand">
       <img src="${esc(logoUrl)}" alt="${isCustomLogo ? esc(data.name) + ' logo' : 'ZRecipe'}" />
-      ${isCustomLogo ? '' : `<p class="sub">food costing software</p>`}
-      <p class="sub">${today}</p>
+      ${isCustomLogo ? '' : `<p class="sub">food costing software</p><p class="sub">${today}</p>`}
     </div>
   </div>`
 
@@ -421,22 +422,31 @@ export function buildKitchenCardHtml(
       ${footer}
     </div>`
   } else {
-    const portraitHeight = collageLayout(images.length).rows * 95
     bodyHtml = `<div class="page portrait">
       ${header}
-      ${hasPhotos ? photoGrid(images, false, portraitHeight) : ''}
-      ${hasNotes ? notesBox(data.description) : ''}
-      ${ingredientsHtml}
-      ${shoppingListHtml}
-      ${hasMethod ? `<p class="section-title">Method</p>${methodList(data.instructions)}` : ''}
-      ${options.includeAllergens ? `<p class="section-title">Allergen Information (EU Reg. 1169/2011)</p>${allergenBox(data.allergensContains, data.allergensMayContain)}` : ''}
+      <div class="portrait-content">
+        ${hasPhotos ? photoGrid(images, false, PORTRAIT_PHOTO_MAX_HEIGHT_MM) : ''}
+        ${hasNotes ? notesBox(data.description) : ''}
+        ${ingredientsHtml}
+        ${shoppingListHtml}
+        ${hasMethod ? `<p class="section-title">Method</p>${methodList(data.instructions)}` : ''}
+        ${options.includeAllergens ? `<p class="section-title">Allergen Information (EU Reg. 1169/2011)</p>${allergenBox(data.allergensContains, data.allergensMayContain)}` : ''}
+      </div>
       ${footer}
     </div>`
   }
 
   const pageSize = options.orientation === 'landscape' ? 'A4 landscape' : 'A4'
+  // A4 minus the 15 mm @page margins: 267 × 180 mm landscape,
+  // 180 × 267 mm portrait. A fixed frame keeps the footer on page one.
+  const pageFrame = options.orientation === 'landscape'
+    ? `.page { width:267mm; height:180mm; min-height:180mm; max-height:180mm; }
+       .layout { min-height:0; overflow:hidden; break-inside:avoid; page-break-inside:avoid; }`
+    : `.page { width:180mm; height:267mm; min-height:267mm; max-height:267mm; }
+       .portrait-content { flex:1; min-height:0; overflow:hidden; break-inside:avoid; page-break-inside:avoid; }`
   const photosColWidth = options.orientation === 'landscape'
-    ? `.photos-col { width:42%; flex-shrink:0; display:flex; } .content-col { flex:1; min-width:0; }`
+    ? `.photos-col { width:42%; height:100%; max-height:${LANDSCAPE_PHOTO_MAX_HEIGHT_MM}mm; min-height:0; flex-shrink:0; align-self:stretch; display:flex; overflow:hidden; break-inside:avoid; page-break-inside:avoid; }
+       .content-col { flex:1; min-width:0; min-height:0; overflow:hidden; }`
     : ''
 
   return `<!DOCTYPE html>
@@ -447,7 +457,12 @@ export function buildKitchenCardHtml(
   <style>
     @page { size: ${pageSize}; margin: 15mm; }
     ${baseStyle}
+    ${pageFrame}
     ${photosColWidth}
+    @media print {
+      html, body { width:100%; height:auto; overflow:hidden; }
+      .page { break-after:avoid; page-break-after:avoid; }
+    }
   </style>
 </head>
 <body>
