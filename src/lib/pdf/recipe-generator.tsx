@@ -827,25 +827,33 @@ function PhotoStrip({ images }: { images: string[] }) {
     return <PdfImage src={images[0]} style={kitchen.image} />
   }
 
-  const rowHeight = count <= 4 ? 110 : 85
-  const cols = count <= 3 ? count : 4
-  const rows: string[][] = []
-  for (let i = 0; i < images.length; i += cols) {
-    rows.push(images.slice(i, i + cols))
-  }
+  // Flat flexWrap container — no per-row Views, so nothing can stretch a lone
+  // leftover photo. Each image has an explicit fixed width; the container just
+  // wraps them 4-across and they stay that size regardless of row population.
+  //
+  // A4 content width = 595 − 64 (32pt padding each side) = 531pt
+  // 4 cols × CELL_W + 3 × GAP(4) = 531  →  CELL_W ≈ 129.75pt
+  const COLS = 4
+  const GAP = 4
+  const CELL_W = (531 - GAP * (COLS - 1)) / COLS
+  const CELL_H = 90
+  const lastRowStart = Math.floor((count - 1) / COLS) * COLS
 
   return (
-    <View style={{ marginBottom: 14, gap: 4 }}>
-      {rows.map((row, ri) => (
-        <View key={ri} style={{ flexDirection: 'row', gap: 4 }}>
-          {row.map((src, ci) => (
-            <PdfImage
-              key={ci}
-              src={src}
-              style={{ flex: 1, height: rowHeight, objectFit: 'cover', borderRadius: 6 }}
-            />
-          ))}
-        </View>
+    <View style={{ marginBottom: 14, flexDirection: 'row', flexWrap: 'wrap' }}>
+      {images.map((src, i) => (
+        <PdfImage
+          key={i}
+          src={src}
+          style={{
+            width: CELL_W,
+            height: CELL_H,
+            objectFit: 'cover',
+            borderRadius: 6,
+            marginRight: (i + 1) % COLS === 0 ? 0 : GAP,
+            marginBottom: i >= lastRowStart ? 0 : GAP,
+          }}
+        />
       ))}
     </View>
   )

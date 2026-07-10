@@ -23,7 +23,22 @@ export interface TenantContext {
     subscriptionCurrentPeriodEnd?: string | null
     subscriptionTrialEnd?: string | null
     subscriptionCancelAt?: string | null
+    isComped?: boolean
+    customLogoUrl?: string | null
   }
+}
+
+// Centralized paid/comped ("branding rights") check — a tenant may remove or
+// replace the ZRecipe logo only if they're an active paying subscriber or an
+// admin-comped free-Pro account. Trial, canceled, past_due, and plain free
+// tenants do not qualify. Reused by both the API route that persists a
+// custom logo and the client-side useSubscription() hook — do not
+// reimplement this check elsewhere.
+export function hasBrandingRights(
+  subscriptionStatus: string | null | undefined,
+  isComped: boolean | null | undefined
+): boolean {
+  return subscriptionStatus === 'active' || isComped === true
 }
 
 export const TRIAL_PERIOD_DAYS = 14
@@ -67,7 +82,7 @@ export async function getTenantContext(
   const { data: tenant, error: tenantError } = await supabase
     .from('tenants')
     .select(
-      'id, name, slug, created_at, plan, business_type, owner_email, subscription_status, stripe_customer_id, subscription_current_period_end, subscription_trial_end, subscription_cancel_at'
+      'id, name, slug, created_at, plan, business_type, owner_email, subscription_status, stripe_customer_id, subscription_current_period_end, subscription_trial_end, subscription_cancel_at, is_comped, custom_logo_url'
     )
     .eq('id', member.tenant_id)
     .limit(1)
@@ -93,6 +108,8 @@ export async function getTenantContext(
       subscriptionCurrentPeriodEnd: tenant.subscription_current_period_end ?? null,
       subscriptionTrialEnd: tenant.subscription_trial_end ?? null,
       subscriptionCancelAt: tenant.subscription_cancel_at ?? null,
+      isComped: tenant.is_comped ?? false,
+      customLogoUrl: tenant.custom_logo_url ?? null,
     },
   }
 }

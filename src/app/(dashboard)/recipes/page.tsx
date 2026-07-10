@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -20,7 +20,7 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'margin_desc',  label: 'Margin: highest' },
   { value: 'profit_desc',  label: 'Profit: highest' },
   { value: 'cost_asc',     label: 'Cost: lowest' },
-  { value: 'name_asc',     label: 'Name: Aâ†’Z' },
+  { value: 'name_asc',     label: 'Name: A→Z' },
   { value: 'updated_desc', label: 'Recently updated' },
 ]
 
@@ -148,7 +148,7 @@ export default function RecipesPage() {
           {!loading && (
             <p className="mt-0.5 text-sm text-slate-500">
               {recipes.length} recipe{recipes.length !== 1 ? 's' : ''}
-              {recipes.length > 0 && ` Â· avg margin ${avgMargin.toFixed(1)}%`}
+              {recipes.length > 0 && ` · avg margin ${avgMargin.toFixed(1)}%`}
             </p>
           )}
         </div>
@@ -183,7 +183,7 @@ export default function RecipesPage() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search recipesâ€¦"
+            placeholder="Search recipes…"
             className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 text-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20"
           />
         </div>
@@ -352,7 +352,7 @@ export default function RecipesPage() {
                                 <span className="ml-1.5 text-xs font-semibold text-emerald-600">(Sub)</span>
                               )}
                             </p>
-                            <p className="text-xs text-slate-400 line-clamp-2">{recipe.description || 'No description'}</p>
+                            <p className="text-xs text-slate-400 line-clamp-2">{recipe.description || 'No recipe notes'}</p>
                           </div>
                         </div>
                       </td>

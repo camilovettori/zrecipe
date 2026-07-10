@@ -48,6 +48,8 @@ import {
 import type { IngredientLookup } from '@/hooks/useInvoices'
 import { resolveTenantContext, resolveTenantId } from '@/hooks/useTenant'
 import { computeRecipeAllergens, type RecipeAllergenSummary, type IngredientAllergen } from '@/lib/allergens'
+import KitchenCardOptionsModal from '@/components/recipes/KitchenCardOptionsModal'
+import type { KitchenCardData } from '@/lib/print/kitchenCard'
 import IngredientSearch, { type SubRecipeLookup } from './IngredientSearch'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 import { YieldFactorPopover } from './YieldFactorPopover'
@@ -448,6 +450,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const [recipe, setRecipe] = useState<RecipeEditorData>(blankRecipe())
   const [loadedRecipe, setLoadedRecipe] = useState<RecipeRecord | null>(null)
   const [showPrintModal, setShowPrintModal] = useState(false)
+  const [showKitchenCardModal, setShowKitchenCardModal] = useState(false)
   const [showLabelEditor, setShowLabelEditor] = useState(false)
   const [recipeAllergens, setRecipeAllergens] = useState<RecipeAllergenSummary>({ contains: [], mayContain: [] })
   const [uploadingImage, setUploadingImage] = useState(false)
@@ -469,6 +472,9 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const [laborHourlyRate, setLaborHourlyRate] = useState(0)
   const [noteModalIngredientId, setNoteModalIngredientId] = useState<string | null>(null)
   const [substituteIngredientId, setSubstituteIngredientId] = useState<string | null>(null)
+  const [assetOrigin, setAssetOrigin] = useState('')
+
+  useEffect(() => { setAssetOrigin(window.location.origin) }, [])
 
   // Batch multiplier — session-only, never saved to DB
   const [batchEnabled, setBatchEnabled] = useState(false)
@@ -1265,95 +1271,6 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     printWindow.document.close()
   }, [recipe, cost, computedIngredients, recipeAllergens, laborHourlyRate, effectiveN])
 
-  const handlePrintKitchen = useCallback(() => {
-    const printWindow = window.open('', '_blank')
-    if (!printWindow) return
-
-    const logoUrl = `${window.location.origin}/images/fundobranco2.png`
-    const yieldQty = recipe.yieldQuantity
-    const allergenText = recipeAllergens.contains.map((a) => `${a.icon} ${a.shortName}`).join(', ')
-    const N = effectiveN
-
-    const ingredientRows = computedIngredients.map((ri) => {
-      const noteText = (ri.notes && ri.notes !== ri.ingredientName) ? ri.notes : ''
-      const scaledQty = ri.quantity * N
-      const qtyStr = scaledQty % 1 === 0 ? scaledQty.toString() : scaledQty.toFixed(3).replace(/\.?0+$/, '')
-      return `
-      <tr>
-        <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:16px;font-weight:500;width:45%;">${ri.ingredientName}</td>
-        <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;color:#64748b;font-style:italic;width:35%;">${noteText}</td>
-        <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-size:16px;font-weight:600;width:20%;">${qtyStr} ${ri.unit}</td>
-      </tr>
-    `}).join('')
-
-    const instructionSteps = recipe.instructions
-      .filter((s) => s.text.trim())
-      .map((s, i) => `<li style="margin-bottom:12px;font-size:15px;line-height:1.6;">${i + 1}. ${s.text}</li>`)
-      .join('')
-
-    printWindow.document.write(`<!DOCTYPE html>
-<html>
-<head>
-  <title>${recipe.name}${N > 1 ? ` — Batch ×${N}` : ''} — Kitchen Card</title>
-  <style>
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family:-apple-system,BlinkMacSystemFont,sans-serif; color:#1e293b; padding:40px; max-width:700px; margin:0 auto; }
-    @media print { body { padding:20px; } .no-print { display:none !important; } @page { margin:15mm; } }
-    h1 { font-size:32px; font-weight:800; margin-bottom:8px; }
-    .meta { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:24px; }
-    .badge { font-size:12px; padding:4px 12px; border-radius:20px; background:#f1f5f9; color:#475569; font-weight:500; }
-    .badge-batch { background:#ede9fe; color:#7c3aed; font-weight:700; }
-    .section { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#9ca3af; margin:24px 0 12px; }
-    table { width:100%; border-collapse:collapse; margin-bottom:24px; }
-    th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#9ca3af; padding:8px 12px; border-bottom:2px solid #e5e7eb; }
-    th:nth-child(3) { text-align:right; }
-    .allergen-box { padding:16px; background:#fef2f2; border:1px solid #fecaca; border-radius:12px; margin-top:24px; }
-    .print-btn { position:fixed; bottom:20px; right:20px; background:#059669; color:white; border:none; padding:12px 24px; border-radius:12px; font-size:14px; font-weight:600; cursor:pointer; }
-  </style>
-</head>
-<body>
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #059669;padding-bottom:16px;margin-bottom:16px;">
-    <h1>${recipe.name}</h1>
-    <div style="text-align:right;"><img src="${logoUrl}" style="height:32px;object-fit:contain;display:block;margin-left:auto;" alt="ZRecipe" /><p style="font-size:10px;color:#9ca3af;margin-top:2px;">food costing software</p></div>
-  </div>
-  <div class="meta">
-    <span class="badge">${recipe.category || 'Uncategorised'}</span>
-    ${N > 1 ? `<span class="badge badge-batch">Batch ×${N}</span>` : ''}
-    <span class="badge">Yield: ${yieldQty} unit${yieldQty !== 1 ? 's' : ''}</span>
-    <span class="badge">Prep: ${recipe.prepTimeMinutes} min</span>
-    <span class="badge">Cook: ${recipe.cookTimeMinutes} min</span>
-  </div>
-  ${(() => {
-      const urls = recipe.imageUrls.filter(Boolean)
-      if (!urls.length) return ''
-      if (urls.length === 1) {
-        return `<img src="${urls[0]}" style="width:100%;max-height:300px;object-fit:cover;border-radius:12px;margin-bottom:24px;" />`
-      }
-      const h = urls.length <= 4 ? 180 : 130
-      if (urls.length <= 4) {
-        const imgs = urls.map(u => `<img src="${u}" style="flex:1;min-width:0;height:${h}px;object-fit:cover;border-radius:8px;" />`).join('')
-        return `<div style="display:flex;gap:6px;margin-bottom:24px;">${imgs}</div>`
-      }
-      const row1 = urls.slice(0, 4).map(u => `<img src="${u}" style="flex:1;min-width:0;height:${h}px;object-fit:cover;border-radius:8px;" />`).join('')
-      const row2 = urls.slice(4).map(u => `<img src="${u}" style="flex:1;min-width:0;height:${h}px;object-fit:cover;border-radius:8px;" />`).join('')
-      return `<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:24px;"><div style="display:flex;gap:6px;">${row1}</div><div style="display:flex;gap:6px;">${row2}</div></div>`
-    })()}
-  <p class="section">Ingredients${N > 1 ? ` (batch total ×${N})` : ''}</p>
-  <table>
-    <thead><tr><th style="width:45%;">Ingredient</th><th style="width:35%;">Notes</th><th style="width:20%;text-align:right;">Quantity</th></tr></thead>
-    <tbody>${ingredientRows}</tbody>
-  </table>
-  ${instructionSteps ? `<p class="section">Instructions</p><ol style="padding-left:0;list-style:none;">${instructionSteps}</ol>` : ''}
-  ${recipeAllergens.contains.length > 0
-    ? `<div class="allergen-box"><p style="font-weight:700;color:#dc2626;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Allergen Declaration</p><p style="color:#991b1b;font-size:15px;font-weight:600;">CONTAINS: ${allergenText}</p></div>`
-    : '<p style="color:#059669;font-size:13px;margin-top:24px;">✓ No allergens declared</p>'}
-  <div style="margin-top:32px;padding-top:12px;border-top:1px solid #e5e7eb;text-align:center;font-size:11px;color:#9ca3af;">www.zrecipe.ie — food costing software</div>
-  <button class="print-btn no-print" onclick="window.print()">Print</button>
-</body>
-</html>`)
-    printWindow.document.close()
-  }, [recipe, computedIngredients, recipeAllergens, effectiveN])
-
   const handlePrintLabel = useCallback((labelData: LabelData) => {
     const printWindow = window.open('', '_blank')
     if (!printWindow) return
@@ -1429,9 +1346,38 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const handlePrintSelect = useCallback((type: 'full' | 'kitchen' | 'label') => {
     setShowPrintModal(false)
     if (type === 'full') handlePrintFull()
-    else if (type === 'kitchen') handlePrintKitchen()
+    else if (type === 'kitchen') setShowKitchenCardModal(true)
     else setShowLabelEditor(true)
-  }, [handlePrintFull, handlePrintKitchen])
+  }, [handlePrintFull])
+
+  const kitchenCardData: KitchenCardData = useMemo(() => {
+    const N = effectiveN
+    return {
+      name: recipe.name,
+      category: recipe.category,
+      yieldQuantity: recipe.yieldQuantity,
+      yieldUnit: recipe.yieldUnit,
+      prepTimeMinutes: recipe.prepTimeMinutes,
+      cookTimeMinutes: recipe.cookTimeMinutes,
+      imageUrls: recipe.imageUrls,
+      description: recipe.description,
+      ingredients: computedIngredients.map((ri) => {
+        const scaledQty = ri.quantity * N
+        const qtyStr = scaledQty % 1 === 0 ? scaledQty.toString() : scaledQty.toFixed(3).replace(/\.?0+$/, '')
+        return {
+          name: ri.ingredientName,
+          quantity: qtyStr,
+          unit: ri.unit,
+          notes: (ri.notes && ri.notes !== ri.ingredientName) ? ri.notes : '',
+        }
+      }),
+      instructions: recipe.instructions.filter((s) => s.text.trim()).map((s) => s.text),
+      allergensContains: recipeAllergens.contains.map((a) => `${a.icon} ${a.shortName}`),
+      allergensMayContain: recipeAllergens.mayContain.map((a) => `${a.icon} ${a.shortName}`),
+      batchLabel: N > 1 ? `Batch ×${N}` : null,
+      batchMultiplier: N,
+    }
+  }, [recipe, computedIngredients, recipeAllergens, effectiveN])
 
   // ── Loading skeleton ───────────────────────────────────────────────────────
 
@@ -1898,7 +1844,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
             </label>
 
             <label className="block sm:col-span-2">
-              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Description</span>
+              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Recipe Notes</span>
               <textarea
                 value={recipe.description}
                 onChange={(e) => updateRecipeField('description', e.target.value)}
@@ -2123,11 +2069,11 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
         </div>
       </div>
 
-      {/* ── SECTION 3: Instructions ───────────────────────────────────────── */}
+      {/* ── SECTION 3: Method ───────────────────────────────────────── */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-5 flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-slate-900">Instructions</h3>
+            <h3 className="text-sm font-semibold text-slate-900">Method</h3>
             <p className="mt-0.5 text-xs text-slate-500">Drag to reorder steps.</p>
           </div>
           <button
@@ -2277,6 +2223,13 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
         onSelect={handlePrintSelect}
       />
 
+      <KitchenCardOptionsModal
+        open={showKitchenCardModal}
+        onClose={() => setShowKitchenCardModal(false)}
+        data={kitchenCardData}
+        logoUrl={`${assetOrigin}/images/fundobranco2.png`}
+      />
+
       <LabelEditorModal
         isOpen={showLabelEditor}
         onClose={() => setShowLabelEditor(false)}
@@ -2351,7 +2304,7 @@ function PrintOptionsModal({
                   Kitchen Card
                 </p>
                 <p className="mt-0.5 text-xs text-gray-500">
-                  Clean recipe with photo, ingredients, instructions and allergens. No prices. For kitchen staff.
+                  Clean recipe with photo, ingredients, method and allergens. No prices. For kitchen staff.
                 </p>
               </div>
             </div>

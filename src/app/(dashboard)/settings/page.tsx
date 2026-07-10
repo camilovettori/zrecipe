@@ -7,8 +7,10 @@ import {
   Building2,
   Check,
   CreditCard,
+  ImageIcon,
   KeyRound,
   Loader2,
+  Lock,
   Mail,
   Package,
   Receipt,
@@ -25,7 +27,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
 import { clearTenantCache, resolveTenantContext } from '@/hooks/useTenant'
-import { TRIAL_PERIOD_DAYS, getEffectiveSubscriptionStatus } from '@/lib/tenant'
+import { TRIAL_PERIOD_DAYS, getEffectiveSubscriptionStatus, hasBrandingRights } from '@/lib/tenant'
 import { FREE_LIMITS } from '@/lib/subscription/limits'
 import { cn } from '@/lib/utils'
 import { CustomSelect } from '@/components/ui/CustomSelect'
@@ -43,6 +45,8 @@ type TenantSettings = {
   subscription_trial_end: string | null
   subscription_cancel_at: string | null
   created_at: string
+  is_comped: boolean
+  custom_logo_url: string | null
 }
 
 type UsageStats = { recipes: number; ingredients: number; invoices: number }
@@ -204,6 +208,7 @@ export default function SettingsPage() {
   const [inviteEmail, setInviteEmail]         = useState('')
   const [inviteRole, setInviteRole]           = useState('staff')
   const [isSending, setIsSending]             = useState(false)
+  const [uploadingLogo, setUploadingLogo]     = useState(false)
 
   const isCheckoutSuccess =
     searchParams.get('tab') === 'billing' && searchParams.get('success') === 'true'
@@ -214,6 +219,7 @@ export default function SettingsPage() {
   }, [tenant])
 
   const hasFullAccess = subStatus === 'active' || subStatus === 'trialing'
+  const hasBranding = hasBrandingRights(tenant?.subscription_status ?? null, tenant?.is_comped ?? false)
 
   // â"€â"€ URL params: tab + notice toasts â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   useEffect(() => {
@@ -335,6 +341,8 @@ export default function SettingsPage() {
           subscription_trial_end:         ctx.tenant.subscriptionTrialEnd ?? null,
           subscription_cancel_at:         ctx.tenant.subscriptionCancelAt ?? null,
           created_at:                     ctx.tenant.createdAt,
+          is_comped:                      ctx.tenant.isComped ?? false,
+          custom_logo_url:                ctx.tenant.customLogoUrl ?? null,
         }
 
         setTenant(tenantRow)
@@ -400,6 +408,43 @@ export default function SettingsPage() {
       setSavingAccount(false)
     }
   }
+
+  const handleLogoUpload = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error('Logo must be an image file')
+      return
+    }
+    try {
+      setUploadingLogo(true)
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch('/api/tenant/logo', { method: 'POST', body: formData })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error((body as { error?: string }).error ?? 'Upload failed')
+      setTenant((t) => t ? { ...t, custom_logo_url: (body as { url: string }).url } : t)
+      toast.success('Logo updated')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Unable to upload logo')
+    } finally {
+      setUploadingLogo(false)
+    }
+  }
+
+  const handleLogoRemove = async () => {
+    try {
+      setUploadingLogo(true)
+      const res = await fetch('/api/tenant/logo', { method: 'DELETE' })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error((body as { error?: string }).error ?? 'Remove failed')
+      setTenant((t) => t ? { ...t, custom_logo_url: null } : t)
+      toast.success('Logo removed')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Unable to remove logo')
+    } finally {
+      setUploadingLogo(false)
+    }
+  }
+
 
   const handlePasswordChange = async () => {
     if (newPassword.length < 8) { toast.error('Password must be at least 8 characters'); return }
@@ -667,6 +712,79 @@ export default function SettingsPage() {
               </div>
             </section>
           </div>
+
+          {/* Kitchen Card branding */}
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                <ImageIcon className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Kitchen Card branding</h2>
+                <p className="text-sm text-slate-500">
+                  Choose the logo shown in the header of your printed Kitchen Cards.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center">
+              <div className="flex h-20 w-32 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 p-2">
+                {tenant?.custom_logo_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={tenant.custom_logo_url} alt="Custom logo" className="max-h-full max-w-full object-contain" />
+                ) : (
+                  <span className="text-center text-[11px] text-slate-400">No custom logo — using ZRecipe branding</span>
+                )}
+              </div>
+
+              {hasBranding ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+                    {uploadingLogo && <Loader2 className="h-4 w-4 animate-spin" />}
+                    {tenant?.custom_logo_url ? 'Replace logo' : 'Upload logo'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={uploadingLogo}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) void handleLogoUpload(file)
+                        e.target.value = ''
+                      }}
+                    />
+                  </label>
+                  {tenant?.custom_logo_url && (
+                    <button
+                      type="button"
+                      onClick={handleLogoRemove}
+                      disabled={uploadingLogo}
+                      className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-1 items-center justify-between gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm text-slate-500">
+                    <Lock className="h-4 w-4 shrink-0" />
+                    Upgrade to Pro to customize or remove branding.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTab('billing')
+                      router.replace('/settings?tab=billing')
+                    }}
+                    className="shrink-0 rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500"
+                  >
+                    Upgrade
+                  </button>
+                </div>
+              )}
+            </div>
+          </section>
 
           {/* Team Members card */}
           <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

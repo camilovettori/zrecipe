@@ -12,6 +12,8 @@ export interface IngredientRow {
   base_unit: string
   package_size: number | null
   package_unit: string | null
+  last_purchase_date: string | null
+  last_supplier_id: string | null
   notes: string | null
   image_url: string | null
   supplier_id: string | null
@@ -31,6 +33,8 @@ type IngredientDbRow = {
   price_unit: string | null
   package_size: number | null
   package_unit: string | null
+  last_purchase_date: string | null
+  last_supplier_id: string | null
   notes: string | null
   image_url: string | null
   supplier_id: string | null
@@ -50,6 +54,8 @@ function normalizeIngredientRow(row: IngredientDbRow): IngredientRow {
     base_unit: row.price_unit ?? '',
     package_size: row.package_size,
     package_unit: row.package_unit,
+    last_purchase_date: row.last_purchase_date,
+    last_supplier_id: row.last_supplier_id,
     notes: row.notes,
     image_url: row.image_url,
     supplier_id: row.supplier_id,
@@ -87,7 +93,7 @@ export function useIngredients() {
     const { data, error } = await supabase
       .from('ingredients')
       .select(
-        'id, name, brand, category, current_price, price_unit, package_size, package_unit, notes, image_url, supplier_id, supplier:suppliers!last_supplier_id(name), created_at, updated_at'
+        'id, name, brand, category, current_price, price_unit, package_size, package_unit, last_purchase_date, last_supplier_id, notes, image_url, supplier_id, supplier:suppliers!last_supplier_id(name), created_at, updated_at'
       )
       .order('name')
     if (error) setError(error.message)

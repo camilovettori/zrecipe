@@ -10,6 +10,7 @@ import { CustomSelect } from '@/components/ui/CustomSelect'
 import IngredientListView, { type TrendData } from '@/components/ingredients/IngredientListView'
 import EmptyState from '@/components/shared/EmptyState'
 import ConfirmDelete from '@/components/shared/ConfirmDelete'
+import SupplierPriceImportModal from '@/components/ingredients/SupplierPriceImportModal'
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
@@ -68,6 +69,7 @@ export default function IngredientsPage() {
 
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     if (typeof window !== 'undefined') {
       return (localStorage.getItem('ingredients-view-mode') as ViewMode) ?? 'grid'
@@ -154,6 +156,13 @@ export default function IngredientsPage() {
               : `${ingredients.length} ingredient${ingredients.length !== 1 ? 's' : ''}${hasFilters ? ' found' : ''}`}
           </p>
         </div>
+        <button
+          onClick={() => setImportOpen(true)}
+          className="flex shrink-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+        >
+          <Search className="h-4 w-4" />
+          Import supplier price list
+        </button>
         <button
           onClick={() => router.push('/ingredients/new')}
           className="flex shrink-0 items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500"
@@ -292,6 +301,12 @@ export default function IngredientsPage() {
         onConfirm={confirmDelete}
         itemName={deleteTarget?.name ?? ''}
         loading={deleting}
+      />
+
+      <SupplierPriceImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        ingredients={ingredients}
       />
     </div>
   )

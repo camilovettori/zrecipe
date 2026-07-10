@@ -15,10 +15,12 @@ import { EU_ALLERGENS, type AllergenStatus, type IngredientAllergen } from '@/li
 import { findIngredientImage } from '@/lib/utils/ingredient-image'
 import { compressImage } from '@/lib/utils/image-compress'
 import { PriceSimulatorModal } from '@/components/ingredients/PriceSimulatorModal'
-
-function formatMoney(value: number) {
-  return `\u20ac${value.toFixed(2)}`
-}
+import { cn } from '@/lib/utils'
+import {
+  buildCostExamples,
+  formatIngredientUnitPrice,
+  getPriceChangePercent,
+} from '@/lib/utils/ingredient-pricing'
 
 const categoryEmoji: Record<string, string> = {
   bread: '\u{1F35E}',
@@ -57,17 +59,14 @@ type RecipeIngredientUsageRow = {
 
 function formatPricePerKg(ingredient: IngredientRow | null) {
   if (ingredient?.current_price == null) return null
+  return formatIngredientUnitPrice(ingredient.current_price, ingredient.base_unit || ingredient.package_unit)
+}
 
-  const price = ingredient.current_price
-  const packageUnit = (ingredient.package_unit ?? '').toLowerCase()
-  const baseUnit = (ingredient.base_unit ?? '').toLowerCase()
-
-  if (baseUnit === 'kg') return `${formatMoney(price)} / kg`
-  if (baseUnit === 'g') return `${formatMoney(price * 1000)} / kg`
-  if (baseUnit === 'lb') return `${formatMoney(price * 2.20462)} / kg`
-  if (packageUnit === 'kg') return `${formatMoney(price)} / kg`
-
-  return `${formatMoney(price)} / ${ingredient.base_unit || ingredient.package_unit || 'unit'}`
+function resolveHistorySupplierName(point: PricePoint | null) {
+  if (!point?.invoice) return null
+  const invoice = Array.isArray(point.invoice) ? point.invoice[0] : point.invoice
+  const supplier = Array.isArray(invoice?.supplier) ? invoice?.supplier[0] : invoice?.supplier
+  return supplier?.name ?? null
 }
 
 function normalizeUsedRecipes(rows: RecipeIngredientUsageRow[] | null): UsedRecipe[] {
@@ -158,6 +157,7 @@ export default function IngredientDetailPage() {
   const [manifestImageUrl, setManifestImageUrl] = useState<string | null>(null)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [simulatorOpen, setSimulatorOpen] = useState(false)
+  const [formCanSave, setFormCanSave] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   type IngredientDbRow = IngredientRow & { price_unit?: string | null }
@@ -346,6 +346,12 @@ export default function IngredientDetailPage() {
   // User-uploaded image wins; manifest image is the fallback; null → placeholder
   const userImageUrl = ingredient?.image_url?.startsWith('http') ? ingredient.image_url : null
   const displayImageUrl = userImageUrl ?? manifestImageUrl
+  const latestPrice = priceHistory[priceHistory.length - 1] ?? null
+  const previousPrice = priceHistory[priceHistory.length - 2] ?? null
+  const priceChangePct = getPriceChangePercent(previousPrice?.price ?? null, latestPrice?.price ?? null)
+  const currentPriceValue = ingredient?.current_price ?? latestPrice?.price ?? null
+  const currentPriceUnit = ingredient?.base_unit ?? latestPrice?.unit ?? ingredient?.package_unit ?? 'unit'
+  const unitExamples = buildCostExamples(currentPriceValue, currentPriceUnit)
 
   return (
     <div className="space-y-6">
@@ -368,7 +374,7 @@ export default function IngredientDetailPage() {
         <button
           form="ingredient-form"
           type="submit"
-          disabled={isSaving}
+          disabled={isSaving || !formCanSave}
           className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
         >
           <Save className="h-4 w-4" />
@@ -400,6 +406,7 @@ export default function IngredientDetailPage() {
             onSubmittingChange={setIsSaving}
             onSaved={handleIngredientSaved}
             onAutoSaveStatus={setAutoSaveStatus}
+            onValidityChange={setFormCanSave}
           />
 
           {!isNew && (
@@ -417,7 +424,7 @@ export default function IngredientDetailPage() {
           )}
         </div>
 
-        {/* Right: image + price history + details */}
+        {/* Right: image + cost intelligence + details */}
         <div className="space-y-4">
           {/* ── Image card ─────────────────────────────────────────────── */}
           {!isNew && ingredient && (
@@ -488,12 +495,17 @@ export default function IngredientDetailPage() {
             </div>
           )}
 
-          {/* Price history chart */}
+          {/* Cost intelligence */}
           <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-800">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-                Price History
-              </h2>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                  Cost Intelligence
+                </p>
+                <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+                  Pricing summary
+                </h2>
+              </div>
               {!isNew && ingredient && (
                 <button
                   type="button"
@@ -506,10 +518,108 @@ export default function IngredientDetailPage() {
                 </button>
               )}
             </div>
-            <PriceHistoryChart
-              priceHistory={priceHistory}
-              unit={ingredient?.base_unit ?? 'unit'}
-            />
+            {ingredient?.current_price != null ? (
+              <div className="space-y-4">
+                <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-900/40">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                    Current unit cost
+                  </p>
+                  <p className="mt-1 text-3xl font-black text-slate-900 dark:text-white">
+                    {formatIngredientUnitPrice(currentPriceValue, currentPriceUnit)}
+                  </p>
+                  {ingredient.package_size && ingredient.package_unit && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Package: {ingredient.package_size} {ingredient.package_unit}
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-900/40">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                      Previous cost
+                    </p>
+                    <p className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                      {previousPrice
+                        ? formatIngredientUnitPrice(previousPrice.price, previousPrice.unit)
+                        : '—'}
+                    </p>
+                  </div>
+                  <div className={cn(
+                    'rounded-xl p-4',
+                    priceChangePct == null
+                      ? 'bg-slate-50 dark:bg-slate-900/40'
+                      : priceChangePct > 15
+                        ? 'bg-red-50 dark:bg-red-900/20'
+                        : priceChangePct > 0
+                          ? 'bg-amber-50 dark:bg-amber-900/20'
+                          : 'bg-emerald-50 dark:bg-emerald-900/20'
+                  )}>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                      Change
+                    </p>
+                    <p className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                      {priceChangePct == null ? '—' : `${priceChangePct >= 0 ? '+' : ''}${priceChangePct.toFixed(1)}%`}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                    Last purchase
+                  </p>
+                  <p className="mt-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+                    {ingredient.last_purchase_date
+                      ? new Date(ingredient.last_purchase_date).toLocaleDateString('en-IE', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                        })
+                      : latestPrice?.recorded_at
+                        ? new Date(latestPrice.recorded_at).toLocaleDateString('en-IE', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                          })
+                        : '—'}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Supplier: {ingredient.supplier?.name ?? resolveHistorySupplierName(latestPrice) ?? '—'}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                    Mini chart
+                  </p>
+                  <PriceHistoryChart
+                    priceHistory={priceHistory}
+                    unit={ingredient?.base_unit ?? 'unit'}
+                  />
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                    Example usage
+                  </p>
+                  <div className="mt-2 space-y-1 text-sm text-slate-700 dark:text-slate-200">
+                    {unitExamples.map((example) => (
+                      <p key={example}>{example}</p>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center dark:border-slate-700 dark:bg-slate-900/40">
+                <Calculator className="mx-auto h-8 w-8 text-slate-300 dark:text-slate-600" />
+                <p className="mt-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Cost intelligence appears here once you add a purchase price.
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  For new ingredients, the calculator lives in the form so you can see the live result as you type.
+                </p>
+              </div>
+            )}
           </div>
 
           {!isNew && (
@@ -591,7 +701,7 @@ export default function IngredientDetailPage() {
                 )}
                 {ingredient.current_price != null && (
                   <div className="flex justify-between">
-                    <dt className="text-slate-500">Price per kg</dt>
+                    <dt className="text-slate-500">Unit price</dt>
                     <dd className="font-medium text-slate-900 dark:text-white">
                       {formatPricePerKg(ingredient)}
                     </dd>
