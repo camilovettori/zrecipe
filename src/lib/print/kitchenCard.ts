@@ -208,17 +208,18 @@ function notesBox(text: string): string {
 // ── Adaptive text sizing ────────────────────────────────────────────────────
 //
 // Option A (content-tiered sizing): fewer enabled sections / less text means
-// larger, more legible type; more sections / more text scales down so
-// everything still fits on one page. Three tiers, chosen from a rough content
-// score (section count + ingredient/step/character volume) — deliberately a
-// heuristic, not pixel-exact fitting, per the reliability requirement for
-// this print/PDF context. Photos are excluded from the score: they fill
-// their own area (collage layout) and don't compete with text for space.
+// LARGER, bolder type — kitchen staff read these from arm's length or across
+// a counter, so "few sections" must look genuinely big, not just slightly
+// bigger than normal. More sections / more text scales down so everything
+// still fits on one page, with a readability floor (~12-13px) even at the
+// densest tier. Three tiers, chosen from a rough content score (section
+// count + ingredient/step/character volume) — deliberately a heuristic, not
+// pixel-exact fitting, per the reliability requirement for this print/PDF
+// context. Photos are excluded from the score: they fill their own area
+// (collage layout) and don't compete with text for space.
 //
-// Hierarchy is preserved in every tier (heading > section label > body >
-// secondary/notes text), and body text never drops below the ~11px
-// readability floor — only secondary/decorative text (table headers,
-// section labels, "may contain" caveats) goes smaller.
+// Hierarchy is preserved in every tier (title > section label > body >
+// secondary/notes text).
 type SizeTier = 'spacious' | 'normal' | 'dense'
 
 interface TierSizes {
@@ -241,26 +242,30 @@ interface TierSizes {
 }
 
 const SIZE_TIERS: Record<SizeTier, TierSizes> = {
+  // Few sections active, lots of empty space — go big and bold.
   spacious: {
-    title: 32, badge: 12, sectionTitle: 12, tableHeader: 11,
-    ingName: 16, ingNotes: 13, methodLi: 15, methodLineHeight: 1.7,
-    notesListLi: 15, notesText: 14, notesTitle: 11,
-    allergenTitle: 11, allergenContains: 14, allergenMay: 13,
-    shoppingName: 15, sectionMarginTop: 22,
+    title: 42, badge: 14, sectionTitle: 22, tableHeader: 13,
+    ingName: 20, ingNotes: 15, methodLi: 19, methodLineHeight: 1.6,
+    notesListLi: 20, notesText: 20, notesTitle: 15,
+    allergenTitle: 15, allergenContains: 19, allergenMay: 16,
+    shoppingName: 19, sectionMarginTop: 26,
   },
+  // A moderate mix of sections — comfortable, clearly readable.
   normal: {
-    title: 26, badge: 10.5, sectionTitle: 10, tableHeader: 9,
-    ingName: 12, ingNotes: 10.5, methodLi: 11.5, methodLineHeight: 1.55,
-    notesListLi: 12, notesText: 11.5, notesTitle: 9,
-    allergenTitle: 9, allergenContains: 11.5, allergenMay: 11,
-    shoppingName: 12, sectionMarginTop: 14,
+    title: 32, badge: 12, sectionTitle: 16, tableHeader: 11,
+    ingName: 16, ingNotes: 13, methodLi: 15, methodLineHeight: 1.55,
+    notesListLi: 16, notesText: 16, notesTitle: 12,
+    allergenTitle: 12, allergenContains: 15, allergenMay: 13,
+    shoppingName: 15, sectionMarginTop: 18,
   },
+  // Every section enabled, lots of content — scale down only enough to fit
+  // one page; body text still never drops below ~12-13px.
   dense: {
-    title: 22, badge: 9.5, sectionTitle: 9, tableHeader: 8.5,
-    ingName: 11, ingNotes: 9.5, methodLi: 11, methodLineHeight: 1.45,
-    notesListLi: 11, notesText: 11, notesTitle: 8.5,
-    allergenTitle: 8.5, allergenContains: 11, allergenMay: 10,
-    shoppingName: 11, sectionMarginTop: 10,
+    title: 24, badge: 10.5, sectionTitle: 12, tableHeader: 9.5,
+    ingName: 13, ingNotes: 11, methodLi: 12.5, methodLineHeight: 1.45,
+    notesListLi: 13, notesText: 12.5, notesTitle: 9.5,
+    allergenTitle: 9.5, allergenContains: 12.5, allergenMay: 11.5,
+    shoppingName: 12.5, sectionMarginTop: 12,
   },
 }
 
@@ -298,8 +303,8 @@ function estimateContentScore(data: KitchenCardData, options: KitchenCardOptions
 
 function pickSizeTier(data: KitchenCardData, options: KitchenCardOptions): SizeTier {
   const score = estimateContentScore(data, options)
-  if (score <= 12) return 'spacious'
-  if (score <= 30) return 'normal'
+  if (score <= 16) return 'spacious'
+  if (score <= 34) return 'normal'
   return 'dense'
 }
 
