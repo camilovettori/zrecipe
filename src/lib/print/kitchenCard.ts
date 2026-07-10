@@ -205,51 +205,152 @@ function notesBox(text: string): string {
   return `<div class="notes-box"><p class="notes-title">Recipe Notes</p><p class="notes-text">${esc(text)}</p></div>`
 }
 
-const BASE_STYLE = `
+// ── Adaptive text sizing ────────────────────────────────────────────────────
+//
+// Option A (content-tiered sizing): fewer enabled sections / less text means
+// larger, more legible type; more sections / more text scales down so
+// everything still fits on one page. Three tiers, chosen from a rough content
+// score (section count + ingredient/step/character volume) — deliberately a
+// heuristic, not pixel-exact fitting, per the reliability requirement for
+// this print/PDF context. Photos are excluded from the score: they fill
+// their own area (collage layout) and don't compete with text for space.
+//
+// Hierarchy is preserved in every tier (heading > section label > body >
+// secondary/notes text), and body text never drops below the ~11px
+// readability floor — only secondary/decorative text (table headers,
+// section labels, "may contain" caveats) goes smaller.
+type SizeTier = 'spacious' | 'normal' | 'dense'
+
+interface TierSizes {
+  title: number
+  badge: number
+  sectionTitle: number
+  tableHeader: number
+  ingName: number
+  ingNotes: number
+  methodLi: number
+  methodLineHeight: number
+  notesListLi: number
+  notesText: number
+  notesTitle: number
+  allergenTitle: number
+  allergenContains: number
+  allergenMay: number
+  shoppingName: number
+  sectionMarginTop: number
+}
+
+const SIZE_TIERS: Record<SizeTier, TierSizes> = {
+  spacious: {
+    title: 32, badge: 12, sectionTitle: 12, tableHeader: 11,
+    ingName: 16, ingNotes: 13, methodLi: 15, methodLineHeight: 1.7,
+    notesListLi: 15, notesText: 14, notesTitle: 11,
+    allergenTitle: 11, allergenContains: 14, allergenMay: 13,
+    shoppingName: 15, sectionMarginTop: 22,
+  },
+  normal: {
+    title: 26, badge: 10.5, sectionTitle: 10, tableHeader: 9,
+    ingName: 12, ingNotes: 10.5, methodLi: 11.5, methodLineHeight: 1.55,
+    notesListLi: 12, notesText: 11.5, notesTitle: 9,
+    allergenTitle: 9, allergenContains: 11.5, allergenMay: 11,
+    shoppingName: 12, sectionMarginTop: 14,
+  },
+  dense: {
+    title: 22, badge: 9.5, sectionTitle: 9, tableHeader: 8.5,
+    ingName: 11, ingNotes: 9.5, methodLi: 11, methodLineHeight: 1.45,
+    notesListLi: 11, notesText: 11, notesTitle: 8.5,
+    allergenTitle: 8.5, allergenContains: 11, allergenMay: 10,
+    shoppingName: 11, sectionMarginTop: 10,
+  },
+}
+
+// Rough content volume: section presence + item/step/character counts.
+// Thresholds are calibrated so "just ingredients + notes" lands spacious and
+// "everything enabled" lands dense — see verification renders.
+function estimateContentScore(data: KitchenCardData, options: KitchenCardOptions): number {
+  let score = options.includeMetaBar ? 1 : 0
+
+  if (options.includeIngredients) {
+    score += data.ingredients.length * 1.2
+  } else if (options.includeIngredientNotes) {
+    score += data.ingredients.filter((ing) => ing.notes.trim()).length * 1.2
+  }
+
+  if (options.includeMethod && data.instructions.length > 0) {
+    const totalChars = data.instructions.join(' ').length
+    score += data.instructions.length * 1.5 + totalChars / 60
+  }
+
+  if (options.includeNotes && data.description.trim()) {
+    score += 2 + data.description.length / 80
+  }
+
+  if (options.includeAllergens) {
+    score += 1.5 + (data.allergensContains.length + data.allergensMayContain.length) * 0.4
+  }
+
+  if (options.includeShoppingList) {
+    score += data.ingredients.length * 1.2
+  }
+
+  return score
+}
+
+function pickSizeTier(data: KitchenCardData, options: KitchenCardOptions): SizeTier {
+  const score = estimateContentScore(data, options)
+  if (score <= 12) return 'spacious'
+  if (score <= 30) return 'normal'
+  return 'dense'
+}
+
+function buildBaseStyle(sizes: TierSizes): string {
+  const sectionMarginBottom = Math.round(sizes.sectionMarginTop * 0.43)
+  return `
   * { margin:0; padding:0; box-sizing:border-box; }
   html, body { height:100%; }
   body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; color:#1e293b; }
   .page { padding:28px; min-height:100vh; display:flex; flex-direction:column; }
   .header { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid #059669; padding-bottom:14px; margin-bottom:16px; }
-  .title { font-size:26px; font-weight:800; line-height:1.15; }
+  .title { font-size:${sizes.title}px; font-weight:800; line-height:1.15; }
   .meta { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
-  .badge { font-size:10.5px; padding:3px 10px; border-radius:20px; background:#f1f5f9; color:#475569; font-weight:600; border:1px solid #e2e8f0; }
+  .badge { font-size:${sizes.badge}px; padding:3px 10px; border-radius:20px; background:#f1f5f9; color:#475569; font-weight:600; border:1px solid #e2e8f0; }
   .badge-cat { background:#ecfdf5; color:#059669; border-color:#6ee7b7; }
   .brand { text-align:right; flex-shrink:0; }
   .brand img { height:30px; object-fit:contain; display:block; margin-left:auto; }
   .brand .sub { font-size:9px; color:#94a3b8; margin-top:2px; }
-  .section-title { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:1.2px; color:#94a3b8; margin:14px 0 6px; }
+  .section-title { font-size:${sizes.sectionTitle}px; font-weight:800; text-transform:uppercase; letter-spacing:1.2px; color:#94a3b8; margin:${sizes.sectionMarginTop}px 0 ${sectionMarginBottom}px; }
   .photo-grid { display:grid; gap:6px; overflow:hidden; }
   .photo-grid img { width:100%; height:100%; min-height:0; min-width:0; object-fit:cover; border-radius:8px; display:block; }
   table.ingredients { width:100%; border-collapse:collapse; }
-  table.ingredients th { text-align:left; font-size:9px; text-transform:uppercase; letter-spacing:0.8px; color:#94a3b8; padding:6px 8px; border-bottom:2px solid #e5e7eb; }
-  table.ingredients td { padding:7px 8px; border-bottom:1px solid #f1f5f9; font-size:12px; vertical-align:top; }
+  table.ingredients th { text-align:left; font-size:${sizes.tableHeader}px; text-transform:uppercase; letter-spacing:0.8px; color:#94a3b8; padding:6px 8px; border-bottom:2px solid #e5e7eb; }
+  table.ingredients td { padding:7px 8px; border-bottom:1px solid #f1f5f9; font-size:${sizes.ingName}px; vertical-align:top; }
   .ing-name { font-weight:600; }
-  .ing-notes { font-size:10.5px; color:#64748b; font-style:italic; }
+  .ing-notes { font-size:${sizes.ingNotes}px; color:#64748b; font-style:italic; }
   .ing-qty { text-align:right; font-weight:600; white-space:nowrap; }
   ol.method { list-style:none; padding:0; }
-  ol.method li { font-size:11.5px; line-height:1.55; margin-bottom:7px; }
+  ol.method li { font-size:${sizes.methodLi}px; line-height:${sizes.methodLineHeight}; margin-bottom:7px; }
   ul.notes-list { list-style:none; padding:0; margin:0; }
-  ul.notes-list li { position:relative; padding-left:14px; font-size:12px; font-weight:600; color:#1e293b; margin-bottom:7px; line-height:1.4; }
+  ul.notes-list li { position:relative; padding-left:14px; font-size:${sizes.notesListLi}px; font-weight:600; color:#1e293b; margin-bottom:7px; line-height:1.4; }
   ul.notes-list li::before { content:'•'; position:absolute; left:0; color:#059669; font-weight:700; }
   .notes-box { margin-top:10px; padding:10px 12px; border-radius:8px; border:1px dashed #cbd5e1; background:#f8fafc; }
-  .notes-title { font-size:9px; font-weight:800; letter-spacing:1px; color:#64748b; text-transform:uppercase; margin-bottom:4px; }
-  .notes-text { font-size:11.5px; color:#334155; line-height:1.5; white-space:pre-line; }
+  .notes-title { font-size:${sizes.notesTitle}px; font-weight:800; letter-spacing:1px; color:#64748b; text-transform:uppercase; margin-bottom:4px; }
+  .notes-text { font-size:${sizes.notesText}px; color:#334155; line-height:1.5; white-space:pre-line; }
   .allergen-box { margin-top:10px; padding:10px 12px; border-radius:8px; border:1px solid #fca5a5; background:#fef2f2; }
-  .allergen-title { font-size:9px; font-weight:800; letter-spacing:1px; color:#dc2626; text-transform:uppercase; margin-bottom:4px; }
-  .allergen-contains { font-size:11.5px; font-weight:700; color:#991b1b; margin-bottom:2px; }
-  .allergen-may { font-size:11px; color:#d97706; }
-  .allergen-none { font-size:11px; color:#94a3b8; font-style:italic; }
+  .allergen-title { font-size:${sizes.allergenTitle}px; font-weight:800; letter-spacing:1px; color:#dc2626; text-transform:uppercase; margin-bottom:4px; }
+  .allergen-contains { font-size:${sizes.allergenContains}px; font-weight:700; color:#991b1b; margin-bottom:2px; }
+  .allergen-may { font-size:${sizes.allergenMay}px; color:#d97706; }
+  .allergen-none { font-size:${sizes.allergenMay}px; color:#94a3b8; font-style:italic; }
   .shopping-hint { text-transform:none; font-weight:600; letter-spacing:normal; color:#94a3b8; }
   .shopping-list { display:flex; flex-direction:column; }
   .shopping-row { display:flex; align-items:center; gap:9px; padding:6px 2px; border-bottom:1px solid #f1f5f9; }
   .shopping-check { width:13px; height:13px; border:1.5px solid #94a3b8; border-radius:3px; flex-shrink:0; }
-  .shopping-name { flex:1; font-size:12px; font-weight:600; }
-  .shopping-qty { font-size:12px; font-weight:600; white-space:nowrap; }
+  .shopping-name { flex:1; font-size:${sizes.shoppingName}px; font-weight:600; }
+  .shopping-qty { font-size:${sizes.shoppingName}px; font-weight:600; white-space:nowrap; }
   .footer { margin-top:auto; padding-top:10px; border-top:1px solid #e5e7eb; display:flex; justify-content:space-between; font-size:9.5px; color:#94a3b8; }
   .print-btn { position:fixed; bottom:20px; right:20px; background:#059669; color:#fff; border:none; padding:12px 24px; border-radius:12px; font-size:14px; font-weight:600; cursor:pointer; }
   @media print { .no-print { display:none !important; } }
 `
+}
 
 export function buildKitchenCardHtml(
   data: KitchenCardData,
@@ -258,6 +359,8 @@ export function buildKitchenCardHtml(
   isCustomLogo = false
 ): string {
   const images = data.imageUrls.filter(Boolean).slice(0, 8)
+  const sizeTier = pickSizeTier(data, options)
+  const baseStyle = buildBaseStyle(SIZE_TIERS[sizeTier])
   const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
   const yieldUnitTrimmed = (data.yieldUnit ?? '').trim()
   const isGenericUnit = !yieldUnitTrimmed || ['unit', 'units'].includes(yieldUnitTrimmed.toLowerCase())
@@ -338,7 +441,7 @@ export function buildKitchenCardHtml(
   <title>${esc(data.name)}${data.batchLabel ? ` — ${esc(data.batchLabel)}` : ''} — Kitchen Card</title>
   <style>
     @page { size: ${pageSize}; margin: 15mm; }
-    ${BASE_STYLE}
+    ${baseStyle}
     ${photosColWidth}
   </style>
 </head>
