@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { FileSpreadsheet, FileText, Image as ImageIcon, Loader2, UploadCloud, X, Check, Search } from 'lucide-react'
+import { AlertTriangle, Check, CircleCheck, FileSpreadsheet, FileText, Image as ImageIcon, Loader2, Search, UploadCloud, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
 import { toast } from '@/lib/toast'
@@ -136,6 +136,9 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
   }, [open])
 
   const selectedCount = rows.filter((r) => r.selected).length
+  const newCount = rows.filter((r) => r.matchStatus === 'new').length
+  const updateCount = rows.filter((r) => r.matchStatus === 'update').length
+  const needsReviewCount = rows.filter((r) => r.matchStatus === 'review' || r.matchStatus === 'duplicate').length
 
   const updateRow = (id: string, patch: Partial<ExtractedImportRow>) => {
     setRows((current) =>
@@ -574,11 +577,14 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
           </div>
 
           <div className="flex min-h-0 flex-col">
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4 dark:border-slate-800">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Preview</p>
-                <p className="text-sm text-slate-500">
-                  {selectedCount} row{selectedCount !== 1 ? 's' : ''} selected
+                <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400">Review before import</p>
+                <p className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">
+                  Supplier price preview
+                </p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Every selected row stays editable until you import it.
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -598,6 +604,42 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
                 </button>
               </div>
             </div>
+
+            {rows.length > 0 && (
+              <div className="grid grid-cols-2 gap-2 border-b border-slate-100 bg-slate-50/60 px-5 py-3 sm:grid-cols-5 dark:border-slate-800 dark:bg-slate-950/30">
+                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Total rows</p>
+                  <p className="mt-0.5 text-lg font-bold text-slate-800 dark:text-white">{rows.length}</p>
+                </div>
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2 dark:border-emerald-800 dark:bg-emerald-950/30">
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-emerald-600">Selected</p>
+                  <p className="mt-0.5 text-lg font-bold text-emerald-700 dark:text-emerald-300">{selectedCount}</p>
+                </div>
+                <div className="rounded-xl border border-emerald-200 bg-white px-3 py-2 dark:border-emerald-800 dark:bg-slate-900">
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">New</p>
+                  <p className="mt-0.5 text-lg font-bold text-emerald-700 dark:text-emerald-300">{newCount}</p>
+                </div>
+                <div className="rounded-xl border border-sky-200 bg-white px-3 py-2 dark:border-sky-800 dark:bg-slate-900">
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Updates</p>
+                  <p className="mt-0.5 text-lg font-bold text-sky-700 dark:text-sky-300">{updateCount}</p>
+                </div>
+                <div className={cn(
+                  'col-span-2 rounded-xl border px-3 py-2 sm:col-span-1',
+                  needsReviewCount > 0
+                    ? 'border-amber-200 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/30'
+                    : 'border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900'
+                )}>
+                  <p className={cn(
+                    'text-[9px] font-bold uppercase tracking-widest',
+                    needsReviewCount > 0 ? 'text-amber-600' : 'text-slate-400'
+                  )}>Needs review</p>
+                  <p className={cn(
+                    'mt-0.5 text-lg font-bold',
+                    needsReviewCount > 0 ? 'text-amber-700 dark:text-amber-300' : 'text-slate-800 dark:text-white'
+                  )}>{needsReviewCount}</p>
+                </div>
+              </div>
+            )}
 
             <div className="min-h-0 flex-1 overflow-auto">
               {loading || loadingSuppliers ? (
@@ -626,6 +668,7 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
                           <input
                             type="checkbox"
                             checked={selectedCount === rows.length && rows.length > 0}
+                            className="h-4 w-4 rounded border-slate-300 accent-emerald-600 focus:ring-emerald-500"
                             onChange={(e) =>
                               setRows((current) => current.map((row) => ({ ...row, selected: e.target.checked })))
                             }
@@ -644,11 +687,18 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
                     </thead>
                     <tbody className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
                       {rows.map((row) => (
-                        <tr key={row.id} className="align-top">
+                        <tr
+                          key={row.id}
+                          className={cn(
+                            'align-top transition-colors',
+                            row.selected ? 'hover:bg-slate-50/70 dark:hover:bg-slate-800/30' : 'bg-slate-50/80 opacity-60 dark:bg-slate-950/40'
+                          )}
+                        >
                           <td className="px-3 py-3">
                             <input
                               type="checkbox"
                               checked={row.selected}
+                              className="h-4 w-4 rounded border-slate-300 accent-emerald-600 focus:ring-emerald-500"
                               onChange={(e) => updateRow(row.id, { selected: e.target.checked })}
                             />
                           </td>
@@ -656,28 +706,28 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
                             <input
                               value={row.ingredientName}
                               onChange={(e) => updateRow(row.id, { ingredientName: e.target.value })}
-                              className="w-44 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                              className="w-44 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-700 dark:bg-slate-800"
                             />
                           </td>
                           <td className="px-3 py-3">
                             <input
                               value={row.brand}
                               onChange={(e) => updateRow(row.id, { brand: e.target.value })}
-                              className="w-32 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                              className="w-32 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-700 dark:bg-slate-800"
                             />
                           </td>
                           <td className="px-3 py-3">
                             <input
                               value={row.category}
                               onChange={(e) => updateRow(row.id, { category: e.target.value })}
-                              className="w-28 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                              className="w-28 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-700 dark:bg-slate-800"
                             />
                           </td>
                           <td className="px-3 py-3">
                             <input
                               value={row.supplier}
                               onChange={(e) => updateRow(row.id, { supplier: e.target.value })}
-                              className="w-44 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                              className="w-44 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-700 dark:bg-slate-800"
                               placeholder="Supplier"
                             />
                           </td>
@@ -685,14 +735,14 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
                             <input
                               value={row.packagePrice}
                               onChange={(e) => updateRow(row.id, { packagePrice: e.target.value })}
-                              className="w-24 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                              className="w-24 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-700 dark:bg-slate-800"
                             />
                           </td>
                           <td className="px-3 py-3">
                             <input
                               value={row.packageQuantity}
                               onChange={(e) => updateRow(row.id, { packageQuantity: e.target.value })}
-                              className="w-24 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                              className="w-24 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-700 dark:bg-slate-800"
                             />
                           </td>
                           <td className="px-3 py-3">
@@ -713,7 +763,7 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
                             />
                           </td>
                           <td className="px-3 py-3">
-                            <p className="font-semibold text-slate-900 dark:text-white">
+                            <p className="font-bold text-emerald-700 dark:text-emerald-300">
                               {formatIngredientMoney(row.calculatedUnitPrice)}
                             </p>
                             <p className="text-xs text-slate-400">
@@ -723,16 +773,17 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
                           <td className="px-3 py-3">
                             <span
                               className={cn(
-                                'inline-flex rounded-full px-2.5 py-1 text-xs font-semibold',
+                                'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-semibold',
                                 row.matchStatus === 'update'
-                                  ? 'bg-emerald-50 text-emerald-700'
+                                  ? 'border-sky-200 bg-sky-50 text-sky-700'
                                   : row.matchStatus === 'duplicate'
-                                    ? 'bg-amber-50 text-amber-700'
+                                    ? 'border-amber-200 bg-amber-50 text-amber-700'
                                     : row.matchStatus === 'review'
-                                      ? 'bg-slate-100 text-slate-600'
-                                      : 'bg-blue-50 text-blue-700'
+                                      ? 'border-red-200 bg-red-50 text-red-700'
+                                      : 'border-emerald-200 bg-emerald-50 text-emerald-700'
                               )}
                             >
+                              <span className="h-1.5 w-1.5 rounded-full bg-current" />
                               {row.matchStatus === 'update'
                                 ? 'Update existing'
                                 : row.matchStatus === 'duplicate'
@@ -750,11 +801,20 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
               )}
             </div>
 
-            <div className="border-t border-slate-100 px-5 py-4 dark:border-slate-800">
+            <div className="border-t border-slate-100 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-900">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm text-slate-500">
-                  Import selected rows into ingredients and price history.
-                </p>
+                <div className="flex items-center gap-2 text-sm text-slate-500">
+                  {needsReviewCount > 0 ? (
+                    <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  ) : (
+                    <CircleCheck className="h-4 w-4 text-emerald-600" />
+                  )}
+                  <p>
+                    {needsReviewCount > 0
+                      ? `${needsReviewCount} row${needsReviewCount !== 1 ? 's need' : ' needs'} a quick check before import.`
+                      : 'Selected rows are ready to import into ingredients and price history.'}
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={handleImport}

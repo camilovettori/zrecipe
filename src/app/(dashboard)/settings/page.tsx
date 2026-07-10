@@ -421,6 +421,10 @@ export default function SettingsPage() {
       const res = await fetch('/api/tenant/logo', { method: 'POST', body: formData })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error((body as { error?: string }).error ?? 'Upload failed')
+      // The shared tenant context cache (used by useSubscription()/resolveTenantContext()
+      // across the app, incl. the Kitchen Card modal) must be invalidated or it'll keep
+      // serving the pre-upload value for the rest of the session.
+      clearTenantCache()
       setTenant((t) => t ? { ...t, custom_logo_url: (body as { url: string }).url } : t)
       toast.success('Logo updated')
     } catch (err) {
@@ -436,6 +440,7 @@ export default function SettingsPage() {
       const res = await fetch('/api/tenant/logo', { method: 'DELETE' })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error((body as { error?: string }).error ?? 'Remove failed')
+      clearTenantCache()
       setTenant((t) => t ? { ...t, custom_logo_url: null } : t)
       toast.success('Logo removed')
     } catch (err) {

@@ -225,6 +225,13 @@ export function buildCostExamples(normalizedPrice: number | null | undefined, no
     ]
   }
 
+  if (unit === 'g') {
+    return [
+      `1g costs ${formatIngredientMoney(normalizedPrice)}`,
+      `100g costs ${formatIngredientMoney(normalizedPrice * 100)}`,
+    ]
+  }
+
   if (unit === 'l') {
     return [
       `100ml costs ${formatIngredientMoney(normalizedPrice / 10)}`,
@@ -232,12 +239,59 @@ export function buildCostExamples(normalizedPrice: number | null | undefined, no
     ]
   }
 
-  if (unit === 'unit' || unit === 'dozen') {
+  if (unit === 'ml') {
     return [
-      `1 unit costs ${formatIngredientMoney(normalizedPrice)}`,
-      `12 units cost ${formatIngredientMoney(normalizedPrice * 12)}`,
+      `100ml costs ${formatIngredientMoney(normalizedPrice * 100)}`,
+      `1L costs ${formatIngredientMoney(normalizedPrice * 1000)}`,
+    ]
+  }
+
+  if (unit === 'unit') return [`1 unit costs ${formatIngredientMoney(normalizedPrice)}`]
+
+  if (unit === 'dozen') {
+    return [
+      `1 dozen costs ${formatIngredientMoney(normalizedPrice)}`,
+      `1 unit costs ${formatIngredientMoney(normalizedPrice / 12)}`,
     ]
   }
 
   return [`1 ${normalizedUnit} costs ${formatIngredientMoney(normalizedPrice)}`]
+}
+
+export function getSuspiciousIngredientPriceWarning(
+  result: Pick<
+    IngredientPricingResult,
+    'packageQuantity' | 'packageUnit' | 'normalizedPrice' | 'normalizedUnit' | 'isValid'
+  > | null | undefined
+) {
+  if (!result?.isValid || result.normalizedPrice == null || result.packageQuantity == null) return null
+
+  const packageUnit = result.packageUnit?.toLowerCase()
+  const normalizedUnit = result.normalizedUnit.toLowerCase()
+
+  if (packageUnit === 'g' && result.packageQuantity <= 10) {
+    const pricePerKg = normalizedUnit === 'g'
+      ? result.normalizedPrice * 1000
+      : normalizedUnit === 'kg'
+        ? result.normalizedPrice
+        : null
+
+    if (pricePerKg != null && pricePerKg >= 1000) {
+      return `This equals ${formatIngredientMoney(pricePerKg)}/kg. Did you mean ${result.packageQuantity} kg instead of ${result.packageQuantity} g?`
+    }
+  }
+
+  if (packageUnit === 'ml' && result.packageQuantity <= 10) {
+    const pricePerLitre = normalizedUnit === 'ml'
+      ? result.normalizedPrice * 1000
+      : normalizedUnit === 'l'
+        ? result.normalizedPrice
+        : null
+
+    if (pricePerLitre != null && pricePerLitre >= 1000) {
+      return `This equals ${formatIngredientMoney(pricePerLitre)}/L. Did you mean ${result.packageQuantity} L instead of ${result.packageQuantity} ml?`
+    }
+  }
+
+  return null
 }

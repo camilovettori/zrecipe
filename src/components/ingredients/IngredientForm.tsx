@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { AlertCircle, Check, Pencil } from 'lucide-react'
+import { Check, Package, Pencil } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
@@ -13,13 +13,12 @@ import { cn } from '@/lib/utils'
 import type { IngredientRow } from '@/hooks/useIngredients'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 import {
-  buildCostExamples,
   calculateNormalizedIngredientPrice,
   calculatePackagePriceFromUnitPrice,
-  formatIngredientMoney,
   formatIngredientUnitPrice,
   getDefaultIngredientPriceUnit,
   hasMeaningfulPriceChange,
+  type IngredientPricingResult,
 } from '@/lib/utils/ingredient-pricing'
 
 export const CATEGORIES = [
@@ -67,6 +66,7 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>
 
 export type AutoSaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error'
+export type IngredientCostPreview = IngredientPricingResult & { isOverride: boolean }
 
 const field =
   'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-700 dark:bg-slate-800/60 dark:text-white dark:placeholder-slate-500'
@@ -79,6 +79,7 @@ interface IngredientFormProps {
   onSaved?: (ingredient: IngredientRow) => void
   onAutoSaveStatus?: (status: AutoSaveStatus) => void
   onValidityChange?: (valid: boolean) => void
+  onPricingPreviewChange?: (preview: IngredientCostPreview) => void
 }
 
 type IngredientDbRow = {
@@ -118,16 +119,13 @@ function parsePositiveNumber(value: string) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
-function formatCount(value: number) {
-  return Number.isInteger(value) ? value.toString() : value.toLocaleString(undefined, { maximumFractionDigits: 2 })
-}
-
 export default function IngredientForm({
   ingredient,
   onSubmittingChange,
   onSaved,
   onAutoSaveStatus,
   onValidityChange,
+  onPricingPreviewChange,
 }: IngredientFormProps) {
   const router = useRouter()
   const isExisting = !!ingredient?.id
@@ -198,6 +196,24 @@ export default function IngredientForm({
       priceUnit: baseUnitValue,
     })
   }, [packagePriceInput, packageQuantity, packageUnitValue, baseUnitValue])
+
+  const effectivePricingPreview = useMemo<IngredientCostPreview>(() => {
+    if (!overrideUnitPrice) return { ...pricingPreview, isOverride: false }
+
+    const isValid = currentUnitPrice != null && Number.isFinite(currentUnitPrice) && currentUnitPrice > 0
+    return {
+      ...pricingPreview,
+      normalizedPrice: isValid ? currentUnitPrice : null,
+      normalizedUnit: baseUnitValue,
+      warnings: isValid ? [] : ['Enter a valid manual unit price.'],
+      isValid,
+      isOverride: true,
+    }
+  }, [baseUnitValue, currentUnitPrice, overrideUnitPrice, pricingPreview])
+
+  useEffect(() => {
+    onPricingPreviewChange?.(effectivePricingPreview)
+  }, [effectivePricingPreview, onPricingPreviewChange])
 
   useEffect(() => {
     if (overrideUnitPrice) return
@@ -389,21 +405,6 @@ export default function IngredientForm({
   const onSubmit = useCallback((data: FormData) => performSave(data, false), [performSave])
 
   const isCustomCategory = categoryValue && !CATEGORIES.includes(categoryValue)
-  const packagePriceLabel = packagePriceInput.trim() === '' ? '—' : formatIngredientMoney(Number(packagePriceInput))
-  const currentPriceLabel = currentUnitPrice != null && Number.isFinite(currentUnitPrice)
-    ? formatIngredientUnitPrice(currentUnitPrice, baseUnitValue)
-    : '—'
-  const previewExamples = buildCostExamples(pricingPreview.normalizedPrice, pricingPreview.normalizedUnit)
-  const hasPackagePricing =
-    packagePriceInput.trim() !== '' &&
-    packageQuantity != null &&
-    packageQuantity > 0 &&
-    Boolean(packageUnitValue.trim())
-  const previewStatus = pricingPreview.isValid
-    ? 'Ready to save'
-    : ingredient?.current_price != null && !hasPackagePricing
-      ? 'Using existing price'
-      : pricingPreview.warnings[0] ?? 'Missing package price'
 
   const confirmCustomCategory = () => {
     const trimmed = customCategoryInput.trim()
@@ -415,8 +416,7 @@ export default function IngredientForm({
 
   return (
     <form id="ingredient-form" onSubmit={handleSubmit(onSubmit)}>
-      <div className={cn('grid gap-6', !isExisting && 'lg:grid-cols-[minmax(0,1fr)_320px]')}>
-        <div className="space-y-5">
+      <div className="space-y-5">
           {/* Name */}
           <div>
             <label className={label}>Name *</label>
@@ -505,21 +505,29 @@ export default function IngredientForm({
           </div>
 
           {/* Purchase cost */}
-          <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-700 dark:bg-slate-900/40">
-            <div className="mb-3">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                Purchase cost
-              </p>
-              <p className="mt-1 text-sm text-slate-500">
-                Enter what you paid for the full package. ZRecipe calculates the unit cost automatically.
-              </p>
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/40 dark:border-slate-700 dark:bg-slate-900/40 dark:shadow-none">
+            <div className="flex items-start gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-5 py-4 dark:border-slate-800 dark:from-slate-900 dark:to-slate-900/40">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
+                <Package className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
+                  Purchase cost
+                </p>
+                <h3 className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">
+                  What did the full package cost?
+                </h3>
+                <p className="mt-1 max-w-xl text-xs leading-relaxed text-slate-500">
+                  Enter what you paid for the full package. ZRecipe calculates the unit cost automatically.
+                </p>
+              </div>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid gap-x-4 gap-y-5 px-5 py-5 md:grid-cols-2">
               <div>
-                <label className={label}>Supplier/package price (€)</label>
+                <label className={label}>Full package price (€)</label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">€</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400">€</span>
                   <input
                     type="number"
                     step="0.01"
@@ -530,6 +538,7 @@ export default function IngredientForm({
                     className={cn(field, 'pl-7')}
                   />
                 </div>
+                <p className="mt-1.5 text-xs text-slate-400">Use the total shown on the supplier invoice.</p>
               </div>
 
               <div>
@@ -544,6 +553,7 @@ export default function IngredientForm({
                   placeholder="e.g. 1000"
                   className={field}
                 />
+                <p className="mt-1.5 text-xs text-slate-400">The amount contained in one package.</p>
               </div>
 
               <div>
@@ -560,10 +570,11 @@ export default function IngredientForm({
                   options={UNITS.map((u) => ({ value: u, label: u }))}
                   error={errors.package_unit?.message}
                 />
+                <p className="mt-1.5 text-xs text-slate-400">How the supplier describes the package.</p>
               </div>
 
               <div>
-                <label className={label}>Normalized price unit</label>
+                <label className={label}>Calculate cost per</label>
                 <CustomSelect
                   value={baseUnitValue}
                   onChange={(v) => {
@@ -574,20 +585,21 @@ export default function IngredientForm({
                   options={UNITS.map((u) => ({ value: u, label: u }))}
                   error={errors.base_unit?.message}
                 />
+                <p className="mt-1.5 text-xs text-slate-400">The standard unit used in recipe costing.</p>
               </div>
             </div>
 
-            <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800/60">
+            <div className="mx-5 mb-5 border-t border-slate-100 pt-4 dark:border-slate-800">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                    Calculated unit price
-                  </p>
-                  <p className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
-                    {overrideUnitPrice ? currentPriceLabel : formatIngredientUnitPrice(pricingPreview.normalizedPrice, pricingPreview.normalizedUnit)}
-                  </p>
-                </div>
-
+                <p className="text-sm text-slate-500">
+                  Calculated:{' '}
+                  <span className="font-semibold text-emerald-700 dark:text-emerald-300">
+                    {formatIngredientUnitPrice(
+                      effectivePricingPreview.normalizedPrice,
+                      effectivePricingPreview.normalizedUnit
+                    )}
+                  </span>
+                </p>
                 <button
                   type="button"
                   onClick={() => {
@@ -603,93 +615,39 @@ export default function IngredientForm({
                     })
                   }}
                   className={cn(
-                    'rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
+                    'text-xs font-medium transition-colors',
                     overrideUnitPrice
-                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                      : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:text-emerald-700'
+                      ? 'text-amber-700 hover:text-amber-800'
+                      : 'text-slate-400 hover:text-emerald-700'
                   )}
                 >
-                  {overrideUnitPrice ? 'Override active' : 'Override calculated unit price'}
+                  {overrideUnitPrice ? 'Use automatic calculation' : 'Override unit cost'}
                 </button>
               </div>
 
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <div>
-                  <label className={label}>Unit price</label>
-                  {overrideUnitPrice ? (
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">€</span>
-                      <input
-                        {...register('current_price', {
-                          setValueAs: (v: string) => (v === '' ? undefined : parseFloat(v)),
-                        })}
-                        type="number"
-                        step="0.000001"
-                        min="0"
-                        placeholder="0.00"
-                        className={cn(field, 'pl-7')}
-                      />
-                    </div>
-                  ) : (
+              {overrideUnitPrice && (
+                <div className="mt-3 max-w-xs">
+                  <label className={label}>Manual unit cost</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">€</span>
                     <input
-                      value={currentPriceLabel}
-                      readOnly
-                      className={cn(field, 'cursor-default bg-slate-50 text-slate-900 dark:bg-slate-900/60')}
+                      {...register('current_price', {
+                        setValueAs: (v: string) => (v === '' ? undefined : parseFloat(v)),
+                      })}
+                      type="number"
+                      step="0.000001"
+                      min="0"
+                      placeholder="0.00"
+                      className={cn(field, 'pl-7')}
                     />
-                  )}
+                  </div>
                   {errors.current_price && (
                     <p className="mt-1 text-xs text-red-500">{errors.current_price.message}</p>
                   )}
                 </div>
-
-                <div>
-                  <label className={label}>Validation</label>
-                  <div
-                    className={cn(
-                      'flex h-[42px] items-center justify-between rounded-xl border px-3 text-sm font-medium',
-                      pricingPreview.isValid
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                        : 'border-amber-200 bg-amber-50 text-amber-700'
-                    )}
-                  >
-                    <span>{pricingPreview.isValid ? 'Ready to save' : 'Needs review'}</span>
-                    <span className="text-[11px] font-semibold uppercase tracking-wider">
-                      {pricingPreview.isValid ? 'OK' : 'Check units'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {pricingPreview.conversionUsed && (
-                <p className="mt-3 text-xs text-slate-500">
-                  {pricingPreview.conversionUsed}
-                </p>
               )}
-
-              {pricingPreview.warnings.length > 0 && (
-                <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                  <div className="flex items-start gap-2">
-                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <span>{pricingPreview.warnings[0]}</span>
-                  </div>
-                </div>
-              )}
-
-              <p className="mt-3 text-xs text-slate-500">
-                Package price: <span className="font-medium text-slate-700">{packagePriceLabel}</span>
-                {'  '}·{'  '}
-                Package size: <span className="font-medium text-slate-700">
-                  {packageQuantity != null ? formatCount(packageQuantity) : '—'} {packageUnitValue || ''}
-                </span>
-              </p>
             </div>
           </div>
-
-          {overrideUnitPrice && (
-            <p className="text-xs text-slate-500">
-              Manual override is active. ZRecipe will save the unit price exactly as entered.
-            </p>
-          )}
 
           {/* Notes */}
           <div>
@@ -701,72 +659,6 @@ export default function IngredientForm({
               className={cn(field, 'resize-none')}
             />
           </div>
-        </div>
-
-        {!isExisting && (
-          <aside className="space-y-4 lg:sticky lg:top-6 self-start">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                    Cost Intelligence
-                  </p>
-                  <h3 className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
-                    Live preview
-                  </h3>
-                </div>
-                <span
-                  className={cn(
-                    'rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider',
-                    pricingPreview.isValid
-                      ? 'bg-emerald-50 text-emerald-700'
-                      : 'bg-amber-50 text-amber-700'
-                  )}
-                >
-                  {previewStatus}
-                </span>
-              </div>
-
-              <div className="space-y-3">
-                <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-900/40">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Current unit cost</p>
-                  <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">
-                    {overrideUnitPrice
-                      ? formatIngredientUnitPrice(currentUnitPrice, baseUnitValue)
-                      : formatIngredientUnitPrice(pricingPreview.normalizedPrice, pricingPreview.normalizedUnit)}
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-900/40">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">100g / 100ml</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
-                      {previewExamples[0] ?? '—'}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-900/40">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">1 full unit</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
-                      {previewExamples[1] ?? previewExamples[0] ?? '—'}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Validation</p>
-                  <p className="mt-1 text-sm font-medium text-slate-700 dark:text-slate-300">
-                    {previewStatus}
-                  </p>
-                  {pricingPreview.warnings.length > 0 ? (
-                    <p className="mt-1 text-xs text-amber-700">{pricingPreview.warnings[0]}</p>
-                  ) : (
-                    <p className="mt-1 text-xs text-slate-500">Safe conversion and unit math.</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </aside>
-        )}
       </div>
     </form>
   )

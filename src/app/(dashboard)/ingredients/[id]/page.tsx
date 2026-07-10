@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Calculator, Camera, Check, ChefHat, Loader2, Save, Trash2, X } from 'lucide-react'
+import { AlertTriangle, ArrowDownRight, ArrowLeft, ArrowUpRight, Calculator, Camera, Check, ChefHat, Loader2, Minus, Save, Trash2, X } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
-import IngredientForm, { type AutoSaveStatus } from '@/components/ingredients/IngredientForm'
+import IngredientForm, {
+  type AutoSaveStatus,
+  type IngredientCostPreview,
+} from '@/components/ingredients/IngredientForm'
 import AllergenPicker from '@/components/ingredients/AllergenPicker'
 import PriceHistoryChart, { type PricePoint } from '@/components/ingredients/PriceHistoryChart'
 import ConfirmDelete from '@/components/shared/ConfirmDelete'
@@ -18,8 +21,10 @@ import { PriceSimulatorModal } from '@/components/ingredients/PriceSimulatorModa
 import { cn } from '@/lib/utils'
 import {
   buildCostExamples,
+  formatIngredientMoney,
   formatIngredientUnitPrice,
   getPriceChangePercent,
+  getSuspiciousIngredientPriceWarning,
 } from '@/lib/utils/ingredient-pricing'
 
 const categoryEmoji: Record<string, string> = {
@@ -158,6 +163,7 @@ export default function IngredientDetailPage() {
   const [uploadingImage, setUploadingImage] = useState(false)
   const [simulatorOpen, setSimulatorOpen] = useState(false)
   const [formCanSave, setFormCanSave] = useState(false)
+  const [costPreview, setCostPreview] = useState<IngredientCostPreview | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   type IngredientDbRow = IngredientRow & { price_unit?: string | null }
@@ -351,7 +357,20 @@ export default function IngredientDetailPage() {
   const priceChangePct = getPriceChangePercent(previousPrice?.price ?? null, latestPrice?.price ?? null)
   const currentPriceValue = ingredient?.current_price ?? latestPrice?.price ?? null
   const currentPriceUnit = ingredient?.base_unit ?? latestPrice?.unit ?? ingredient?.package_unit ?? 'unit'
-  const unitExamples = buildCostExamples(currentPriceValue, currentPriceUnit)
+  const panelPriceValue = costPreview?.normalizedPrice ?? currentPriceValue
+  const panelPriceUnit = costPreview?.normalizedUnit ?? currentPriceUnit
+  const unitExamples = buildCostExamples(panelPriceValue, panelPriceUnit)
+  const suspiciousPriceWarning = getSuspiciousIngredientPriceWarning(costPreview)
+  const previewWarnings = costPreview?.warnings ?? []
+  const hasEnteredPackage = Boolean(
+    costPreview?.packagePrice &&
+    costPreview.packagePrice > 0 &&
+    costPreview.packageQuantity &&
+    costPreview.packageQuantity > 0 &&
+    costPreview.packageUnit
+  )
+  const usingExistingPrice = !isNew && panelPriceValue != null && !hasEnteredPackage
+  const previewIsValid = (costPreview?.isValid ?? panelPriceValue != null) || usingExistingPrice
 
   return (
     <div className="space-y-6">
@@ -407,6 +426,7 @@ export default function IngredientDetailPage() {
             onSaved={handleIngredientSaved}
             onAutoSaveStatus={setAutoSaveStatus}
             onValidityChange={setFormCanSave}
+            onPricingPreviewChange={setCostPreview}
           />
 
           {!isNew && (
@@ -496,15 +516,20 @@ export default function IngredientDetailPage() {
           )}
 
           {/* Cost intelligence */}
-          <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-800">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                  Cost Intelligence
-                </p>
-                <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-                  Pricing summary
-                </h2>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/40 dark:border-slate-700 dark:bg-slate-800 dark:shadow-none">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
+                  <Calculator className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
+                    Cost Intelligence
+                  </p>
+                  <h2 className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">
+                    Pricing summary
+                  </h2>
+                </div>
               </div>
               {!isNew && ingredient && (
                 <button
@@ -518,53 +543,148 @@ export default function IngredientDetailPage() {
                 </button>
               )}
             </div>
-            {ingredient?.current_price != null ? (
-              <div className="space-y-4">
-                <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-900/40">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                    Current unit cost
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-5 dark:border-emerald-800 dark:from-emerald-950/40 dark:to-slate-900">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-400">
+                  {isNew ? 'Calculated unit cost' : 'Current unit cost'}
+                </p>
+                <p className="mt-1.5 text-3xl font-black tracking-tight text-emerald-700 dark:text-emerald-300">
+                  {formatIngredientUnitPrice(panelPriceValue, panelPriceUnit)}
+                </p>
+                {hasEnteredPackage && costPreview ? (
+                  <p className="mt-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
+                    {formatIngredientMoney(costPreview.packagePrice)} for{' '}
+                    {costPreview.packageQuantity} {costPreview.packageUnit}
                   </p>
-                  <p className="mt-1 text-3xl font-black text-slate-900 dark:text-white">
-                    {formatIngredientUnitPrice(currentPriceValue, currentPriceUnit)}
+                ) : (
+                  <p className="mt-1.5 text-xs text-slate-500">
+                    {isNew ? 'Enter the package price, quantity and unit to calculate.' : 'Package details not available.'}
                   </p>
-                  {ingredient.package_size && ingredient.package_unit && (
-                    <p className="mt-1 text-xs text-slate-500">
-                      Package: {ingredient.package_size} {ingredient.package_unit}
-                    </p>
-                  )}
-                </div>
+                )}
+                {costPreview?.isOverride && (
+                  <p className="mt-1 text-[11px] font-medium text-amber-700">Manual unit cost override active</p>
+                )}
+              </div>
 
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-900/40">
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                  Example recipe usage
+                </p>
+                {unitExamples.length > 0 ? (
+                  <div className="mt-2 divide-y divide-slate-200/80 text-sm text-slate-700 dark:divide-slate-700 dark:text-slate-200">
+                    {unitExamples.map((example) => (
+                      <p key={example} className="py-1.5 first:pt-0 last:pb-0">{example}</p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-slate-400">Examples update when the unit cost is available.</p>
+                )}
+              </div>
+
+              <div className={cn(
+                'rounded-xl border p-4',
+                previewIsValid
+                  ? 'border-emerald-200 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-950/20'
+                  : 'border-amber-200 bg-amber-50/60 dark:border-amber-800 dark:bg-amber-950/20'
+              )}>
+                <div className="flex items-start gap-2.5">
+                  {previewIsValid ? (
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                  ) : (
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                  )}
+                  <div>
+                    <p className={cn(
+                      'text-sm font-semibold',
+                      previewIsValid ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-800 dark:text-amber-300'
+                    )}>
+                      {usingExistingPrice
+                        ? 'Using existing unit cost'
+                        : previewIsValid
+                          ? 'Ready to save'
+                          : 'Complete the purchase details'}
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                      {usingExistingPrice
+                        ? 'Add package details when available to enable automatic cost calculation.'
+                        : previewIsValid
+                          ? 'The package conversion is valid and ready for recipe costing.'
+                        : previewWarnings[0] ?? 'Enter a valid package price, quantity and unit.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {suspiciousPriceWarning && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-800 dark:bg-amber-950/20">
+                  <div className="flex items-start gap-2.5">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                    <div>
+                      <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Check the package unit</p>
+                      <p className="mt-1 text-xs leading-relaxed text-amber-700 dark:text-amber-400">
+                        {suspiciousPriceWarning}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!isNew && (
+                <>
+                  <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-700 dark:bg-slate-900/40">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
                       Previous cost
                     </p>
-                    <p className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                    <p className="mt-1.5 text-lg font-bold text-slate-900 dark:text-white">
                       {previousPrice
                         ? formatIngredientUnitPrice(previousPrice.price, previousPrice.unit)
                         : '—'}
                     </p>
+                    <p className="mt-1 text-xs text-slate-400">Last recorded unit price</p>
                   </div>
                   <div className={cn(
-                    'rounded-xl p-4',
+                    'rounded-xl border p-4',
                     priceChangePct == null
-                      ? 'bg-slate-50 dark:bg-slate-900/40'
+                      ? 'border-slate-200 bg-slate-50/70 dark:border-slate-700 dark:bg-slate-900/40'
                       : priceChangePct > 15
-                        ? 'bg-red-50 dark:bg-red-900/20'
+                        ? 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20'
                         : priceChangePct > 0
-                          ? 'bg-amber-50 dark:bg-amber-900/20'
-                          : 'bg-emerald-50 dark:bg-emerald-900/20'
+                          ? 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20'
+                          : 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-900/20'
                   )}>
                     <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                      Change
+                      Price change
                     </p>
-                    <p className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
-                      {priceChangePct == null ? '—' : `${priceChangePct >= 0 ? '+' : ''}${priceChangePct.toFixed(1)}%`}
+                    <div className="mt-1.5 flex items-center gap-1.5">
+                      {priceChangePct == null ? (
+                        <Minus className="h-4 w-4 text-slate-400" />
+                      ) : priceChangePct > 0 ? (
+                        <ArrowUpRight className={cn('h-4 w-4', priceChangePct > 15 ? 'text-red-500' : 'text-amber-600')} />
+                      ) : (
+                        <ArrowDownRight className="h-4 w-4 text-emerald-600" />
+                      )}
+                      <p className={cn(
+                        'text-lg font-bold',
+                        priceChangePct == null
+                          ? 'text-slate-500'
+                          : priceChangePct > 15
+                            ? 'text-red-700 dark:text-red-300'
+                            : priceChangePct > 0
+                              ? 'text-amber-700 dark:text-amber-300'
+                              : 'text-emerald-700 dark:text-emerald-300'
+                      )}>
+                        {priceChangePct == null ? '—' : `${priceChangePct >= 0 ? '+' : ''}${priceChangePct.toFixed(1)}%`}
+                      </p>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {priceChangePct == null ? 'No comparison yet' : priceChangePct > 0 ? 'Cost increased' : 'Cost decreased or unchanged'}
                     </p>
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                {ingredient && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
                     Last purchase
                   </p>
@@ -586,40 +706,23 @@ export default function IngredientDetailPage() {
                   <p className="mt-1 text-xs text-slate-500">
                     Supplier: {ingredient.supplier?.name ?? resolveHistorySupplierName(latestPrice) ?? '—'}
                   </p>
-                </div>
-
-                <div>
-                  <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                    Mini chart
-                  </p>
-                  <PriceHistoryChart
-                    priceHistory={priceHistory}
-                    unit={ingredient?.base_unit ?? 'unit'}
-                  />
-                </div>
-
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                    Example usage
-                  </p>
-                  <div className="mt-2 space-y-1 text-sm text-slate-700 dark:text-slate-200">
-                    {unitExamples.map((example) => (
-                      <p key={example}>{example}</p>
-                    ))}
                   </div>
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center dark:border-slate-700 dark:bg-slate-900/40">
-                <Calculator className="mx-auto h-8 w-8 text-slate-300 dark:text-slate-600" />
-                <p className="mt-2 text-sm font-medium text-slate-700 dark:text-slate-200">
-                  Cost intelligence appears here once you add a purchase price.
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  For new ingredients, the calculator lives in the form so you can see the live result as you type.
-                </p>
-              </div>
-            )}
+                )}
+
+                  {priceHistory.length > 0 && (
+                    <div>
+                      <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                        Price history
+                      </p>
+                      <PriceHistoryChart
+                        priceHistory={priceHistory}
+                        unit={panelPriceUnit}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
 
           {!isNew && (
