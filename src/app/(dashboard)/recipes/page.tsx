@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -10,6 +10,7 @@ import { useSubscription } from '@/hooks/useSubscription'
 import { EU_ALLERGENS } from '@/lib/allergens'
 import { cn } from '@/lib/utils'
 import { CustomSelect } from '@/components/ui/CustomSelect'
+import { convertUnit } from '@/lib/utils/unit-converter'
 import { format } from 'date-fns'
 
 type ViewMode = 'grid' | 'list'
@@ -19,7 +20,7 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'margin_desc',  label: 'Margin: highest' },
   { value: 'profit_desc',  label: 'Profit: highest' },
   { value: 'cost_asc',     label: 'Cost: lowest' },
-  { value: 'name_asc',     label: 'Name: A→Z' },
+  { value: 'name_asc',     label: 'Name: Aâ†’Z' },
   { value: 'updated_desc', label: 'Recently updated' },
 ]
 
@@ -27,6 +28,15 @@ function marginPillClass(pct: number) {
   if (pct >= 60) return 'bg-emerald-100 text-emerald-700'
   if (pct >= 35) return 'bg-amber-100 text-amber-700'
   return 'bg-red-100 text-red-600'
+}
+
+function normalizeCountUnit(unit: string) {
+  const trimmed = unit.trim().toLowerCase()
+  if (trimmed === 'units') return 'unit'
+  if (trimmed === 'dozens') return 'dozen'
+  if (trimmed === 'portions') return 'portion'
+  if (trimmed === 'servings') return 'serving'
+  return trimmed || 'unit'
 }
 
 function SkeletonCard() {
@@ -138,7 +148,7 @@ export default function RecipesPage() {
           {!loading && (
             <p className="mt-0.5 text-sm text-slate-500">
               {recipes.length} recipe{recipes.length !== 1 ? 's' : ''}
-              {recipes.length > 0 && ` · avg margin ${avgMargin.toFixed(1)}%`}
+              {recipes.length > 0 && ` Â· avg margin ${avgMargin.toFixed(1)}%`}
             </p>
           )}
         </div>
@@ -173,7 +183,7 @@ export default function RecipesPage() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search recipes…"
+            placeholder="Search recipesâ€¦"
             className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 text-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20"
           />
         </div>
@@ -309,8 +319,13 @@ export default function RecipesPage() {
             </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredRecipes.map((recipe) => {
+                  const isSubRecipe = recipe.isSubIngredient || (recipe as { is_sub_recipe?: boolean }).is_sub_recipe === true
+                  const yieldQuantity = Math.max(1, recipe.yieldQuantity ?? 1)
+                  const yieldUnit = recipe.yieldUnit?.trim() || 'units'
+                  const unitsPerYield = Math.max(1, convertUnit(yieldQuantity, normalizeCountUnit(recipe.yieldUnit ?? 'unit'), 'unit'))
                   const profitPerUnit = recipe.cost.sellingPrice - recipe.cost.costPerUnit
-                  const hasPrice = recipe.cost.sellingPrice > 0
+                  const hasPrice = !isSubRecipe && recipe.cost.sellingPrice > 0
+                  const costPerSingleUnit = unitsPerYield > 1 ? recipe.cost.totalCost / unitsPerYield : null
                   return (
                     <tr
                       key={recipe.id}
@@ -333,7 +348,7 @@ export default function RecipesPage() {
                           <div className="min-w-0">
                             <p className="font-medium text-slate-900 truncate">
                               {recipe.name}
-                              {recipe.isSubIngredient && (
+                              {isSubRecipe && (
                                 <span className="ml-1.5 text-xs font-semibold text-emerald-600">(Sub)</span>
                               )}
                             </p>
@@ -351,17 +366,38 @@ export default function RecipesPage() {
 
                       {/* Cost */}
                       <td className="px-5 py-4 text-sm text-slate-700">
-                        €{recipe.cost.totalCost.toFixed(2)}
+                        {isSubRecipe ? (
+                          <div className="space-y-0.5">
+                            <div className="text-[10px] uppercase tracking-wide text-slate-400">Total cost</div>
+                            <div className="font-medium text-slate-900">€{recipe.cost.totalCost.toFixed(2)}</div>
+                          </div>
+                        ) : (
+                          `€${recipe.cost.totalCost.toFixed(2)}`
+                        )}
                       </td>
 
-                      {/* Selling */}
+                      {/* Selling / Yield */}
                       <td className="px-5 py-4 text-sm font-medium text-slate-900">
-                        {hasPrice ? `€${recipe.cost.sellingPrice.toFixed(2)}` : <span className="text-slate-300">—</span>}
+                        {isSubRecipe ? (
+                          <div className="space-y-0.5">
+                            <div className="text-[10px] uppercase tracking-wide text-slate-400">Yield</div>
+                            <div className="font-medium text-slate-900">
+                              {yieldQuantity} {yieldUnit}
+                            </div>
+                          </div>
+                        ) : (
+                          hasPrice ? `€${recipe.cost.sellingPrice.toFixed(2)}` : <span className="text-slate-300">—</span>
+                        )}
                       </td>
 
-                      {/* Profit */}
+                      {/* Profit / Cost per unit */}
                       <td className="px-5 py-4">
-                        {hasPrice ? (
+                        {isSubRecipe ? (
+                          <div className="space-y-0.5">
+                            <div className="text-[10px] uppercase tracking-wide text-slate-400">Cost / yield unit</div>
+                            <div className="font-medium text-slate-900">€{recipe.cost.costPerUnit.toFixed(2)}</div>
+                          </div>
+                        ) : hasPrice ? (
                           <span className={cn('text-sm font-medium', profitPerUnit >= 0 ? 'text-emerald-600' : 'text-red-500')}>
                             {profitPerUnit >= 0 ? '+' : ''}€{profitPerUnit.toFixed(2)}
                           </span>
@@ -370,9 +406,18 @@ export default function RecipesPage() {
                         )}
                       </td>
 
-                      {/* Margin */}
+                      {/* Margin / Cost per single unit */}
                       <td className="px-5 py-4">
-                        {hasPrice ? (
+                        {isSubRecipe ? (
+                          <div className="space-y-0.5">
+                            <div className="text-[10px] uppercase tracking-wide text-slate-400">
+                              {costPerSingleUnit != null ? 'Cost / single unit' : 'Cost / unit'}
+                            </div>
+                            <div className="font-medium text-slate-900">
+                              €{(costPerSingleUnit ?? recipe.cost.costPerUnit).toFixed(2)}
+                            </div>
+                          </div>
+                        ) : hasPrice ? (
                           <span className={cn('inline-flex rounded-full px-2.5 py-1 text-xs font-semibold', marginPillClass(recipe.cost.marginPercent))}>
                             {recipe.cost.marginPercent.toFixed(1)}%
                           </span>
@@ -380,7 +425,6 @@ export default function RecipesPage() {
                           <span className="text-sm text-slate-300">—</span>
                         )}
                       </td>
-
                       {/* Updated */}
                       <td className="px-5 py-4 text-xs text-slate-400">
                         {format(new Date(recipe.updatedAt), 'MMM d, yyyy')}
@@ -395,3 +439,4 @@ export default function RecipesPage() {
     </div>
   )
 }
+

@@ -78,7 +78,7 @@ export function SubstituteIngredientModal({
         .limit(6),
       supabase
         .from('recipes')
-        .select('id, name, sub_ingredient_cost_per_unit, sub_ingredient_unit, yield_unit')
+        .select('id, name, sub_ingredient_cost_per_unit, sub_ingredient_unit, yield_quantity, yield_unit')
         .eq('is_sub_ingredient', true)
         .ilike('name', `%${debouncedQuery}%`)
         .order('name')
@@ -99,12 +99,15 @@ export function SubstituteIngredientModal({
           name: string
           sub_ingredient_cost_per_unit?: number | null
           sub_ingredient_unit?: string | null
+          yield_quantity?: number | null
           yield_unit?: string | null
         }) => ({
           id: r.id,
           name: r.name,
           costPerUnit: r.sub_ingredient_cost_per_unit ?? null,
           unit: r.sub_ingredient_unit ?? r.yield_unit ?? 'unit',
+          yieldQuantity: Math.max(1, Number(r.yield_quantity ?? 1)),
+          yieldUnit: r.yield_unit ?? 'unit',
         }))
       )
       setLoading(false)

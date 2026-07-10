@@ -1,11 +1,279 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { ArrowUpDown, FileText, Plus, Search, UploadCloud } from 'lucide-react'
+import { ArrowUpDown, CalendarDays, ChevronLeft, ChevronRight, FileText, Plus, Search, UploadCloud, X } from 'lucide-react'
 import { useInvoices, type InvoiceRecord } from '@/hooks/useInvoices'
 import { cn } from '@/lib/utils'
+import { CustomSelect } from '@/components/ui/CustomSelect'
+
+type PeriodPreset = 'this-month' | 'last-month' | 'last-30-days' | 'last-90-days' | 'this-year' | 'custom'
+type SortMode = 'newest' | 'oldest' | 'amount-high' | 'amount-low' | 'supplier-az'
+
+const PERIOD_PRESETS: Array<{ value: PeriodPreset; label: string }> = [
+  { value: 'this-month', label: 'This month' },
+  { value: 'last-month', label: 'Last month' },
+  { value: 'last-30-days', label: 'Last 30 days' },
+  { value: 'last-90-days', label: 'Last 90 days' },
+  { value: 'this-year', label: 'This year' },
+  { value: 'custom', label: 'Custom range' },
+]
+
+function toDateInputValue(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function getPresetRange(preset: Exclude<PeriodPreset, 'custom'>) {
+  const today = new Date()
+  const end = toDateInputValue(today)
+  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
+  const startOfYear = new Date(today.getFullYear(), 0, 1)
+
+  switch (preset) {
+    case 'this-month':
+      return { from: toDateInputValue(startOfMonth), to: end }
+    case 'last-month': {
+      const from = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+      const to = new Date(today.getFullYear(), today.getMonth(), 0)
+      return { from: toDateInputValue(from), to: toDateInputValue(to) }
+    }
+    case 'last-30-days': {
+      const from = new Date(today)
+      from.setDate(from.getDate() - 29)
+      return { from: toDateInputValue(from), to: end }
+    }
+    case 'last-90-days': {
+      const from = new Date(today)
+      from.setDate(from.getDate() - 89)
+      return { from: toDateInputValue(from), to: end }
+    }
+    case 'this-year':
+      return { from: toDateInputValue(startOfYear), to: end }
+  }
+}
+
+function formatPeriodLabel(from: string, to: string) {
+  const format = new Intl.DateTimeFormat('en-IE', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+  return `${format.format(new Date(`${from}T12:00:00`))} — ${format.format(new Date(`${to}T12:00:00`))}`
+}
+
+function parseInputDate(value: string) {
+  return new Date(`${value}T12:00:00`)
+}
+
+function formatDateDisplay(value: string) {
+  return new Intl.DateTimeFormat('en-IE', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(parseInputDate(value))
+}
+
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1)
+}
+
+function addMonths(date: Date, delta: number) {
+  const next = new Date(date)
+  next.setMonth(next.getMonth() + delta)
+  return next
+}
+
+function formatMonthTitle(date: Date) {
+  return new Intl.DateTimeFormat('en-IE', {
+    month: 'long',
+    year: 'numeric',
+  }).format(date)
+}
+
+function buildCalendarDays(viewDate: Date) {
+  const firstDayOfMonth = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1)
+  const leadingDays = (firstDayOfMonth.getDay() + 6) % 7
+  const daysInMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate()
+  const totalCells = Math.ceil((leadingDays + daysInMonth) / 7) * 7
+  const cells: Array<Date | null> = []
+
+  for (let index = 0; index < totalCells; index++) {
+    const dayNumber = index - leadingDays + 1
+    if (dayNumber < 1 || dayNumber > daysInMonth) {
+      cells.push(null)
+      continue
+    }
+    cells.push(new Date(viewDate.getFullYear(), viewDate.getMonth(), dayNumber))
+  }
+
+  return cells
+}
+
+function DateFieldPopover({
+  label,
+  value,
+  open,
+  onOpenChange,
+  onChange,
+  minValue,
+  maxValue,
+  containerRef,
+}: {
+  label: string
+  value: string
+  open: boolean
+  onOpenChange: (next: boolean) => void
+  onChange: (next: string) => void
+  minValue?: string
+  maxValue?: string
+  containerRef: RefObject<HTMLDivElement>
+}) {
+  const [cursorMonth, setCursorMonth] = useState(() =>
+    startOfMonth(value ? parseInputDate(value) : new Date())
+  )
+  const [openUpward, setOpenUpward] = useState(false)
+  const todayValue = toDateInputValue(new Date())
+  const cells = useMemo(() => buildCalendarDays(cursorMonth), [cursorMonth])
+
+  useEffect(() => {
+    if (!open) return
+    const current = value ? parseInputDate(value) : new Date()
+    setCursorMonth(startOfMonth(current))
+
+    const rect = containerRef.current?.getBoundingClientRect()
+    if (rect) {
+      setOpenUpward(window.innerHeight - rect.bottom < 400)
+    }
+  }, [containerRef, open, value])
+
+  const isDisabled = (dayValue: string) => {
+    if (minValue && dayValue < minValue) return true
+    if (maxValue && dayValue > maxValue) return true
+    return false
+  }
+
+  return (
+    <div ref={containerRef} className="relative flex flex-col gap-1.5">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+        {label}
+      </span>
+      <button
+        type="button"
+        onClick={() => onOpenChange(!open)}
+        className={cn(
+          'flex h-11 w-full items-center justify-between rounded-2xl border px-4 text-left text-sm outline-none transition',
+          open
+            ? 'border-emerald-500 bg-white ring-4 ring-emerald-500/10'
+            : 'border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white'
+        )}
+      >
+        <span className={cn('truncate', value ? 'text-slate-800' : 'text-slate-400')}>
+          {value ? formatDateDisplay(value) : 'Pick a date'}
+        </span>
+        <CalendarDays className={cn('h-4 w-4 flex-shrink-0', open ? 'text-emerald-500' : 'text-slate-400')} />
+      </button>
+
+      {open && (
+        <div
+          className={cn(
+            'absolute z-50 w-[320px] rounded-3xl border border-slate-200 bg-white p-4 shadow-2xl shadow-slate-200/70',
+            openUpward ? 'bottom-full mb-2' : 'top-full mt-2'
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setCursorMonth((current) => addMonths(current, -1))}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
+              aria-label="Previous month"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <p className="text-sm font-semibold text-slate-900">
+              {formatMonthTitle(cursorMonth)}
+            </p>
+            <button
+              type="button"
+              onClick={() => setCursorMonth((current) => addMonths(current, 1))}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
+              aria-label="Next month"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="mt-4 grid grid-cols-7 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+            {['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map((day) => (
+              <span key={day}>{day}</span>
+            ))}
+          </div>
+
+          <div className="mt-2 grid grid-cols-7 gap-1">
+            {cells.map((cell, index) => {
+              if (!cell) {
+                return <div key={`empty-${index}`} className="h-10 rounded-xl" />
+              }
+
+              const dayValue = toDateInputValue(cell)
+              const selected = dayValue === value
+              const today = dayValue === todayValue
+              const disabled = isDisabled(dayValue)
+
+              return (
+                <button
+                  key={dayValue}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => {
+                    onChange(dayValue)
+                    onOpenChange(false)
+                  }}
+                  className={cn(
+                    'flex h-10 items-center justify-center rounded-xl text-sm transition',
+                    selected
+                      ? 'bg-emerald-600 font-semibold text-white shadow-sm'
+                      : today
+                        ? 'bg-emerald-50 font-medium text-emerald-700'
+                        : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900',
+                    disabled && 'cursor-not-allowed opacity-30 hover:bg-transparent'
+                  )}
+                >
+                  {cell.getDate()}
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
+            <button
+              type="button"
+              disabled={isDisabled(todayValue)}
+              onClick={() => {
+                onChange(todayValue)
+                onOpenChange(false)
+              }}
+              className="text-xs font-semibold text-emerald-600 transition hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => onOpenChange(false)}
+              className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
+            >
+              <X className="h-3.5 w-3.5" />
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('en-IE', {
@@ -29,19 +297,14 @@ function statusStyles(status: InvoiceRecord['ocrStatus']) {
   return 'bg-amber-50 text-amber-700 ring-amber-200'
 }
 
-function EmptyState() {
+function EmptyState({ title, description }: { title: string; description: string }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-20 text-center shadow-sm">
       <div className="rounded-3xl bg-emerald-50 p-5 text-emerald-600">
         <FileText className="h-12 w-12" />
       </div>
-      <h3 className="mt-6 font-display text-2xl font-semibold text-slate-900">
-        No invoices yet
-      </h3>
-      <p className="mt-3 max-w-xl text-sm text-slate-500">
-        Start by importing a PDF or CSV, or create a manual invoice entry when you already have
-        the details ready.
-      </p>
+      <h3 className="mt-6 font-display text-2xl font-semibold text-slate-900">{title}</h3>
+      <p className="mt-3 max-w-xl text-sm text-slate-500">{description}</p>
     </div>
   )
 }
@@ -50,21 +313,89 @@ export default function InvoicesPage() {
   const router = useRouter()
   const { invoices, loading, error } = useInvoices()
   const [search, setSearch] = useState('')
+  const [sortMode, setSortMode] = useState<SortMode>('newest')
+  const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('this-month')
+  const [periodFrom, setPeriodFrom] = useState(() => {
+    const preset = getPresetRange('this-month')
+    return preset.from
+  })
+  const [periodTo, setPeriodTo] = useState(() => {
+    const preset = getPresetRange('this-month')
+    return preset.to
+  })
+  const [fromPickerOpen, setFromPickerOpen] = useState(false)
+  const [toPickerOpen, setToPickerOpen] = useState(false)
+  const fromPickerRef = useRef<HTMLDivElement>(null)
+  const toPickerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleMouseDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      const insideFrom = fromPickerRef.current?.contains(target)
+      const insideTo = toPickerRef.current?.contains(target)
+
+      if (!insideFrom) setFromPickerOpen(false)
+      if (!insideTo) setToPickerOpen(false)
+    }
+
+    document.addEventListener('mousedown', handleMouseDown)
+    return () => document.removeEventListener('mousedown', handleMouseDown)
+  }, [])
+
+  const periodInvoices = useMemo(() => {
+    const fromTime = new Date(`${periodFrom}T00:00:00`).getTime()
+    const toTime = new Date(`${periodTo}T23:59:59.999`).getTime()
+    return invoices.filter((invoice) => {
+      const time = new Date(invoice.invoiceDate).getTime()
+      return time >= fromTime && time <= toTime
+    })
+  }, [invoices, periodFrom, periodTo])
 
   const filteredInvoices = useMemo(() => {
     const query = search.trim().toLowerCase()
-    const sorted = [...invoices].sort(
-      (a, b) => new Date(b.invoiceDate).getTime() - new Date(a.invoiceDate).getTime()
-    )
+    let result = [...periodInvoices]
 
-    if (!query) return sorted
+    if (query) {
+      result = result.filter((invoice) => {
+        const invoiceNumber = invoice.invoiceNumber?.toLowerCase() ?? ''
+        const supplierName = invoice.supplier?.name.toLowerCase() ?? ''
+        return invoiceNumber.includes(query) || supplierName.includes(query)
+      })
+    }
 
-    return sorted.filter((invoice) => {
-      const invoiceNumber = invoice.invoiceNumber?.toLowerCase() ?? ''
-      const supplierName = invoice.supplier?.name.toLowerCase() ?? ''
-      return invoiceNumber.includes(query) || supplierName.includes(query)
-    })
-  }, [invoices, search])
+    switch (sortMode) {
+      case 'oldest':
+        return result.sort((a, b) => new Date(a.invoiceDate).getTime() - new Date(b.invoiceDate).getTime())
+      case 'amount-high':
+        return result.sort((a, b) => (b.totalAmount ?? 0) - (a.totalAmount ?? 0))
+      case 'amount-low':
+        return result.sort((a, b) => (a.totalAmount ?? 0) - (b.totalAmount ?? 0))
+      case 'supplier-az':
+        return result.sort((a, b) => (a.supplier?.name ?? '').localeCompare(b.supplier?.name ?? ''))
+      case 'newest':
+      default:
+        return result.sort((a, b) => new Date(b.invoiceDate).getTime() - new Date(a.invoiceDate).getTime())
+    }
+  }, [periodInvoices, search, sortMode])
+
+  const summary = useMemo(() => {
+    const totalInvoices = filteredInvoices.length
+    const totalSpend = filteredInvoices.reduce((sum, invoice) => sum + (invoice.totalAmount ?? 0), 0)
+    const averageInvoiceValue = totalInvoices > 0 ? totalSpend / totalInvoices : 0
+
+    return { totalInvoices, totalSpend, averageInvoiceValue }
+  }, [filteredInvoices])
+
+  const periodLabel = useMemo(() => {
+    if (periodPreset === 'this-month') return 'This month'
+    if (periodPreset === 'last-month') return 'Last month'
+    if (periodPreset === 'last-30-days') return 'Last 30 days'
+    if (periodPreset === 'last-90-days') return 'Last 90 days'
+    if (periodPreset === 'this-year') return 'This year'
+    return formatPeriodLabel(periodFrom, periodTo)
+  }, [periodFrom, periodPreset, periodTo])
+
+  const hasAnyInvoicesInPeriod = periodInvoices.length > 0
 
   return (
     <div className="space-y-6">
@@ -112,14 +443,120 @@ export default function InvoicesPage() {
           />
         </div>
 
-        <div className="inline-flex items-center gap-2 rounded-full bg-slate-50 px-4 py-2 text-sm text-slate-500 ring-1 ring-slate-200">
+        <label className="inline-flex items-center gap-2 rounded-full bg-slate-50 px-4 py-2 text-sm text-slate-500 ring-1 ring-slate-200">
           <ArrowUpDown className="h-4 w-4" />
-          Newest first
-        </div>
+          <select
+            value={sortMode}
+            onChange={(event) => setSortMode(event.target.value as SortMode)}
+            className="bg-transparent outline-none"
+          >
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="amount-high">Amount high</option>
+            <option value="amount-low">Amount low</option>
+            <option value="supplier-az">Supplier A-Z</option>
+          </select>
+        </label>
 
         <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 ring-1 ring-emerald-200">
           <FileText className="h-4 w-4" />
           {filteredInvoices.length} invoices
+        </div>
+      </div>
+
+      <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="grid gap-3 md:grid-cols-[1.15fr_1fr_1fr]">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+              Period
+            </span>
+            <CustomSelect
+              value={periodPreset}
+              onChange={(next) => {
+                const preset = next as PeriodPreset
+                setPeriodPreset(preset)
+                if (preset !== 'custom') {
+                  const range = getPresetRange(preset)
+                  if (range) {
+                    setPeriodFrom(range.from)
+                    setPeriodTo(range.to)
+                  }
+                }
+              }}
+              options={PERIOD_PRESETS.map((preset) => ({
+                value: preset.value,
+                label: preset.label,
+              }))}
+              className="w-full"
+            />
+          </label>
+
+          <DateFieldPopover
+            label="From"
+            value={periodFrom}
+            open={fromPickerOpen}
+            onOpenChange={(next) => {
+              setFromPickerOpen(next)
+              if (next) setToPickerOpen(false)
+            }}
+            onChange={(next) => {
+              setPeriodPreset('custom')
+              setPeriodFrom(next)
+              if (periodTo < next) setPeriodTo(next)
+            }}
+            maxValue={periodTo}
+            containerRef={fromPickerRef}
+          />
+
+          <DateFieldPopover
+            label="To"
+            value={periodTo}
+            open={toPickerOpen}
+            onOpenChange={(next) => {
+              setToPickerOpen(next)
+              if (next) setFromPickerOpen(false)
+            }}
+            onChange={(next) => {
+              setPeriodPreset('custom')
+              setPeriodTo(next)
+              if (periodFrom > next) setPeriodFrom(next)
+            }}
+            minValue={periodFrom}
+            containerRef={toPickerRef}
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+            Selected period
+          </p>
+          <p className="mt-1 text-sm font-medium text-slate-700">{periodLabel}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+            Total invoices
+          </p>
+          <p className="mt-1 text-2xl font-semibold text-slate-900">
+            {summary.totalInvoices}
+          </p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+            Total spend
+          </p>
+          <p className="mt-1 text-2xl font-semibold text-slate-900">
+            {formatCurrency(summary.totalSpend)}
+          </p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+            Average value
+          </p>
+          <p className="mt-1 text-2xl font-semibold text-slate-900">
+            {formatCurrency(summary.averageInvoiceValue)}
+          </p>
         </div>
       </div>
 
@@ -142,7 +579,14 @@ export default function InvoicesPage() {
           </div>
         </div>
       ) : filteredInvoices.length === 0 ? (
-        <EmptyState />
+        <EmptyState
+          title={hasAnyInvoicesInPeriod ? 'No invoices match your search' : 'No invoices found for this period'}
+          description={
+            hasAnyInvoicesInPeriod
+              ? 'Try a different search term or adjust the date range.'
+              : 'Try a wider date range or import a new invoice.'
+          }
+        />
       ) : (
         <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="overflow-x-auto">

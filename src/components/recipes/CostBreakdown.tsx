@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Info } from 'lucide-react'
 import type { RecipeCostSummary } from '@/hooks/useRecipes'
 import { cn } from '@/lib/utils'
+import { convertUnit } from '@/lib/utils/unit-converter'
 
 const VAT_PRESETS = [0, 9, 13.5, 23]
 
@@ -61,6 +62,7 @@ export default function CostBreakdown({
   overheadMode,
   overheadPercent,
   wastePercent,
+  isSubRecipe = false,
   batchMultiplier = 1,
   onLaborModeChange,
   onLaborCostChange,
@@ -79,6 +81,7 @@ export default function CostBreakdown({
   overheadMode?: 'fixed' | 'percent'
   overheadPercent?: number
   wastePercent?: number
+  isSubRecipe?: boolean
   batchMultiplier?: number
   onLaborModeChange: (v: 'fixed' | 'time') => void
   onLaborCostChange: (v: number) => void
@@ -146,10 +149,14 @@ export default function CostBreakdown({
 
   const yieldQty = Math.max(1, yieldQuantity ?? 1)
   const yieldUnitLabel = (yieldUnit ?? '').trim()
+  const yieldUnitSingular = yieldUnitLabel ? yieldUnitLabel.replace(/s$/i, '') : 'unit'
+  const unitsPerYield = Math.max(1, convertUnit(yieldQty, yieldUnitLabel || 'unit', 'unit'))
+  const batchTotalCost = cost.totalCost * batchMultiplier
   const laborIsTime = laborMode === 'time'
   const overheadIsPercent = overheadMode === 'percent'
   const profitPerUnit = cost.sellingPrice - cost.costPerUnit
   const foodCostPct = cost.foodCostPercentage
+  const showCommercialMetrics = !isSubRecipe
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -157,23 +164,25 @@ export default function CostBreakdown({
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-semibold text-slate-900">Cost Breakdown</h3>
-          {batchMultiplier > 1 && (
+          {showCommercialMetrics && batchMultiplier > 1 && (
             <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">
               Batch ×{batchMultiplier}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1">
-          <span className={cn(
-            'rounded-full px-2.5 py-1 text-xs font-semibold',
-            foodCostPct < 25 ? 'bg-emerald-100 text-emerald-700'
-              : foodCostPct < 35 ? 'bg-amber-100 text-amber-700'
-              : 'bg-red-100 text-red-600'
-          )}>
-            Food cost {foodCostPct.toFixed(1)}%
-          </span>
-          <InfoTooltip text="Percentage of selling price that goes to costs. Industry target: under 35%." />
-        </div>
+        {showCommercialMetrics && (
+          <div className="flex items-center gap-1">
+            <span className={cn(
+              'rounded-full px-2.5 py-1 text-xs font-semibold',
+              foodCostPct < 25 ? 'bg-emerald-100 text-emerald-700'
+                : foodCostPct < 35 ? 'bg-amber-100 text-amber-700'
+                : 'bg-red-100 text-red-600'
+            )}>
+              Food cost {foodCostPct.toFixed(1)}%
+            </span>
+            <InfoTooltip text="Percentage of selling price that goes to costs. Industry target: under 35%." />
+          </div>
+        )}
       </div>
 
       <div>
@@ -371,74 +380,99 @@ export default function CostBreakdown({
           ) : null}
         </div>
 
-        {/* RIGHT — Selling Price */}
-        <div className="rounded-2xl border-2 border-emerald-500 bg-white p-4 shadow-sm shadow-emerald-100">
-          <div className="mb-2 flex items-center gap-1">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">
-              {batchMultiplier > 1
-                ? `Batch selling price ×${batchMultiplier}`
-                : yieldQty > 1 ? 'Price per unit' : 'Selling price'}
-            </p>
-            {vatEnabled && vatRate > 0 && (
-              <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-400">
-                inc VAT
-              </span>
-            )}
-            <InfoTooltip text="The price you charge per unit (inc. VAT when enabled). Margin and profit are always calculated on the ex-VAT (net) price." />
-          </div>
-
-          {batchMultiplier > 1 ? (
-            /* Batch mode — static scaled display, mirrors Total cost card */
-            <>
-              <p className="mb-1 text-2xl font-black text-gray-900">
-                €{(displayIncVat * batchMultiplier).toFixed(2)}
+        {/* RIGHT — Selling Price or Sub-recipe cost */}
+        {showCommercialMetrics ? (
+          <div className="rounded-2xl border-2 border-emerald-500 bg-white p-4 shadow-sm shadow-emerald-100">
+            <div className="mb-2 flex items-center gap-1">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">
+                {batchMultiplier > 1
+                  ? `Batch selling price ×${batchMultiplier}`
+                  : yieldQty > 1 ? 'Price per unit' : 'Selling price'}
               </p>
-              <div className="space-y-0.5 text-xs text-gray-400">
-                <p>Batch total · ×1 base: €{displayIncVat.toFixed(2)}</p>
-                {vatEnabled && vatRate > 0 && (
-                  <p>Ex VAT base: €{cost.sellingPrice.toFixed(2)} per unit</p>
-                )}
-              </div>
-            </>
-          ) : (
-            /* Normal mode — editable input */
-            <>
-              <div className="mb-1 flex items-baseline gap-1">
-                <span className="text-base text-gray-400">€</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={sellingPriceFocused
-                    ? focusedIncVatStr
-                    : (displayIncVat > 0 ? displayIncVat.toFixed(2) : '')}
-                  placeholder="0.00"
-                  onFocus={() => {
-                    setSellingPriceFocused(true)
-                    setFocusedIncVatStr(displayIncVat > 0 ? displayIncVat.toFixed(2) : '')
-                  }}
-                  onBlur={() => setSellingPriceFocused(false)}
-                  onChange={(e) => handleIncVatChange(e.target.value)}
-                  className="w-full bg-transparent text-2xl font-black leading-none text-gray-900 outline-none placeholder:text-gray-300"
-                />
-              </div>
               {vatEnabled && vatRate > 0 && (
-                <p className="text-xs text-gray-400">
-                  €{cost.sellingPrice.toFixed(2)} ex VAT
-                </p>
+                <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-400">
+                  inc VAT
+                </span>
               )}
-            </>
-          )}
-        </div>
+              <InfoTooltip text="The price you charge per unit (inc. VAT when enabled). Margin and profit are always calculated on the ex-VAT (net) price." />
+            </div>
+
+            {batchMultiplier > 1 ? (
+              /* Batch mode — static scaled display, mirrors Total cost card */
+              <>
+                <p className="mb-1 text-2xl font-black text-gray-900">
+                  €{(displayIncVat * batchMultiplier).toFixed(2)}
+                </p>
+                <div className="space-y-0.5 text-xs text-gray-400">
+                  <p>Batch total · ×1 base: €{displayIncVat.toFixed(2)}</p>
+                  {vatEnabled && vatRate > 0 && (
+                    <p>Ex VAT base: €{cost.sellingPrice.toFixed(2)} per unit</p>
+                  )}
+                </div>
+              </>
+            ) : (
+              /* Normal mode — editable input */
+              <>
+                <div className="mb-1 flex items-baseline gap-1">
+                  <span className="text-base text-gray-400">€</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={sellingPriceFocused
+                      ? focusedIncVatStr
+                      : (displayIncVat > 0 ? displayIncVat.toFixed(2) : '')}
+                    placeholder="0.00"
+                    onFocus={() => {
+                      setSellingPriceFocused(true)
+                      setFocusedIncVatStr(displayIncVat > 0 ? displayIncVat.toFixed(2) : '')
+                    }}
+                    onBlur={() => setSellingPriceFocused(false)}
+                    onChange={(e) => handleIncVatChange(e.target.value)}
+                    className="w-full bg-transparent text-2xl font-black leading-none text-gray-900 outline-none placeholder:text-gray-300"
+                  />
+                </div>
+                {vatEnabled && vatRate > 0 && (
+                  <p className="text-xs text-gray-400">
+                    €{cost.sellingPrice.toFixed(2)} ex VAT
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="mb-2 flex items-center gap-1">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                Sub-recipe cost
+              </p>
+            </div>
+            <p className="mb-1 text-2xl font-black text-slate-900">
+              €{batchTotalCost.toFixed(2)}
+            </p>
+            <div className="space-y-1 text-xs text-slate-500">
+              <p>Yield: {yieldQty} {yieldUnitLabel || 'units'}</p>
+              <p>Cost per {yieldUnitSingular}: €{cost.costPerUnit.toFixed(2)}</p>
+              {unitsPerYield > 1 && (
+                <p>Cost per single unit: €{(cost.totalCost / unitsPerYield).toFixed(2)}</p>
+              )}
+              {batchMultiplier > 1 && (
+                <p className="text-slate-400">×1 base: €{cost.totalCost.toFixed(2)}</p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* SECTION 3: Results card */}
-      <div className={cn(
-        'mb-4 rounded-2xl border p-5',
-        profitPerUnit >= 0
-          ? 'border-emerald-100 bg-gradient-to-b from-emerald-50/80 to-white'
-          : 'border-red-100 bg-gradient-to-b from-red-50/80 to-white'
-      )}>
+      {showCommercialMetrics && (
+        <>
+        <div className={cn(
+          'mb-4 rounded-2xl border p-5',
+          profitPerUnit >= 0
+            ? 'border-emerald-100 bg-gradient-to-b from-emerald-50/80 to-white'
+            : 'border-red-100 bg-gradient-to-b from-red-50/80 to-white'
+        )}>
 
         {/* Margin + Slider */}
         <div className="mb-4">
@@ -552,79 +586,81 @@ export default function CostBreakdown({
             </p>
           </div>
         )}
-      </div>
-
-      {/* VAT toggle — compact */}
-      <div className="rounded-2xl border border-gray-100 p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <div className="flex items-center">
-              <p className="text-sm font-semibold text-gray-700">VAT</p>
-              <InfoTooltip text="Value Added Tax included in the selling price. Standard rate in Ireland is 23%, reduced rate for food is 13.5% or 9%. Margin is always computed on the ex-VAT price." />
-            </div>
-            <p className="text-xs text-gray-400">Included in selling price</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setVatEnabled((prev) => !prev)}
-            className={cn(
-              'relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0',
-              vatEnabled ? 'bg-emerald-500' : 'bg-gray-200'
-            )}
-          >
-            <span className={cn(
-              'inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform',
-              vatEnabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
-            )} />
-          </button>
         </div>
 
-        {vatEnabled && (
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex gap-1.5">
-                {VAT_PRESETS.map((rate) => (
-                  <button
-                    key={rate}
-                    type="button"
-                    onClick={() => handleVatRateChange(rate)}
-                    className={cn(
-                      'rounded-lg border px-2.5 py-1 text-xs transition-colors',
-                      vatRate === rate
-                        ? 'border-emerald-600 bg-emerald-600 text-white'
-                        : 'border-gray-200 text-gray-500 hover:border-gray-300'
-                    )}
-                  >
-                    {rate}%
-                  </button>
-                ))}
+        {/* VAT toggle — compact */}
+        <div className="rounded-2xl border border-gray-100 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <div className="flex items-center">
+                <p className="text-sm font-semibold text-gray-700">VAT</p>
+                <InfoTooltip text="Value Added Tax included in the selling price. Standard rate in Ireland is 23%, reduced rate for food is 13.5% or 9%. Margin is always computed on the ex-VAT price." />
               </div>
-              <div className="flex items-center gap-1">
-                <input
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={vatRate}
-                  onChange={(e) => handleVatRateChange(Math.max(0, Number(e.target.value)))}
-                  className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-right text-sm focus:border-emerald-400 focus:outline-none"
-                />
-                <span className="text-xs text-gray-400">%</span>
-              </div>
+              <p className="text-xs text-gray-400">Included in selling price</p>
             </div>
-            <div className="flex justify-between pt-1 text-sm">
-              <span className="text-gray-500">{batchMultiplier > 1 ? `VAT total ×${batchMultiplier}` : 'VAT amount'}</span>
-              <span className="font-medium text-gray-700">
-                €{(cost.sellingPrice * batchMultiplier * vatRate / 100).toFixed(2)}
-              </span>
-            </div>
-            {batchMultiplier > 1 && (
-              <div className="mt-1 text-right text-[11px] text-gray-400">
-                ×1 base: €{(cost.sellingPrice * vatRate / 100).toFixed(2)}
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={() => setVatEnabled((prev) => !prev)}
+              className={cn(
+                'relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0',
+                vatEnabled ? 'bg-emerald-500' : 'bg-gray-200'
+              )}
+            >
+              <span className={cn(
+                'inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform',
+                vatEnabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
+              )} />
+            </button>
           </div>
-        )}
-      </div>
+
+          {vatEnabled && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex gap-1.5">
+                  {VAT_PRESETS.map((rate) => (
+                    <button
+                      key={rate}
+                      type="button"
+                      onClick={() => handleVatRateChange(rate)}
+                      className={cn(
+                        'rounded-lg border px-2.5 py-1 text-xs transition-colors',
+                        vatRate === rate
+                          ? 'border-emerald-600 bg-emerald-600 text-white'
+                          : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                      )}
+                    >
+                      {rate}%
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={vatRate}
+                    onChange={(e) => handleVatRateChange(Math.max(0, Number(e.target.value)))}
+                    className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-right text-sm focus:border-emerald-400 focus:outline-none"
+                  />
+                  <span className="text-xs text-gray-400">%</span>
+                </div>
+              </div>
+              <div className="flex justify-between pt-1 text-sm">
+                <span className="text-gray-500">{batchMultiplier > 1 ? `VAT total ×${batchMultiplier}` : 'VAT amount'}</span>
+                <span className="font-medium text-gray-700">
+                  €{(cost.sellingPrice * batchMultiplier * vatRate / 100).toFixed(2)}
+                </span>
+              </div>
+              {batchMultiplier > 1 && (
+                <div className="mt-1 text-right text-[11px] text-gray-400">
+                  ×1 base: €{(cost.sellingPrice * vatRate / 100).toFixed(2)}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        </>
+      )}
     </section>
   )
 }

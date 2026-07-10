@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import { ChefHat } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { RecipeSummary } from '@/hooks/useRecipes'
+import { convertUnit } from '@/lib/utils/unit-converter'
 
 function marginBadgeClass(pct: number) {
   if (pct >= 60) return 'bg-emerald-500/90 text-white'
@@ -18,9 +19,14 @@ export default function RecipeCard({
   recipe: RecipeSummary
   onClick: (id: string) => void
 }) {
-  const profitPerUnit = recipe.cost.sellingPrice - recipe.cost.costPerUnit
-  const hasPrice = recipe.cost.sellingPrice > 0
+  const isSubRecipe = recipe.isSubIngredient || (recipe as RecipeSummary & { is_sub_recipe?: boolean }).is_sub_recipe === true
   const yieldQuantity = Math.max(1, recipe.yieldQuantity ?? 1)
+  const yieldUnit = recipe.yieldUnit?.trim() || 'units'
+  const unitsPerYield = Math.max(1, convertUnit(yieldQuantity, yieldUnit || 'unit', 'unit'))
+  const costPerYieldUnit = recipe.cost.costPerUnit
+  const costPerSingleUnit = unitsPerYield > 1 ? recipe.cost.totalCost / unitsPerYield : null
+  const profitPerUnit = recipe.cost.sellingPrice - recipe.cost.costPerUnit
+  const hasPrice = !isSubRecipe && recipe.cost.sellingPrice > 0
   const displayedProfit = recipe.cost.isBatch ? profitPerUnit * yieldQuantity : profitPerUnit
 
   return (
@@ -55,7 +61,7 @@ export default function RecipeCard({
         </div>
 
         {/* Margin badge — top right (only when price is set) */}
-        {hasPrice && (
+        {!isSubRecipe && hasPrice && (
           <div className="absolute right-2 top-2">
             <span className={cn(
               'rounded-full px-2 py-0.5 text-xs font-bold backdrop-blur-sm',
@@ -71,44 +77,82 @@ export default function RecipeCard({
       <div className="p-4">
         <h3 className="mb-3 line-clamp-1 text-sm font-semibold leading-tight text-gray-900 transition-colors group-hover:text-emerald-600">
           {recipe.name}
-          {recipe.isSubIngredient && (
+          {isSubRecipe && (
             <span className="ml-1.5 align-middle text-[10px] font-semibold text-emerald-600">(Sub)</span>
           )}
         </h3>
 
         {/* 2×2 cost grid */}
-        <div className="grid grid-cols-2 gap-1.5">
-          <div className="rounded-lg bg-gray-50 p-2 text-center">
-            <div className="text-[10px] text-gray-400">
-              {recipe.cost.isBatch ? 'Batch cost' : 'Total cost'}
+        {isSubRecipe ? (
+          <div className="grid grid-cols-2 gap-1.5">
+            <div className="rounded-lg bg-gray-50 p-2 text-center">
+              <div className="text-[10px] text-gray-400">Total cost</div>
+              <div className="mt-0.5 text-sm font-semibold text-gray-700">
+                €{recipe.cost.totalCost.toFixed(2)}
+              </div>
             </div>
-            <div className="mt-0.5 text-sm font-semibold text-gray-700">
-              €{recipe.cost.totalCost.toFixed(2)}
+            <div className="rounded-lg bg-gray-50 p-2 text-center">
+              <div className="text-[10px] text-gray-400">Yield</div>
+              <div className="mt-0.5 text-sm font-semibold text-gray-700">
+                {yieldQuantity} {yieldUnit}
+              </div>
+            </div>
+            <div className="rounded-lg bg-gray-50 p-2 text-center">
+              <div className="text-[10px] text-gray-400">Cost / yield unit</div>
+              <div className="mt-0.5 text-sm font-semibold text-gray-700">
+                €{costPerYieldUnit.toFixed(2)}
+              </div>
+            </div>
+            {costPerSingleUnit != null ? (
+              <div className="rounded-lg bg-gray-50 p-2 text-center">
+                <div className="text-[10px] text-gray-400">Cost / single unit</div>
+                <div className="mt-0.5 text-sm font-semibold text-gray-700">
+                  €{costPerSingleUnit.toFixed(2)}
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg bg-gray-50 p-2 text-center">
+                <div className="text-[10px] text-gray-400">Cost / unit</div>
+                <div className="mt-0.5 text-sm font-semibold text-gray-700">
+                  €{costPerYieldUnit.toFixed(2)}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-1.5">
+            <div className="rounded-lg bg-gray-50 p-2 text-center">
+              <div className="text-[10px] text-gray-400">
+                {recipe.cost.isBatch ? 'Batch cost' : 'Total cost'}
+              </div>
+              <div className="mt-0.5 text-sm font-semibold text-gray-700">
+                €{recipe.cost.totalCost.toFixed(2)}
+              </div>
+            </div>
+            <div className="rounded-lg bg-gray-50 p-2 text-center">
+              <div className="text-[10px] text-gray-400">
+                {recipe.cost.isBatch ? 'Price / unit' : 'Selling price'}
+              </div>
+              <div className="mt-0.5 text-sm font-semibold text-gray-700">
+                {hasPrice ? `€${recipe.cost.sellingPrice.toFixed(2)}` : '—'}
+              </div>
+            </div>
+            <div className={cn('rounded-lg p-2 text-center', hasPrice && profitPerUnit > 0 ? 'bg-emerald-50' : hasPrice ? 'bg-red-50' : 'bg-gray-50')}>
+              <div className="text-[10px] text-gray-400">
+                {recipe.cost.isBatch ? `Profit (${yieldQuantity} units)` : 'Profit / unit'}
+              </div>
+              <div className={cn('mt-0.5 text-sm font-semibold', !hasPrice ? 'text-gray-400' : profitPerUnit > 0 ? 'text-emerald-600' : 'text-red-500')}>
+                {hasPrice ? `${displayedProfit >= 0 ? '+' : ''}€${displayedProfit.toFixed(2)}` : '—'}
+              </div>
+            </div>
+            <div className="rounded-lg bg-gray-50 p-2 text-center">
+              <div className="text-[10px] text-gray-400">Food cost</div>
+              <div className={cn('mt-0.5 text-sm font-semibold', !hasPrice ? 'text-gray-400' : recipe.cost.foodCostPercentage < 30 ? 'text-emerald-600' : recipe.cost.foodCostPercentage < 40 ? 'text-amber-600' : 'text-red-500')}>
+                {hasPrice ? `${recipe.cost.foodCostPercentage.toFixed(1)}%` : '—'}
+              </div>
             </div>
           </div>
-          <div className="rounded-lg bg-gray-50 p-2 text-center">
-            <div className="text-[10px] text-gray-400">
-              {recipe.cost.isBatch ? 'Price / unit' : 'Selling price'}
-            </div>
-            <div className="mt-0.5 text-sm font-semibold text-gray-700">
-              {hasPrice ? `€${recipe.cost.sellingPrice.toFixed(2)}` : '—'}
-            </div>
-          </div>
-          <div className={cn('rounded-lg p-2 text-center', hasPrice && profitPerUnit > 0 ? 'bg-emerald-50' : hasPrice ? 'bg-red-50' : 'bg-gray-50')}>
-            <div className="text-[10px] text-gray-400">
-              {recipe.cost.isBatch ? `Profit (${yieldQuantity} units)` : 'Profit / unit'}
-            </div>
-            <div className={cn('mt-0.5 text-sm font-semibold', !hasPrice ? 'text-gray-400' : profitPerUnit > 0 ? 'text-emerald-600' : 'text-red-500')}>
-              {hasPrice ? `${displayedProfit >= 0 ? '+' : ''}€${displayedProfit.toFixed(2)}` : '—'}
-            </div>
-          </div>
-          <div className="rounded-lg bg-gray-50 p-2 text-center">
-            <div className="text-[10px] text-gray-400">Food cost</div>
-            <div className={cn('mt-0.5 text-sm font-semibold', !hasPrice ? 'text-gray-400' : recipe.cost.foodCostPercentage < 30 ? 'text-emerald-600' : recipe.cost.foodCostPercentage < 40 ? 'text-amber-600' : 'text-red-500')}>
-              {hasPrice ? `${recipe.cost.foodCostPercentage.toFixed(1)}%` : '—'}
-            </div>
-          </div>
-        </div>
+        )}
       </div>
     </motion.div>
   )

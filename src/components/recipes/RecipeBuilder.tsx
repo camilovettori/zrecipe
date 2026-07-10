@@ -31,6 +31,7 @@ import {
   UploadCloud,
   X,
 } from 'lucide-react'
+import dynamic from 'next/dynamic'
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
@@ -53,13 +54,13 @@ import { YieldFactorPopover } from './YieldFactorPopover'
 import { YieldFactorModal } from './YieldFactorModal'
 import { findYieldFactor } from '@/lib/data/yield-factors'
 import { compressImage } from '@/lib/utils/image-compress'
-import { isConvertible } from '@/lib/utils/unit-converter'
+import { convertUnit, isConvertible } from '@/lib/utils/unit-converter'
 import CostBreakdown from './CostBreakdown'
 import NewIngredientModal, { type NewIngredientFormData } from './NewIngredientModal'
 import { IngredientNoteModal } from './IngredientNoteModal'
 import { SubstituteIngredientModal, type SubstituteReplacement } from './SubstituteIngredientModal'
 
-
+const PhotoCropModal = dynamic(() => import('./PhotoCropModal'), { ssr: false })
 
 const INGREDIENT_ROW_UNITS = [
   { value: 'g',    label: 'g' },
@@ -126,6 +127,7 @@ function blankRecipe(): RecipeEditorData {
     wastePercent: 0,
     sellingPrice: 0,
     imageUrl: null,
+    imageUrls: [],
     isSubIngredient: false,
     subIngredientUnit: 'g',
     storageInstructions: null,
@@ -151,6 +153,7 @@ function mapRecipeToState(recipe: RecipeRecord): RecipeEditorData {
     wastePercent: recipe.wastePercent ?? 0,
     sellingPrice: recipe.sellingPrice,
     imageUrl: recipe.imageUrl,
+    imageUrls: recipe.imageUrls ?? (recipe.imageUrl ? [recipe.imageUrl] : []),
     isSubIngredient: recipe.isSubIngredient ?? false,
     subIngredientUnit: recipe.subIngredientUnit ?? 'g',
     storageInstructions: recipe.storageInstructions ?? null,
@@ -448,7 +451,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const [showLabelEditor, setShowLabelEditor] = useState(false)
   const [recipeAllergens, setRecipeAllergens] = useState<RecipeAllergenSummary>({ contains: [], mayContain: [] })
   const [uploadingImage, setUploadingImage] = useState(false)
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [cropModalFile, setCropModalFile] = useState<File | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
@@ -492,13 +495,16 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
         try {
           const parsed = JSON.parse(aiRaw) as Partial<RecipeEditorData>
           sessionStorage.removeItem('prefill-recipe')
+          const aiImageUrls = (parsed as { imageUrls?: string[] }).imageUrls?.length
+            ? (parsed as { imageUrls?: string[] }).imageUrls!
+            : parsed.imageUrl ? [parsed.imageUrl] : []
           setRecipe({
             ...blankRecipe(),
             ...parsed,
+            imageUrls: aiImageUrls,
             instructions: (parsed.instructions?.length ?? 0) > 0 ? parsed.instructions! : [createStep()],
             ingredients: parsed.ingredients?.map((item) => createIngredientLine(item)) ?? [],
           })
-          if (parsed.imageUrl) setImagePreview(parsed.imageUrl)
         } catch {
           sessionStorage.removeItem('prefill-recipe')
         }
@@ -512,13 +518,16 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       if (rawDraft) {
         try {
           const parsed = JSON.parse(rawDraft) as RecipeEditorData
+          const draftImageUrls = (parsed as { imageUrls?: string[] }).imageUrls?.length
+            ? (parsed as { imageUrls?: string[] }).imageUrls!
+            : parsed.imageUrl ? [parsed.imageUrl] : []
           setRecipe({
             ...blankRecipe(),
             ...parsed,
+            imageUrls: draftImageUrls,
             instructions: parsed.instructions?.length > 0 ? parsed.instructions : [createStep()],
             ingredients: parsed.ingredients?.map((item) => createIngredientLine(item)) ?? [],
           })
-          setImagePreview(parsed.imageUrl)
         } catch {
           setRecipe(blankRecipe())
         }
@@ -541,7 +550,6 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
         } as RecipeRecord
         setLoadedRecipe(hydratedRecipe)
         setRecipe(mapRecipeToState(hydratedRecipe))
-        setImagePreview(existing.imageUrl)
         setRecipeAllergens(
           computeRecipeAllergens(
             Object.fromEntries(
@@ -817,9 +825,20 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   }
 
   const addSubRecipe = (subRecipe: SubRecipeLookup, quantity: number, unit: string) => {
+    const costUnit = subRecipe.unit || unit
+    const outputQtyInCostUnit =
+      subRecipe.yieldQuantity > 0 && isConvertible(subRecipe.yieldUnit || costUnit, costUnit)
+        ? convertUnit(subRecipe.yieldQuantity, subRecipe.yieldUnit || costUnit, costUnit)
+        : 0
     const nextLine = createIngredientLine({
       ingredientId: null,
       subRecipeId: subRecipe.id,
+      subRecipeTotalCost: subRecipe.costPerUnit != null && outputQtyInCostUnit > 0
+        ? Number((subRecipe.costPerUnit * outputQtyInCostUnit).toFixed(2))
+        : null,
+      subRecipeYieldQuantity: subRecipe.yieldQuantity,
+      subRecipeYieldUnit: subRecipe.yieldUnit,
+      subRecipeCostUnit: costUnit,
       ingredientName: subRecipe.name,
       quantity,
       unit: unit || subRecipe.unit,
@@ -930,10 +949,10 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent))
   }, [])
 
-  const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      await uploadImage(file)
+      setCropModalFile(file)
       e.target.value = ''
     }
   }
@@ -952,8 +971,10 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
         throw new Error(d.error ?? 'Upload failed')
       }
       const { url } = await res.json() as { url: string }
-      setImagePreview(url)
-      updateRecipeField('imageUrl', url)
+      setRecipe((c) => {
+        const newUrls = [...c.imageUrls, url]
+        return { ...c, imageUrls: newUrls, imageUrl: newUrls[0] }
+      })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Image upload failed')
     } finally {
@@ -961,12 +982,20 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     }
   }
 
+  const removeFromGallery = (idx: number) => {
+    setRecipe((c) => {
+      const newUrls = c.imageUrls.filter((_, i) => i !== idx)
+      return { ...c, imageUrls: newUrls, imageUrl: newUrls[0] ?? null }
+    })
+  }
+
+
   const { getRootProps, getInputProps, open: openFilePicker } = useDropzone({
     accept: { 'image/png': ['.png'], 'image/jpeg': ['.jpg', '.jpeg'], 'image/webp': ['.webp'] },
     multiple: false,
     noClick: true,
     noKeyboard: true,
-    onDrop: async (files) => { if (files[0]) await uploadImage(files[0]) },
+    onDrop: (files) => { if (files[0]) setCropModalFile(files[0]) },
   })
 
   // ── Pexels image fetch for recipe ─────────────────────────────────────────
@@ -983,10 +1012,9 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       if (!res.ok) return
       const { imageUrl } = await res.json() as { imageUrl: string | null }
       if (imageUrl) {
-        setImagePreview(imageUrl)
         suppressNextDirtyRef.current = true
-        setRecipe((c) => ({ ...c, imageUrl }))
-        setLoadedRecipe((prev) => prev ? { ...prev, imageUrl } : prev)
+        setRecipe((c) => ({ ...c, imageUrl, imageUrls: [imageUrl] }))
+        setLoadedRecipe((prev) => prev ? { ...prev, imageUrl, imageUrls: [imageUrl] } : prev)
       }
     } catch {
       // non-critical
@@ -1002,7 +1030,11 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       ...currentRecipe,
       // When used as a sub-recipe, pin the unit to the recipe's own yield unit so
       // convertUnit(yieldQty, yieldUnit, yieldUnit) = yieldQty and cost-per-unit = totalCost / yieldQty.
-      subIngredientUnit: currentRecipe.isSubIngredient ? currentRecipe.yieldUnit : currentRecipe.subIngredientUnit,
+      subIngredientUnit: currentRecipe.isSubIngredient
+        ? (isConvertible(currentRecipe.yieldUnit, 'g') || isConvertible(currentRecipe.yieldUnit, 'ml')
+            ? currentRecipe.yieldUnit
+            : 'g')  // count yield unit → default to gram so weight-based usage works
+        : currentRecipe.subIngredientUnit,
       ingredients: currentIngredients.map((item) => ({ ...item, lineCost: calculateLineCost(item) })),
     }
 
@@ -1015,7 +1047,6 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     setLoadedRecipe(hydratedRecipe)
     if (!silent) {
       setRecipe(mapRecipeToState(hydratedRecipe))
-      setImagePreview(saved.imageUrl)
     }
     setRecipeAllergens(
       computeRecipeAllergens(
@@ -1086,6 +1117,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     const printWindow = window.open('', '_blank')
     if (!printWindow) return
 
+    const logoUrl = `${window.location.origin}/images/fundobranco2.png`
     const yieldQty = recipe.yieldQuantity
     const isBatch = yieldQty > 1
     const profitPerUnit = cost.sellingPrice - cost.costPerUnit
@@ -1161,10 +1193,10 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
         <span class="badge">Cook: ${recipe.cookTimeMinutes} min</span>
       </div>
     </div>
-    <div style="text-align:right;"><p class="brand">ZRecipe</p><p style="font-size:12px;color:#9ca3af;">${today}</p></div>
+    <div style="text-align:right;"><img src="${logoUrl}" style="height:32px;object-fit:contain;display:block;margin-left:auto;" alt="ZRecipe" /><p style="font-size:10px;color:#9ca3af;margin-top:2px;">food costing software</p><p style="font-size:12px;color:#9ca3af;">${today}</p></div>
   </div>
 
-  ${imagePreview ? `<img src="${imagePreview}" style="width:100%;max-height:250px;object-fit:cover;border-radius:12px;margin-bottom:20px;" />` : ''}
+  ${recipe.imageUrls[0] ? `<img src="${recipe.imageUrls[0]}" style="width:100%;max-height:250px;object-fit:cover;border-radius:12px;margin-bottom:20px;" />` : ''}
 
   <p class="section-title">Ingredients${N > 1 ? ` (×${N} batch)` : ''}</p>
   <table>
@@ -1221,7 +1253,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   </div>
 
   <div class="footer">
-    <span>Generated by ZRecipe</span>
+    <span>www.zrecipe.ie — food costing software</span>
     <span>Prep: ${recipe.prepTimeMinutes} min · Cook: ${recipe.cookTimeMinutes} min</span>
     <span>${today}</span>
   </div>
@@ -1231,12 +1263,13 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 </html>`)
 
     printWindow.document.close()
-  }, [recipe, cost, computedIngredients, recipeAllergens, imagePreview, laborHourlyRate, effectiveN])
+  }, [recipe, cost, computedIngredients, recipeAllergens, laborHourlyRate, effectiveN])
 
   const handlePrintKitchen = useCallback(() => {
     const printWindow = window.open('', '_blank')
     if (!printWindow) return
 
+    const logoUrl = `${window.location.origin}/images/fundobranco2.png`
     const yieldQty = recipe.yieldQuantity
     const allergenText = recipeAllergens.contains.map((a) => `${a.icon} ${a.shortName}`).join(', ')
     const N = effectiveN
@@ -1279,7 +1312,10 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   </style>
 </head>
 <body>
-  <h1>${recipe.name}</h1>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #059669;padding-bottom:16px;margin-bottom:16px;">
+    <h1>${recipe.name}</h1>
+    <div style="text-align:right;"><img src="${logoUrl}" style="height:32px;object-fit:contain;display:block;margin-left:auto;" alt="ZRecipe" /><p style="font-size:10px;color:#9ca3af;margin-top:2px;">food costing software</p></div>
+  </div>
   <div class="meta">
     <span class="badge">${recipe.category || 'Uncategorised'}</span>
     ${N > 1 ? `<span class="badge badge-batch">Batch ×${N}</span>` : ''}
@@ -1287,7 +1323,21 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     <span class="badge">Prep: ${recipe.prepTimeMinutes} min</span>
     <span class="badge">Cook: ${recipe.cookTimeMinutes} min</span>
   </div>
-  ${imagePreview ? `<img src="${imagePreview}" style="width:100%;max-height:300px;object-fit:cover;border-radius:12px;margin-bottom:24px;" />` : ''}
+  ${(() => {
+      const urls = recipe.imageUrls.filter(Boolean)
+      if (!urls.length) return ''
+      if (urls.length === 1) {
+        return `<img src="${urls[0]}" style="width:100%;max-height:300px;object-fit:cover;border-radius:12px;margin-bottom:24px;" />`
+      }
+      const h = urls.length <= 4 ? 180 : 130
+      if (urls.length <= 4) {
+        const imgs = urls.map(u => `<img src="${u}" style="flex:1;min-width:0;height:${h}px;object-fit:cover;border-radius:8px;" />`).join('')
+        return `<div style="display:flex;gap:6px;margin-bottom:24px;">${imgs}</div>`
+      }
+      const row1 = urls.slice(0, 4).map(u => `<img src="${u}" style="flex:1;min-width:0;height:${h}px;object-fit:cover;border-radius:8px;" />`).join('')
+      const row2 = urls.slice(4).map(u => `<img src="${u}" style="flex:1;min-width:0;height:${h}px;object-fit:cover;border-radius:8px;" />`).join('')
+      return `<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:24px;"><div style="display:flex;gap:6px;">${row1}</div><div style="display:flex;gap:6px;">${row2}</div></div>`
+    })()}
   <p class="section">Ingredients${N > 1 ? ` (batch total ×${N})` : ''}</p>
   <table>
     <thead><tr><th style="width:45%;">Ingredient</th><th style="width:35%;">Notes</th><th style="width:20%;text-align:right;">Quantity</th></tr></thead>
@@ -1297,16 +1347,18 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   ${recipeAllergens.contains.length > 0
     ? `<div class="allergen-box"><p style="font-weight:700;color:#dc2626;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Allergen Declaration</p><p style="color:#991b1b;font-size:15px;font-weight:600;">CONTAINS: ${allergenText}</p></div>`
     : '<p style="color:#059669;font-size:13px;margin-top:24px;">✓ No allergens declared</p>'}
+  <div style="margin-top:32px;padding-top:12px;border-top:1px solid #e5e7eb;text-align:center;font-size:11px;color:#9ca3af;">www.zrecipe.ie — food costing software</div>
   <button class="print-btn no-print" onclick="window.print()">Print</button>
 </body>
 </html>`)
     printWindow.document.close()
-  }, [recipe, computedIngredients, recipeAllergens, imagePreview, effectiveN])
+  }, [recipe, computedIngredients, recipeAllergens, effectiveN])
 
   const handlePrintLabel = useCallback((labelData: LabelData) => {
     const printWindow = window.open('', '_blank')
     if (!printWindow) return
 
+    const logoUrl = `${window.location.origin}/images/fundobranco2.png`
     const allergenNames = recipeAllergens.contains.map((a) => a.shortName)
     const allergenDisplay = recipeAllergens.contains.map((a) => `${a.icon} ${a.shortName}`).join(', ')
 
@@ -1329,7 +1381,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   <title>${labelData.productName} — Label</title>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family:-apple-system,BlinkMacSystemFont,sans-serif; color:#1e293b; padding:20px; display:flex; justify-content:center; align-items:flex-start; min-height:100vh; background:#f9fafb; }
+    body { font-family:-apple-system,BlinkMacSystemFont,sans-serif; color:#1e293b; padding:20px; display:flex; flex-direction:column; justify-content:flex-start; align-items:center; min-height:100vh; background:#f9fafb; }
     @media print { body { padding:0; background:white; min-height:auto; } .no-print { display:none !important; } @page { margin:5mm; } }
     .label { border:2.5px solid #1e293b; border-radius:10px; padding:20px 24px; max-width:420px; width:100%; background:white; }
     .product-name { font-size:24px; font-weight:900; color:#0f172a; line-height:1.2; margin-bottom:2px; }
@@ -1349,8 +1401,10 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 </head>
 <body>
   <div class="label">
-    <p class="product-name">${labelData.productName}</p>
-    ${labelData.businessName ? `<p class="business-name">${labelData.businessName}</p>` : ''}
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+      <div><p class="product-name">${labelData.productName}</p>${labelData.businessName ? `<p class="business-name">${labelData.businessName}</p>` : ''}</div>
+      <img src="${logoUrl}" style="height:22px;object-fit:contain;opacity:0.65;flex-shrink:0;margin-left:8px;" alt="ZRecipe" />
+    </div>
     <p class="section-label">Ingredients</p>
     <p class="ingredients-text">${ingredientsHtml}</p>
     ${recipeAllergens.contains.length > 0
@@ -1365,6 +1419,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       ${expDate ? `<div class="meta-item"><p class="meta-label">Best Before</p><p class="meta-value">${expDate}</p></div>` : ''}
     </div>
   </div>
+  <p style="font-size:10px;color:#9ca3af;margin-top:10px;text-align:center;">www.zrecipe.ie — food costing software</p>
   <button class="print-btn no-print" onclick="window.print()">Print Label</button>
 </body>
 </html>`)
@@ -1484,127 +1539,193 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       )}
 
       {/* ── SECTION 1: Photo + Details ────────────────────────────────────── */}
-      <div className="grid gap-6 lg:grid-cols-[224px_1fr]">
+      <div className="grid gap-6 lg:grid-cols-[224px_1fr] lg:items-stretch">
 
-        {/* Photo upload */}
-        {(() => {
-          const imageSource = imagePreview?.includes('pexels.com') ? 'pexels' : imagePreview ? 'user' : null
-          return (
-            <div
-              {...getRootProps()}
-              onDragEnter={() => setIsDragging(true)}
-              onDragLeave={() => setIsDragging(false)}
-              onDropCapture={() => setIsDragging(false)}
-              className={cn(
-                'relative flex h-56 flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed transition lg:h-full lg:min-h-[220px]',
-                isDragging ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-slate-50 hover:border-emerald-300 hover:bg-emerald-50/40'
-              )}
-            >
-              <input {...getInputProps()} />
-              {/* Hidden inputs for direct ref-based access */}
-              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileInputChange} />
-              <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileInputChange} />
+        {/* Photo gallery */}
+        <div className="flex flex-col gap-2 lg:h-full">
+          {/* Primary photo / drop area */}
+          {(() => {
+            const primaryUrl = recipe.imageUrls[0] ?? null
+            const imageSource = primaryUrl?.includes('pexels.com') ? 'pexels' : primaryUrl ? 'user' : null
+            return (
+              <div
+                {...getRootProps()}
+                onDragEnter={() => setIsDragging(true)}
+                onDragLeave={() => setIsDragging(false)}
+                onDropCapture={() => setIsDragging(false)}
+                className={cn(
+                  'relative flex h-56 flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed transition lg:min-h-[240px] lg:flex-1',
+                  isDragging ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-slate-50 hover:border-emerald-300 hover:bg-emerald-50/40'
+                )}
+              >
+                <input {...getInputProps()} />
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileInputChange} />
+                <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileInputChange} />
 
-              {imagePreview ? (
-                <>
-                  <Image src={imagePreview} alt={recipe.name || 'Recipe'} fill unoptimized className="object-cover" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-900/40 to-transparent" />
-                  {uploadingImage && (
-                    <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/50">
-                      <div className="text-center">
-                        <div className="mx-auto mb-2 h-8 w-8 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                        <p className="text-xs font-medium text-white">Saving photo…</p>
+                {primaryUrl ? (
+                  <>
+                    <Image src={primaryUrl} alt={recipe.name || 'Recipe'} fill unoptimized className="object-cover" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-900/40 to-transparent" />
+                    {uploadingImage && (
+                      <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/50">
+                        <div className="text-center">
+                          <div className="mx-auto mb-2 h-8 w-8 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                          <p className="text-xs font-medium text-white">Saving photo…</p>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                  {imageSource === 'pexels' && (
-                    <span className="absolute top-2 left-2 rounded bg-black/40 px-1.5 py-0.5 text-[10px] text-white/80">
-                      Stock photo
-                    </span>
-                  )}
-                  <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2">
-                    {isMobile ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => cameraInputRef.current?.click()}
-                          className="flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-2 text-xs text-white shadow-lg transition-transform active:scale-95"
-                        >
-                          <Camera className="h-3.5 w-3.5" />
-                          Take photo
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          className="flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-2 text-xs text-white backdrop-blur-sm transition-transform active:scale-95"
-                        >
-                          <ImageIcon className="h-3.5 w-3.5" />
-                          Upload
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={openFilePicker}
-                        className="rounded-full bg-black/60 px-3 py-1.5 text-xs text-white backdrop-blur-sm transition hover:bg-black/70"
-                      >
-                        {uploadingImage ? 'Uploading…' : 'Change photo'}
-                      </button>
                     )}
-                    {imageSource === 'pexels' && !isNew && (
-                      <button
-                        type="button"
-                        title="Fetch new stock photo"
-                        onClick={() => void fetchRecipeImage(recipeId, recipe.name)}
-                        disabled={fetchingImage}
-                        className="rounded-full bg-white/80 p-1.5 shadow transition hover:bg-white disabled:opacity-50"
-                      >
-                        <RefreshCw className={cn('h-3.5 w-3.5 text-slate-600', fetchingImage && 'animate-spin')} />
-                      </button>
+                    {imageSource === 'pexels' && (
+                      <span className="absolute top-2 left-2 rounded bg-black/40 px-1.5 py-0.5 text-[10px] text-white/80">
+                        Stock photo
+                      </span>
                     )}
+                    {recipe.imageUrls.length < 8 && (
+                      <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2">
+                        {isMobile ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => cameraInputRef.current?.click()}
+                              className="flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-2 text-xs text-white shadow-lg transition-transform active:scale-95"
+                            >
+                              <Camera className="h-3.5 w-3.5" />
+                              Take photo
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => fileInputRef.current?.click()}
+                              className="flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-2 text-xs text-white backdrop-blur-sm transition-transform active:scale-95"
+                            >
+                              <ImageIcon className="h-3.5 w-3.5" />
+                              Add photo
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={openFilePicker}
+                            className="rounded-full bg-black/60 px-3 py-1.5 text-xs text-white backdrop-blur-sm transition hover:bg-black/70"
+                          >
+                            {uploadingImage ? 'Uploading…' : 'Add photo'}
+                          </button>
+                        )}
+                        {imageSource === 'pexels' && !isNew && (
+                          <button
+                            type="button"
+                            title="Fetch new stock photo"
+                            onClick={() => void fetchRecipeImage(recipeId, recipe.name)}
+                            disabled={fetchingImage}
+                            className="rounded-full bg-white/80 p-1.5 shadow transition hover:bg-white disabled:opacity-50"
+                          >
+                            <RefreshCw className={cn('h-3.5 w-3.5 text-slate-600', fetchingImage && 'animate-spin')} />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {recipe.imageUrls.length >= 8 && (
+                      <div className="absolute bottom-3 left-1/2 -translate-x-1/2">
+                        <span className="rounded-full bg-black/50 px-3 py-1 text-[10px] text-white/80">
+                          Max 8 photos
+                        </span>
+                      </div>
+                    )}
+                  </>
+                ) : fetchingImage ? (
+                  <div className="flex flex-col items-center gap-3 px-4 text-center">
+                    <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+                    <p className="text-xs text-slate-500">Fetching photo…</p>
                   </div>
-                </>
-              ) : fetchingImage ? (
-                <div className="flex flex-col items-center gap-3 px-4 text-center">
-                  <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
-                  <p className="text-xs text-slate-500">Fetching photo…</p>
-                </div>
-              ) : uploadingImage ? (
-                <div className="flex flex-col items-center gap-3 px-4 text-center">
-                  <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
-                  <p className="text-xs text-slate-500">Uploading…</p>
-                </div>
-              ) : isMobile ? (
-                <div
-                  onClick={() => cameraInputRef.current?.click()}
-                  className="flex cursor-pointer flex-col items-center gap-2 px-4 text-center"
+                ) : uploadingImage ? (
+                  <div className="flex flex-col items-center gap-3 px-4 text-center">
+                    <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+                    <p className="text-xs text-slate-500">Uploading…</p>
+                  </div>
+                ) : isMobile ? (
+                  <div
+                    onClick={() => cameraInputRef.current?.click()}
+                    className="flex cursor-pointer flex-col items-center gap-2 px-4 text-center"
+                  >
+                    <Camera className="h-8 w-8 text-slate-400" />
+                    <p className="text-xs text-slate-500">Tap to take a photo</p>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click() }}
+                      className="mt-1 text-xs text-slate-400 underline"
+                    >
+                      or choose from gallery
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-3 px-4 text-center">
+                    <UploadCloud className="h-8 w-8 text-slate-400" />
+                    <p className="text-xs text-slate-500">Drop an image here or</p>
+                    <button
+                      type="button"
+                      onClick={openFilePicker}
+                      className="rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500"
+                    >
+                      Choose photo
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* Thumbnail strip — drag to reorder */}
+          {recipe.imageUrls.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              <Reorder.Group
+                axis="x"
+                values={recipe.imageUrls}
+                onReorder={(newUrls: string[]) => {
+                  setRecipe((c) => ({ ...c, imageUrls: newUrls, imageUrl: newUrls[0] ?? null }))
+                }}
+                as="div"
+                className="contents"
+              >
+                {recipe.imageUrls.map((url, idx) => (
+                  <Reorder.Item
+                    key={url}
+                    value={url}
+                    as="div"
+                    className="group relative h-12 w-12 shrink-0 cursor-grab overflow-hidden rounded-lg border-2 border-slate-200 active:cursor-grabbing"
+                    whileDrag={{ scale: 1.1, boxShadow: '0 6px 18px rgba(0,0,0,0.28)', zIndex: 20, borderColor: '#34d399' }}
+                    layout
+                    layoutId={url}
+                  >
+                    <Image src={url} fill unoptimized className="pointer-events-none object-cover" alt="" />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 transition group-hover:opacity-100">
+                      <button
+                        type="button"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => { e.stopPropagation(); removeFromGallery(idx) }}
+                        className="rounded p-0.5 hover:bg-white/20"
+                      >
+                        <X className="h-3 w-3 text-white" />
+                      </button>
+                    </div>
+                    {idx === 0 && (
+                      <div className="pointer-events-none absolute bottom-0 left-0 right-0 bg-emerald-600/80 py-[1px] text-center text-[7px] leading-tight text-white">
+                        main
+                      </div>
+                    )}
+                  </Reorder.Item>
+                ))}
+              </Reorder.Group>
+              {recipe.imageUrls.length < 8 && (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border-2 border-dashed border-slate-200 text-slate-400 hover:border-emerald-300 hover:text-emerald-500"
+                  title="Add photo"
                 >
-                  <Camera className="h-8 w-8 text-slate-400" />
-                  <p className="text-xs text-slate-500">Tap to take a photo</p>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click() }}
-                    className="mt-1 text-xs text-slate-400 underline"
-                  >
-                    or choose from gallery
-                  </button>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center gap-3 px-4 text-center">
-                  <UploadCloud className="h-8 w-8 text-slate-400" />
-                  <p className="text-xs text-slate-500">Drop an image here or</p>
-                  <button
-                    type="button"
-                    onClick={openFilePicker}
-                    className="rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500"
-                  >
-                    Choose photo
-                  </button>
-                </div>
+                  <Plus className="h-4 w-4" />
+                </button>
               )}
             </div>
-          )
-        })()}
+          )}
+        </div>
 
         {/* Details form */}
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1983,6 +2104,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
             cost={cost}
             yieldQuantity={recipe.yieldQuantity}
             yieldUnit={recipe.yieldUnit}
+            isSubRecipe={recipe.isSubIngredient}
             prepTimeMinutes={recipe.prepTimeMinutes}
             laborHourlyRate={laborHourlyRate}
             laborMode={recipe.laborMode}
@@ -2035,6 +2157,17 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
           ))}
         </Reorder.Group>
       </div>
+
+      {cropModalFile && (
+        <PhotoCropModal
+          file={cropModalFile}
+          onCancel={() => setCropModalFile(null)}
+          onSave={async (croppedFile) => {
+            setCropModalFile(null)
+            await uploadImage(croppedFile)
+          }}
+        />
+      )}
 
       <YieldFactorModal open={yieldModalOpen} onClose={() => setYieldModalOpen(false)} />
 

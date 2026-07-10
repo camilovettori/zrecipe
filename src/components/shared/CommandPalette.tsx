@@ -308,7 +308,7 @@ export default function CommandPalette() {
           onChange={(e) => { setQuery(e.target.value); setIsOpen(true); setActiveIndex(0) }}
           onFocus={() => setIsOpen(true)}
           placeholder="Search..."
-          className="w-32 min-w-0 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400 sm:w-44"
+          className="w-44 min-w-0 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400 sm:w-60"
           autoComplete="off"
           spellCheck={false}
         />
@@ -319,7 +319,7 @@ export default function CommandPalette() {
 
       {/* ── Dropdown ── */}
       {showDropdown && (
-        <div className="absolute right-0 top-full z-[100] mt-1.5 w-[min(500px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        <div className="absolute right-0 top-full z-[100] mt-1.5 w-[min(560px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
           <div className="max-h-[400px] overflow-y-auto overscroll-contain">
 
             {/* Loading skeleton */}

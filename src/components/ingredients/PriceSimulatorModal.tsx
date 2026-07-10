@@ -6,7 +6,7 @@ import { AlertTriangle, ArrowDown, ArrowUp, Loader2, Minus, RotateCcw, X } from 
 import { createClient } from '@/lib/supabase/client'
 import { calculateCost } from '@/lib/utils/cost-calculator'
 import { calculateCostPerBaseUnit } from '@/lib/invoices'
-import { isConvertible } from '@/lib/utils/unit-converter'
+import { convertUnit, isConvertible } from '@/lib/utils/unit-converter'
 import { cn } from '@/lib/utils'
 import type { IngredientRow } from '@/hooks/useIngredients'
 
@@ -31,6 +31,11 @@ type NormIngRow = {
   yieldPercent: number | null
   price: number | null
   priceUnit: string | null
+  subRecipeId: string | null
+  subRecipeTotalCost: number | null
+  subRecipeYieldQuantity: number | null
+  subRecipeYieldUnit: string | null
+  subRecipeCostUnit: string | null
 }
 
 type NormRecipe = {
@@ -70,7 +75,14 @@ interface Props {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-type RawRelation = { current_price?: number | null; price_unit?: string | null; sub_ingredient_cost_per_unit?: number | null; sub_ingredient_unit?: string | null } | null
+type RawRelation = {
+  current_price?: number | null
+  price_unit?: string | null
+  sub_ingredient_cost_per_unit?: number | null
+  sub_ingredient_unit?: string | null
+  yield_quantity?: number | null
+  yield_unit?: string | null
+} | null
 
 function pickRelation(v: unknown): RawRelation {
   if (!v) return null
@@ -81,6 +93,13 @@ function normalizeIngRow(row: Record<string, unknown>): NormIngRow {
   const ing = pickRelation(row.ingredient)
   const sr = pickRelation(row.sub_recipe)
   const hasIng = !!row.ingredient_id
+  const subRecipeYieldQuantity = (sr?.yield_quantity as number | null) ?? null
+  const subRecipeYieldUnit = (sr?.yield_unit as string | null) ?? null
+  const subRecipeCostUnit = (sr?.sub_ingredient_unit as string | null) ?? null
+  const subRecipeTotalCost =
+    !hasIng && sr?.sub_ingredient_cost_per_unit != null && subRecipeYieldQuantity != null && subRecipeYieldUnit && subRecipeCostUnit && isConvertible(subRecipeYieldUnit, subRecipeCostUnit)
+      ? Number((sr.sub_ingredient_cost_per_unit * convertUnit(subRecipeYieldQuantity, subRecipeYieldUnit, subRecipeCostUnit)).toFixed(2))
+      : null
   return {
     id: row.id as string,
     ingredientId: (row.ingredient_id as string | null) ?? null,
@@ -89,6 +108,11 @@ function normalizeIngRow(row: Record<string, unknown>): NormIngRow {
     yieldPercent: (row.yield_percent as number | null) ?? null,
     price: hasIng ? (ing?.current_price ?? null) : (sr?.sub_ingredient_cost_per_unit ?? null),
     priceUnit: hasIng ? (ing?.price_unit ?? null) : (sr?.sub_ingredient_unit ?? null),
+    subRecipeId: (row.sub_recipe_id as string | null) ?? null,
+    subRecipeTotalCost,
+    subRecipeYieldQuantity,
+    subRecipeYieldUnit,
+    subRecipeCostUnit,
   }
 }
 
@@ -97,7 +121,18 @@ function singleIngCost(ing: NormIngRow, overridePrice?: number, overridePriceUni
   const priceUnit = overridePriceUnit ?? ing.priceUnit ?? ing.unit
   if (!price || price <= 0) return 0
   const result = calculateCost({
-    ingredients: [{ quantity: ing.quantity, unit: ing.unit, yield_percent: ing.yieldPercent, current_price: price, price_unit: priceUnit }],
+    ingredients: [{
+      quantity: ing.quantity,
+      unit: ing.unit,
+      yield_percent: ing.yieldPercent,
+      current_price: price,
+      price_unit: priceUnit,
+      subRecipeId: ing.subRecipeId,
+      subRecipeTotalCost: overridePrice != null && ing.subRecipeId ? null : ing.subRecipeTotalCost,
+      subRecipeYieldQuantity: ing.subRecipeYieldQuantity,
+      subRecipeYieldUnit: ing.subRecipeYieldUnit,
+      subRecipeCostUnit: ing.subRecipeCostUnit,
+    }],
     sellingPrice: 0,
   })
   return result.ingredientCost
@@ -127,6 +162,11 @@ function computeSimRow(
     yield_percent: ing.yieldPercent,
     current_price: priceOverride ?? ing.price,
     price_unit: unitOverride ?? ing.priceUnit ?? ing.unit,
+    subRecipeId: ing.subRecipeId,
+    subRecipeTotalCost: priceOverride != null && ing.subRecipeId ? null : ing.subRecipeTotalCost,
+    subRecipeYieldQuantity: ing.subRecipeYieldQuantity,
+    subRecipeYieldUnit: ing.subRecipeYieldUnit,
+    subRecipeCostUnit: ing.subRecipeCostUnit,
   })
 
   const target = recipe.ingredients.find((i) => i.ingredientId === ingredientId)
@@ -197,7 +237,7 @@ export function PriceSimulatorModal({ open, onClose, ingredient, usedRecipeIds }
             recipe_ingredients!recipe_ingredients_recipe_id_fkey (
               id, ingredient_id, sub_recipe_id, quantity, unit, yield_percent,
               ingredient:ingredients (id, name, current_price, price_unit),
-              sub_recipe:recipes!recipe_ingredients_sub_recipe_id_fkey (id, name, sub_ingredient_cost_per_unit, sub_ingredient_unit)
+              sub_recipe:recipes!recipe_ingredients_sub_recipe_id_fkey (id, name, sub_ingredient_cost_per_unit, sub_ingredient_unit, yield_quantity, yield_unit)
             )
           `)
           .in('id', usedRecipeIds)

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { convertUnit, isConvertible } from '@/lib/utils/unit-converter'
-import { calculateCost } from '@/lib/utils/cost-calculator'
+import { calculateCost, calculateIngredientCost } from '@/lib/utils/cost-calculator'
 import { type IngredientLookup } from '@/hooks/useInvoices'
 import { resolveTenantId } from '@/hooks/useTenant'
 import { type IngredientAllergen, type AllergenStatus } from '@/lib/allergens'
@@ -17,6 +17,10 @@ export interface RecipeIngredientDraft {
   id: string
   ingredientId?: string | null
   subRecipeId?: string | null
+  subRecipeTotalCost?: number | null
+  subRecipeYieldQuantity?: number | null
+  subRecipeYieldUnit?: string | null
+  subRecipeCostUnit?: string | null
   ingredientName: string
   quantity: number
   unit: string
@@ -46,6 +50,7 @@ export interface RecipeEditorData {
   wastePercent: number
   sellingPrice: number
   imageUrl: string | null
+  imageUrls: string[]
   isSubIngredient: boolean
   subIngredientUnit: string
   storageInstructions?: string | null
@@ -102,6 +107,8 @@ type DBSubRecipeRef = {
   name: string
   sub_ingredient_cost_per_unit?: number | null
   sub_ingredient_unit?: string | null
+  yield_quantity?: number | null
+  yield_unit?: string | null
 }
 
 type DBRecipeIngredientRow = {
@@ -138,6 +145,7 @@ type DBRecipeRow = {
   waste_percent?: number | null
   selling_price?: number | null
   image_url?: string | null
+  image_urls?: string[] | null
   is_active?: boolean | null
   is_sub_ingredient?: boolean | null
   sub_ingredient_unit?: string | null
@@ -230,17 +238,19 @@ function serializeInstructions(steps: RecipeStepDraft[]) {
 }
 
 function ingredientLineCost(item: RecipeIngredientDraft) {
-  const currentPrice = item.currentPrice ?? 0
-  if (!currentPrice) return 0
-
-  const priceUnit = item.priceUnit ?? item.unit
-  if (!isConvertible(item.unit, priceUnit)) return 0
-
-  // Apply yield factor: cost is based on AP (as-purchased) quantity
-  const yieldFactor = Math.max(0.01, (item.yield_percent ?? 100) / 100)
-  const apQuantity = item.quantity / yieldFactor
-  const quantityInPriceUnit = convertUnit(apQuantity, item.unit, priceUnit)
-  return Number((quantityInPriceUnit * currentPrice).toFixed(2))
+  return calculateIngredientCost({
+    quantity: item.quantity,
+    unit: item.unit,
+    name: item.ingredientName,
+    yield_percent: item.yield_percent ?? 100,
+    current_price: item.currentPrice ?? 0,
+    price_unit: item.priceUnit ?? item.unit,
+    subRecipeId: item.subRecipeId ?? null,
+    subRecipeTotalCost: item.subRecipeTotalCost ?? null,
+    subRecipeYieldQuantity: item.subRecipeYieldQuantity ?? null,
+    subRecipeYieldUnit: item.subRecipeYieldUnit ?? null,
+    subRecipeCostUnit: item.subRecipeCostUnit ?? null,
+  }).cost
 }
 
 export function calculateRecipeCost(
@@ -266,6 +276,11 @@ export function calculateRecipeCost(
       yield_percent: item.yield_percent ?? 100,
       current_price: item.currentPrice ?? 0,
       price_unit: item.priceUnit ?? item.unit,
+      subRecipeId: item.subRecipeId ?? null,
+      subRecipeTotalCost: item.subRecipeTotalCost ?? null,
+      subRecipeYieldQuantity: item.subRecipeYieldQuantity ?? null,
+      subRecipeYieldUnit: item.subRecipeYieldUnit ?? null,
+      subRecipeCostUnit: item.subRecipeCostUnit ?? null,
     })),
     laborMode: opts?.laborMode ?? 'fixed',
     laborCostFixed: laborCost,
@@ -346,6 +361,7 @@ function buildRecipeRecordFromInput(
     wastePercent: input.wastePercent,
     sellingPrice: input.sellingPrice,
     imageUrl: input.imageUrl,
+    imageUrls: input.imageUrls,
     isSubIngredient: input.isSubIngredient,
     subIngredientUnit: input.subIngredientUnit,
     instructions: input.instructions,
@@ -388,10 +404,22 @@ function mapRecipeRow(row: DBRecipeRow, laborHourlyRate = 15): RecipeRecord {
         ingredient?.name ?? subRecipeRef?.name ?? item.notes ?? `Ingredient ${index + 1}`
       const currentPrice = ingredient?.currentPrice ?? subRecipeRef?.sub_ingredient_cost_per_unit ?? null
       const priceUnit = ingredient?.priceUnit ?? subRecipeRef?.sub_ingredient_unit ?? item.unit
+      const subRecipeYieldQuantity = subRecipeRef?.yield_quantity ?? null
+      const subRecipeYieldUnit = subRecipeRef?.yield_unit ?? null
       const line: RecipeIngredientDraft = {
         id: item.id,
         ingredientId: item.ingredient_id ?? ingredient?.id ?? null,
         subRecipeId: item.sub_recipe_id ?? null,
+        subRecipeTotalCost: subRecipeRef?.sub_ingredient_cost_per_unit != null
+          && subRecipeYieldQuantity != null
+          && subRecipeYieldUnit
+          && subRecipeRef.sub_ingredient_unit
+          && isConvertible(subRecipeYieldUnit, subRecipeRef.sub_ingredient_unit)
+          ? Number((subRecipeRef.sub_ingredient_cost_per_unit * convertUnit(subRecipeYieldQuantity, subRecipeYieldUnit, subRecipeRef.sub_ingredient_unit ?? item.unit)).toFixed(2))
+          : null,
+        subRecipeYieldQuantity,
+        subRecipeYieldUnit,
+        subRecipeCostUnit: subRecipeRef?.sub_ingredient_unit ?? item.unit,
         ingredientName,
         quantity: Number(item.quantity),
         unit: item.unit,
@@ -449,6 +477,7 @@ function mapRecipeRow(row: DBRecipeRow, laborHourlyRate = 15): RecipeRecord {
     wastePercent,
     sellingPrice: Number(row.selling_price ?? 0),
     imageUrl: row.image_url ?? null,
+    imageUrls: row.image_urls?.length ? row.image_urls : (row.image_url ? [row.image_url] : []),
     isSubIngredient: row.is_sub_ingredient ?? false,
     subIngredientUnit: row.sub_ingredient_unit ?? 'g',
     storageInstructions: row.storage_instructions ?? null,
@@ -523,6 +552,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
             waste_percent,
             selling_price,
             image_url,
+            image_urls,
             is_active,
             is_sub_ingredient,
             sub_ingredient_unit,
@@ -538,7 +568,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
               sort_order,
               yield_percent,
               yield_override,
-              ingredient:ingredients (
+      ingredient:ingredients (
                 id,
                 name,
                 current_price,
@@ -548,7 +578,9 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
                 id,
                 name,
                 sub_ingredient_cost_per_unit,
-                sub_ingredient_unit
+                sub_ingredient_unit,
+                yield_quantity,
+                yield_unit
               )
             ),
             created_at,
@@ -612,6 +644,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           waste_percent,
           selling_price,
           image_url,
+          image_urls,
           is_active,
           is_sub_ingredient,
           sub_ingredient_unit,
@@ -638,7 +671,9 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
               id,
               name,
               sub_ingredient_cost_per_unit,
-              sub_ingredient_unit
+              sub_ingredient_unit,
+              yield_quantity,
+              yield_unit
             )
           ),
           created_at,
@@ -685,12 +720,23 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           yieldUnit: input.yieldUnit,
         }
       )
-      // Convert the recipe's yield to the sub-ingredient unit before computing per-unit cost.
-      // e.g. yield = 1.15 kg, subIngredientUnit = 'g' → yieldInSubUnit = 1150
-      //      costPerGram = €1.99 / 1150 = €0.001730  (not €1.99 / 1.15 = €1.73)
-      const yieldInSubUnit = input.isSubIngredient
-        ? convertUnit(input.yieldQuantity, input.yieldUnit, input.subIngredientUnit || 'g')
-        : 0
+      // Compute cost per sub-ingredient unit so parent recipes can price by weight/volume.
+      // When yield and sub-ingredient unit are in the same family (e.g. yield=1.15kg, unit=g):
+      //   yieldInSubUnit = convertUnit(1.15, 'kg', 'g') = 1150 → costPerGram = totalCost / 1150
+      // When yield is in a count unit (e.g. 'unit') incompatible with 'g':
+      //   fall back to total ingredient weight to derive the base quantity.
+      const subIngredientUnit = input.subIngredientUnit || 'g'
+      const yieldInSubUnit = (() => {
+        if (!input.isSubIngredient) return 0
+        if (isConvertible(input.yieldUnit, subIngredientUnit)) {
+          return convertUnit(input.yieldQuantity, input.yieldUnit, subIngredientUnit)
+        }
+        // Yield unit incompatible — sum the total weight of all weight/volume ingredients
+        return input.ingredients.reduce((sum, ing) => {
+          if (!isConvertible(ing.unit, subIngredientUnit)) return sum
+          return sum + convertUnit(ing.quantity, ing.unit, subIngredientUnit)
+        }, 0)
+      })()
       const subIngredientCostPerUnit =
         input.isSubIngredient && yieldInSubUnit > 0
           ? recipeCost.totalCost / yieldInSubUnit
@@ -716,7 +762,8 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           overheadPercent: input.overheadPercent,
           wastePercent: input.wastePercent,
           sellingPrice: input.sellingPrice,
-          imageUrl: input.imageUrl,
+          imageUrl: input.imageUrls[0] ?? input.imageUrl,
+          imageUrls: input.imageUrls,
           isSubIngredient: input.isSubIngredient,
           subIngredientUnit: input.subIngredientUnit || 'g',
           subIngredientCostPerUnit,
