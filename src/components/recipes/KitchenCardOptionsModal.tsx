@@ -50,9 +50,13 @@ export default function KitchenCardOptionsModal({
   // Custom logo (when the tenant has branding rights and uploaded one) always
   // takes priority; otherwise the ZRecipe logo shows — a blank header never
   // happens. See lib/tenant.ts hasBrandingRights() for the gating rule.
+  const isCustomLogo = hasBrandingRights && !!customLogoUrl
   const resolvedLogoUrl = hasBrandingRights && customLogoUrl ? customLogoUrl : logoUrl
 
-  const html = useMemo(() => buildKitchenCardHtml(data, options, resolvedLogoUrl), [data, options, resolvedLogoUrl])
+  const html = useMemo(
+    () => buildKitchenCardHtml(data, options, resolvedLogoUrl, isCustomLogo),
+    [data, options, resolvedLogoUrl, isCustomLogo]
+  )
 
   const pageWidthMm = options.orientation === 'landscape' ? 297 : 210
   const pageHeightMm = options.orientation === 'landscape' ? 210 : 297

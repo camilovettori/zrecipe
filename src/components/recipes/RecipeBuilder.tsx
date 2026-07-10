@@ -56,7 +56,7 @@ import { YieldFactorPopover } from './YieldFactorPopover'
 import { YieldFactorModal } from './YieldFactorModal'
 import { findYieldFactor } from '@/lib/data/yield-factors'
 import { compressImage } from '@/lib/utils/image-compress'
-import { convertUnit, isConvertible } from '@/lib/utils/unit-converter'
+import { isConvertible } from '@/lib/utils/unit-converter'
 import CostBreakdown from './CostBreakdown'
 import NewIngredientModal, { type NewIngredientFormData } from './NewIngredientModal'
 import { IngredientNoteModal } from './IngredientNoteModal'
@@ -276,7 +276,7 @@ function IngredientRow({
                 type="button"
                 onClick={onSubstituteClick}
                 title="Substitute ingredient"
-                className="min-w-0 truncate text-left text-sm font-medium text-emerald-700 transition hover:text-emerald-500 hover:underline"
+                className="min-w-0 whitespace-normal break-words text-left text-sm font-medium leading-tight text-emerald-700 transition hover:text-emerald-500 hover:underline"
               >
                 {item.ingredientName}
               </button>
@@ -286,7 +286,7 @@ function IngredientRow({
               type="button"
               onClick={onSubstituteClick}
               title="Substitute ingredient"
-              className="min-w-0 truncate text-left text-sm text-slate-800 transition hover:text-emerald-600 hover:underline"
+              className="min-w-0 whitespace-normal break-words text-left text-sm leading-tight text-slate-800 transition hover:text-emerald-600 hover:underline"
             >
               {item.ingredientName}
             </button>
@@ -831,20 +831,12 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   }
 
   const addSubRecipe = (subRecipe: SubRecipeLookup, quantity: number, unit: string) => {
-    const costUnit = subRecipe.unit || unit
-    const outputQtyInCostUnit =
-      subRecipe.yieldQuantity > 0 && isConvertible(subRecipe.yieldUnit || costUnit, costUnit)
-        ? convertUnit(subRecipe.yieldQuantity, subRecipe.yieldUnit || costUnit, costUnit)
-        : 0
+    // Priced exactly like a regular ingredient: current_price/price_unit are the
+    // sub-recipe's own cost-per-base-unit (€/g or €/ml) and base unit — no
+    // separate reconstruction needed, the shared cost calculator handles it.
     const nextLine = createIngredientLine({
       ingredientId: null,
       subRecipeId: subRecipe.id,
-      subRecipeTotalCost: subRecipe.costPerUnit != null && outputQtyInCostUnit > 0
-        ? Number((subRecipe.costPerUnit * outputQtyInCostUnit).toFixed(2))
-        : null,
-      subRecipeYieldQuantity: subRecipe.yieldQuantity,
-      subRecipeYieldUnit: subRecipe.yieldUnit,
-      subRecipeCostUnit: costUnit,
       ingredientName: subRecipe.name,
       quantity,
       unit: unit || subRecipe.unit,
@@ -1386,7 +1378,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       <div className="space-y-6">
         <div className="h-14 animate-pulse rounded-2xl bg-slate-100" />
         <div className="h-56 animate-pulse rounded-2xl bg-slate-100" />
-        <div className="grid gap-6 lg:grid-cols-[55fr_45fr]">
+        <div className="grid gap-6 xl:grid-cols-[60fr_40fr]">
           <div className="h-80 animate-pulse rounded-2xl bg-slate-100" />
           <div className="h-80 animate-pulse rounded-2xl bg-slate-100" />
         </div>
@@ -1876,7 +1868,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       </div>
 
       {/* ── SECTION 2: Ingredients + Cost Breakdown ───────────────────────── */}
-      <div className="grid gap-6 lg:grid-cols-[55fr_45fr]">
+      <div className="grid gap-6 xl:grid-cols-[60fr_40fr]">
 
         {/* Ingredients panel */}
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

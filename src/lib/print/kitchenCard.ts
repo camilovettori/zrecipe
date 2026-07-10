@@ -84,15 +84,41 @@ function esc(value: string): string {
     .replace(/>/g, '&gt;')
 }
 
-function photoGrid(images: string[], cols: number, rowHeightPx: number): string {
-  if (images.length === 0) return ''
-  if (images.length === 1) {
-    return `<div class="photo-grid single" style="grid-template-columns:1fr;"><img src="${esc(images[0])}" style="height:${rowHeightPx * 2}px;" /></div>`
+// Deterministic, gap-free collage layouts for 1-8 photos. Each entry gives
+// the grid dimensions and which image (if any) spans two cells so every
+// cell in the grid is filled — no empty leftover cells regardless of count.
+function collageLayout(count: number): { cols: number; rows: number; spanFirstRow?: boolean; spanLastCol?: boolean } {
+  switch (count) {
+    case 1: return { cols: 1, rows: 1 }
+    case 2: return { cols: 1, rows: 2 }
+    case 3: return { cols: 2, rows: 2, spanFirstRow: true } // first image spans both rows (tall, col 1); 2 & 3 stack in col 2
+    case 4: return { cols: 2, rows: 2 }
+    case 5: return { cols: 2, rows: 3, spanLastCol: true } // last image spans both columns (full-width bottom row)
+    case 6: return { cols: 2, rows: 3 }
+    case 7: return { cols: 2, rows: 4, spanLastCol: true } // last image spans both columns (full-width bottom row)
+    default: return { cols: 2, rows: 4 } // 8
   }
+}
+
+// Renders a tight, gap-free photo collage. `fillHeight` makes the grid stretch
+// to 100% of its (flex-stretched) container — used for the landscape left
+// column, which fills the full page height. For the portrait top strip,
+// pass a fixed pixel height instead so the strip stays a bounded banner.
+function photoGrid(images: string[], fillHeight: boolean, fixedHeightPx?: number): string {
+  if (images.length === 0) return ''
+  const { cols, rows, spanFirstRow, spanLastCol } = collageLayout(images.length)
   const cells = images
-    .map((src) => `<img src="${esc(src)}" style="height:${rowHeightPx}px;" />`)
+    .map((src, i) => {
+      const isFirst = i === 0
+      const isLast = i === images.length - 1
+      const span = (spanFirstRow && isFirst) ? 'grid-row:span 2;' : (spanLastCol && isLast) ? 'grid-column:span 2;' : ''
+      return `<img src="${esc(src)}" style="${span}" />`
+    })
     .join('')
-  return `<div class="photo-grid" style="grid-template-columns:repeat(${cols},1fr);">${cells}</div>`
+  const sizeStyle = fillHeight
+    ? 'height:100%;width:100%;'
+    : `height:${fixedHeightPx ?? 220}px;width:100%;margin-bottom:12px;`
+  return `<div class="photo-grid" style="grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr);${sizeStyle}">${cells}</div>`
 }
 
 function allergenBox(contains: string[], mayContain: string[]): string {
@@ -193,8 +219,8 @@ const BASE_STYLE = `
   .brand img { height:30px; object-fit:contain; display:block; margin-left:auto; }
   .brand .sub { font-size:9px; color:#94a3b8; margin-top:2px; }
   .section-title { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:1.2px; color:#94a3b8; margin:14px 0 6px; }
-  .photo-grid { display:grid; gap:6px; margin-bottom:12px; }
-  .photo-grid img { width:100%; object-fit:cover; border-radius:8px; display:block; }
+  .photo-grid { display:grid; gap:6px; overflow:hidden; }
+  .photo-grid img { width:100%; height:100%; min-height:0; min-width:0; object-fit:cover; border-radius:8px; display:block; }
   table.ingredients { width:100%; border-collapse:collapse; }
   table.ingredients th { text-align:left; font-size:9px; text-transform:uppercase; letter-spacing:0.8px; color:#94a3b8; padding:6px 8px; border-bottom:2px solid #e5e7eb; }
   table.ingredients td { padding:7px 8px; border-bottom:1px solid #f1f5f9; font-size:12px; vertical-align:top; }
@@ -208,7 +234,7 @@ const BASE_STYLE = `
   ul.notes-list li::before { content:'•'; position:absolute; left:0; color:#059669; font-weight:700; }
   .notes-box { margin-top:10px; padding:10px 12px; border-radius:8px; border:1px dashed #cbd5e1; background:#f8fafc; }
   .notes-title { font-size:9px; font-weight:800; letter-spacing:1px; color:#64748b; text-transform:uppercase; margin-bottom:4px; }
-  .notes-text { font-size:11.5px; color:#334155; line-height:1.5; }
+  .notes-text { font-size:11.5px; color:#334155; line-height:1.5; white-space:pre-line; }
   .allergen-box { margin-top:10px; padding:10px 12px; border-radius:8px; border:1px solid #fca5a5; background:#fef2f2; }
   .allergen-title { font-size:9px; font-weight:800; letter-spacing:1px; color:#dc2626; text-transform:uppercase; margin-bottom:4px; }
   .allergen-contains { font-size:11.5px; font-weight:700; color:#991b1b; margin-bottom:2px; }
@@ -228,7 +254,8 @@ const BASE_STYLE = `
 export function buildKitchenCardHtml(
   data: KitchenCardData,
   options: KitchenCardOptions,
-  logoUrl: string
+  logoUrl: string,
+  isCustomLogo = false
 ): string {
   const images = data.imageUrls.filter(Boolean).slice(0, 8)
   const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -253,8 +280,8 @@ export function buildKitchenCardHtml(
       </div>` : ''}
     </div>
     <div class="brand">
-      <img src="${esc(logoUrl)}" alt="ZRecipe" />
-      <p class="sub">food costing software</p>
+      <img src="${esc(logoUrl)}" alt="${isCustomLogo ? esc(data.name) + ' logo' : 'ZRecipe'}" />
+      ${isCustomLogo ? '' : `<p class="sub">food costing software</p>`}
       <p class="sub">${today}</p>
     </div>
   </div>`
@@ -268,7 +295,7 @@ export function buildKitchenCardHtml(
 
   if (options.orientation === 'landscape') {
     const photosCol = hasPhotos
-      ? `<div class="photos-col">${photoGrid(images, images.length > 1 ? 2 : 1, 118)}</div>`
+      ? `<div class="photos-col">${photoGrid(images, true)}</div>`
       : ''
     const content = `<div class="content-col">
       ${ingredientsHtml}
@@ -279,17 +306,17 @@ export function buildKitchenCardHtml(
     </div>`
     bodyHtml = `<div class="page landscape">
       ${header}
-      <div class="layout" style="display:flex;gap:22px;">
+      <div class="layout" style="display:flex;gap:22px;flex:1;min-height:0;">
         ${photosCol}
         ${content}
       </div>
       ${footer}
     </div>`
   } else {
-    const cols = images.length <= 3 ? images.length : 4
+    const portraitHeight = collageLayout(images.length).rows * 95
     bodyHtml = `<div class="page portrait">
       ${header}
-      ${hasPhotos ? photoGrid(images, cols, images.length <= 4 ? 110 : 85) : ''}
+      ${hasPhotos ? photoGrid(images, false, portraitHeight) : ''}
       ${hasNotes ? notesBox(data.description) : ''}
       ${ingredientsHtml}
       ${shoppingListHtml}
@@ -300,7 +327,9 @@ export function buildKitchenCardHtml(
   }
 
   const pageSize = options.orientation === 'landscape' ? 'A4 landscape' : 'A4'
-  const photosColWidth = options.orientation === 'landscape' ? `.photos-col { width:42%; flex-shrink:0; } .content-col { flex:1; min-width:0; }` : ''
+  const photosColWidth = options.orientation === 'landscape'
+    ? `.photos-col { width:42%; flex-shrink:0; display:flex; } .content-col { flex:1; min-width:0; }`
+    : ''
 
   return `<!DOCTYPE html>
 <html>

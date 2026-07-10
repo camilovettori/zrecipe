@@ -13,8 +13,6 @@ export interface SubRecipeLookup {
   name: string
   costPerUnit: number | null
   unit: string
-  yieldQuantity: number
-  yieldUnit: string
 }
 
 type SelectionKind = 'ingredient' | 'sub-recipe'

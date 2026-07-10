@@ -17,10 +17,6 @@ export interface RecipeIngredientDraft {
   id: string
   ingredientId?: string | null
   subRecipeId?: string | null
-  subRecipeTotalCost?: number | null
-  subRecipeYieldQuantity?: number | null
-  subRecipeYieldUnit?: string | null
-  subRecipeCostUnit?: string | null
   ingredientName: string
   quantity: number
   unit: string
@@ -107,8 +103,6 @@ type DBSubRecipeRef = {
   name: string
   sub_ingredient_cost_per_unit?: number | null
   sub_ingredient_unit?: string | null
-  yield_quantity?: number | null
-  yield_unit?: string | null
 }
 
 type DBRecipeIngredientRow = {
@@ -245,11 +239,6 @@ function ingredientLineCost(item: RecipeIngredientDraft) {
     yield_percent: item.yield_percent ?? 100,
     current_price: item.currentPrice ?? 0,
     price_unit: item.priceUnit ?? item.unit,
-    subRecipeId: item.subRecipeId ?? null,
-    subRecipeTotalCost: item.subRecipeTotalCost ?? null,
-    subRecipeYieldQuantity: item.subRecipeYieldQuantity ?? null,
-    subRecipeYieldUnit: item.subRecipeYieldUnit ?? null,
-    subRecipeCostUnit: item.subRecipeCostUnit ?? null,
   }).cost
 }
 
@@ -276,11 +265,6 @@ export function calculateRecipeCost(
       yield_percent: item.yield_percent ?? 100,
       current_price: item.currentPrice ?? 0,
       price_unit: item.priceUnit ?? item.unit,
-      subRecipeId: item.subRecipeId ?? null,
-      subRecipeTotalCost: item.subRecipeTotalCost ?? null,
-      subRecipeYieldQuantity: item.subRecipeYieldQuantity ?? null,
-      subRecipeYieldUnit: item.subRecipeYieldUnit ?? null,
-      subRecipeCostUnit: item.subRecipeCostUnit ?? null,
     })),
     laborMode: opts?.laborMode ?? 'fixed',
     laborCostFixed: laborCost,
@@ -402,24 +386,15 @@ function mapRecipeRow(row: DBRecipeRow, laborHourlyRate = 15): RecipeRecord {
         : (item.sub_recipe ?? null)
       const ingredientName =
         ingredient?.name ?? subRecipeRef?.name ?? item.notes ?? `Ingredient ${index + 1}`
+      // A sub-recipe line is priced exactly like a regular ingredient: its rate
+      // is the sub-recipe's own cost-per-base-unit (€/g or €/ml), already
+      // computed and stored on save — no reconstruction needed here.
       const currentPrice = ingredient?.currentPrice ?? subRecipeRef?.sub_ingredient_cost_per_unit ?? null
       const priceUnit = ingredient?.priceUnit ?? subRecipeRef?.sub_ingredient_unit ?? item.unit
-      const subRecipeYieldQuantity = subRecipeRef?.yield_quantity ?? null
-      const subRecipeYieldUnit = subRecipeRef?.yield_unit ?? null
       const line: RecipeIngredientDraft = {
         id: item.id,
         ingredientId: item.ingredient_id ?? ingredient?.id ?? null,
         subRecipeId: item.sub_recipe_id ?? null,
-        subRecipeTotalCost: subRecipeRef?.sub_ingredient_cost_per_unit != null
-          && subRecipeYieldQuantity != null
-          && subRecipeYieldUnit
-          && subRecipeRef.sub_ingredient_unit
-          && isConvertible(subRecipeYieldUnit, subRecipeRef.sub_ingredient_unit)
-          ? Number((subRecipeRef.sub_ingredient_cost_per_unit * convertUnit(subRecipeYieldQuantity, subRecipeYieldUnit, subRecipeRef.sub_ingredient_unit ?? item.unit)).toFixed(2))
-          : null,
-        subRecipeYieldQuantity,
-        subRecipeYieldUnit,
-        subRecipeCostUnit: subRecipeRef?.sub_ingredient_unit ?? item.unit,
         ingredientName,
         quantity: Number(item.quantity),
         unit: item.unit,
@@ -578,9 +553,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
                 id,
                 name,
                 sub_ingredient_cost_per_unit,
-                sub_ingredient_unit,
-                yield_quantity,
-                yield_unit
+                sub_ingredient_unit
               )
             ),
             created_at,
@@ -671,9 +644,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
               id,
               name,
               sub_ingredient_cost_per_unit,
-              sub_ingredient_unit,
-              yield_quantity,
-              yield_unit
+              sub_ingredient_unit
             )
           ),
           created_at,
