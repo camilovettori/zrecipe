@@ -30,6 +30,8 @@ type Props = {
   preview?: ReactNode
   allowEditing?: boolean
   showSummary?: boolean
+  showHeader?: boolean
+  showItemsTable?: boolean
   className?: string
 }
 
@@ -179,7 +181,7 @@ function extractBrandSuggestion(description: string): string {
 
 // ── Description combobox — merged description + ingredient matching ─────────────
 
-function DescriptionCombobox({
+export function DescriptionCombobox({
   item,
   ingredients,
   onUpdate,
@@ -358,8 +360,8 @@ function DescriptionCombobox({
         ) : null}
       </div>
 
-      {/* Brand suggestion — shown inline when creating a new ingredient */}
-      {isNew && (
+      {/* Brand for this purchase — captured per line item so price history can track it, even for existing ingredients */}
+      {item.description.trim() && (
         <input
           type="text"
           placeholder="Brand (optional, e.g. Lurpak)"
@@ -476,6 +478,8 @@ export default function InvoiceEditor({
   preview,
   allowEditing = true,
   showSummary = true,
+  showHeader = true,
+  showItemsTable = true,
   className,
 }: Props) {
   const totals = recalculateInvoiceTotals(draft.items, draft.totalAmount)
@@ -523,33 +527,35 @@ export default function InvoiceEditor({
 
   return (
     <div className={cn('space-y-6', className)}>
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
-            Invoices
-          </p>
-          <h1 className="mt-3 font-display text-3xl font-semibold text-slate-900">{title}</h1>
-          {subtitle && <p className="mt-2 max-w-3xl text-sm text-slate-500">{subtitle}</p>}
-        </div>
+      {showHeader && (
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
+              Invoices
+            </p>
+            <h1 className="mt-3 font-display text-3xl font-semibold text-slate-900">{title}</h1>
+            {subtitle && <p className="mt-2 max-w-3xl text-sm text-slate-500">{subtitle}</p>}
+          </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <button
-            type="button"
-            onClick={onBack}
-            className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-          >
-            Back
-          </button>
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={saving}
-            className="inline-flex items-center justify-center rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {saving ? 'Saving...' : saveLabel}
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={onBack}
+              className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              onClick={onSave}
+              disabled={saving}
+              className="inline-flex items-center justify-center rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saving ? 'Saving...' : saveLabel}
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {preview}
 
@@ -625,6 +631,22 @@ export default function InvoiceEditor({
               ]}
             />
           </label>
+
+          {/* Items table (and its footer Total input) is hidden in this instance — surface Total here instead */}
+          {!showItemsTable && (
+            <label className="block">
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Total (inc. VAT)
+              </span>
+              <input
+                type="number"
+                step="0.01"
+                value={draft.totalAmount}
+                onChange={(e) => updateDraft({ totalAmount: Number.parseFloat(e.target.value || '0') })}
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+              />
+            </label>
+          )}
         </div>
 
         <label className="mt-4 block">
@@ -642,6 +664,7 @@ export default function InvoiceEditor({
       </section>
 
       {/* Line items */}
+      {showItemsTable && (
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div>
@@ -839,6 +862,7 @@ export default function InvoiceEditor({
           )}
         </div>
       </section>
+      )}
     </div>
   )
 }

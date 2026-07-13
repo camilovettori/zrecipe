@@ -142,21 +142,10 @@ After extracting all items, verify: SUM of all item totals should approximately 
 Invoice text:
 `
 
-async function extractWithClaude(text: string) {
-  const anthropic = getAnthropic()
+type ClaudeUsage = { inputTokens: number; outputTokens: number }
 
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 4000,
-    messages: [{ role: 'user', content: EXTRACTION_PROMPT + text }],
-  })
-
-  const usage = { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens }
-
-  const content = response.content[0]
-  if (content.type !== 'text') throw new Error('Claude returned no text content')
-
-  const cleaned = content.text
+function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage) {
+  const cleaned = rawText
     .replace(/^```(?:json)?\n?/i, '')
     .replace(/\n?```$/i, '')
     .trim()
@@ -228,6 +217,55 @@ async function extractWithClaude(text: string) {
   }
 }
 
+async function extractWithClaude(text: string) {
+  const anthropic = getAnthropic()
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 4000,
+    messages: [{ role: 'user', content: EXTRACTION_PROMPT + text }],
+  })
+
+  const usage = { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens }
+
+  const content = response.content[0]
+  if (content.type !== 'text') throw new Error('Claude returned no text content')
+
+  return parseAndValidateExtraction(content.text, usage)
+}
+
+const VISION_INSTRUCTION =
+  'Read the attached invoice image and extract the data as specified above. Return ONLY the JSON.'
+
+async function extractInvoiceWithVision(imageBase64: string, mimeType: string) {
+  const anthropic = getAnthropic()
+  const allowedMediaTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const
+  const mediaType = (allowedMediaTypes as readonly string[]).includes(mimeType)
+    ? (mimeType as (typeof allowedMediaTypes)[number])
+    : 'image/jpeg'
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 4000,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: EXTRACTION_PROMPT.replace(/Invoice text:\s*$/, VISION_INSTRUCTION) },
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 } },
+        ],
+      },
+    ],
+  })
+
+  const usage = { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens }
+
+  const content = response.content[0]
+  if (content.type !== 'text') throw new Error('Claude returned no text content')
+
+  return parseAndValidateExtraction(content.text, usage)
+}
+
 // ── Shared empty-form response (manual entry fallback) ─────────────────────
 
 function emptyForm(error?: string, extra?: Record<string, unknown>) {
@@ -286,10 +324,22 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // ── PDF / text path — requires auth + AI usage limit ─────────────────────
-    const text = typeof body?.text === 'string' ? body.text : ''
-    if (!text.trim()) {
-      return NextResponse.json({ error: 'Missing text content' }, { status: 400 })
+    // ── PDF / text / image path — requires auth + AI usage limit ─────────────
+    let runExtraction: () => ReturnType<typeof extractWithClaude>
+
+    if (kind === 'image') {
+      const imageBase64 = typeof body?.imageBase64 === 'string' ? body.imageBase64 : ''
+      const mimeType = typeof body?.mimeType === 'string' ? body.mimeType : 'image/jpeg'
+      if (!imageBase64.trim()) {
+        return NextResponse.json({ error: 'Missing image content' }, { status: 400 })
+      }
+      runExtraction = () => extractInvoiceWithVision(imageBase64, mimeType)
+    } else {
+      const text = typeof body?.text === 'string' ? body.text : ''
+      if (!text.trim()) {
+        return NextResponse.json({ error: 'Missing text content' }, { status: 400 })
+      }
+      runExtraction = () => extractWithClaude(text)
     }
 
     // Auth
@@ -349,7 +399,7 @@ export async function POST(request: NextRequest) {
       }
 
       try {
-        const result = await extractWithClaude(text)
+        const result = await runExtraction()
         // Record rate-limit usage
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (admin.from('ai_usage') as any).insert({ tenant_id: tenantId, feature: 'invoice_extract' })
@@ -374,7 +424,7 @@ export async function POST(request: NextRequest) {
 
     // No tenant found — still allow extraction but don't track usage
     try {
-      const result = await extractWithClaude(text)
+      const result = await runExtraction()
       return NextResponse.json(result)
     } catch (claudeErr) {
       const message = claudeErr instanceof Error ? claudeErr.message : 'AI extraction failed'

@@ -193,6 +193,7 @@ export default function IngredientDetailPage() {
           ingredient_id,
           price,
           unit,
+          brand,
           recorded_at,
           invoice_id,
           invoice:invoices (

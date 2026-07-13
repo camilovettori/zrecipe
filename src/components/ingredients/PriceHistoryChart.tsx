@@ -26,6 +26,7 @@ export interface PricePoint {
   ingredient_id: string
   price: number
   unit: string
+  brand?: string | null
   recorded_at?: string | null
   effective_date?: string | null
   invoice_id: string | null
@@ -88,6 +89,11 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: Toolti
       <p className="mt-0.5 text-sm font-bold text-slate-900 dark:text-white">
         {'\u20ac'}{point.displayPrice.toFixed(2)} / {point.displayUnit}
       </p>
+      {point.brand && (
+        <p className="mt-0.5 text-xs font-medium text-slate-600 dark:text-slate-300">
+          {point.brand}
+        </p>
+      )}
       {supplierName && (
         <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
           {supplierName}
@@ -216,7 +222,14 @@ export default function PriceHistoryChart({ priceHistory, unit }: PriceHistoryCh
                   : <Pencil className="h-3.5 w-3.5" />}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-slate-500 dark:text-slate-400">{date}</span>
+                <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                  {date}
+                  {point.brand && (
+                    <span className="truncate rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                      {point.brand}
+                    </span>
+                  )}
+                </span>
                 {(supplierName || invoiceLabel) && (
                   <span className="block truncate text-xs text-slate-400 dark:text-slate-500">
                     {supplierName ?? 'Invoice'}{invoiceLabel ? ` · ${invoiceLabel}` : ''}

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import { getPackagePricingBasis, normalizePackageUnit } from '@/lib/invoices'
+import { getPackagePricingBasis, normalizePackageUnit, normalizeText } from '@/lib/invoices'
 
 type SaveItem = {
   id?: string
@@ -130,6 +130,23 @@ export async function POST(request: NextRequest) {
   }
 
   const tenantId = member.tenant_id as string
+
+  const { data: existingIngredientsData, error: existingIngredientsError } = await admin
+    .from('ingredients')
+    .select('id, name')
+    .eq('tenant_id', tenantId)
+
+  if (existingIngredientsError) {
+    console.error('[/api/invoices/save] ingredient lookup failed:', existingIngredientsError)
+    return NextResponse.json({ error: 'Unable to resolve ingredients' }, { status: 500 })
+  }
+
+  const ingredientIdByNormalizedName = new Map<string, string>(
+    ((existingIngredientsData ?? []) as Array<{ id: string; name: string }>).map((ing) => [
+      normalizeText(ing.name),
+      ing.id,
+    ])
+  )
 
   try {
     let body: any = {}
@@ -318,36 +335,46 @@ export async function POST(request: NextRequest) {
           )
         }
 
-        const ingredientPayload = {
-          tenant_id: tenantId,
-          name: ingredientName,
-          brand: item.newIngredientBrand?.trim() || null,
-          category:
-            item.newIngredientCategory && item.newIngredientCategory !== 'Other'
-              ? item.newIngredientCategory
-              : guessIngredientCategory(item.description || ingredientName),
-          current_price: pricing.currentPrice,
-          price_unit: pricing.priceUnit,
-          package_size: pricing.packageSize,
-          package_unit: pricing.packageUnit,
+        const normalizedName = normalizeText(ingredientName)
+        const dedupedIngredientId = ingredientIdByNormalizedName.get(normalizedName)
+
+        if (dedupedIngredientId) {
+          // An ingredient with the same normalized name already exists (created earlier in
+          // this save call, or by a prior invoice) — reuse it instead of creating a duplicate.
+          ingredientId = dedupedIngredientId
+        } else {
+          const ingredientPayload = {
+            tenant_id: tenantId,
+            name: ingredientName,
+            brand: item.newIngredientBrand?.trim() || null,
+            category:
+              item.newIngredientCategory && item.newIngredientCategory !== 'Other'
+                ? item.newIngredientCategory
+                : guessIngredientCategory(item.description || ingredientName),
+            current_price: pricing.currentPrice,
+            price_unit: pricing.priceUnit,
+            package_size: pricing.packageSize,
+            package_unit: pricing.packageUnit,
+          }
+
+          const { data: createdIngredientData, error: createIngredientError } = await admin
+            .from('ingredients')
+            .insert(ingredientPayload)
+            .select('id, tenant_id, name')
+            .single()
+          const createdIngredient = createdIngredientData as { id: string } | null
+
+          if (createIngredientError || !createdIngredient) {
+            console.error('[/api/invoices/save] ingredient create failed:', createIngredientError)
+            return NextResponse.json(
+              { error: createIngredientError?.message ?? 'Unable to create ingredient' },
+              { status: 500 }
+            )
+          }
+
+          ingredientId = createdIngredient.id
+          ingredientIdByNormalizedName.set(normalizedName, ingredientId)
         }
-
-        const { data: createdIngredientData, error: createIngredientError } = await admin
-          .from('ingredients')
-          .insert(ingredientPayload)
-          .select('id, tenant_id, name')
-          .single()
-        const createdIngredient = createdIngredientData as { id: string } | null
-
-        if (createIngredientError || !createdIngredient) {
-          console.error('[/api/invoices/save] ingredient create failed:', createIngredientError)
-          return NextResponse.json(
-            { error: createIngredientError?.message ?? 'Unable to create ingredient' },
-            { status: 500 }
-          )
-        }
-
-        ingredientId = createdIngredient.id
 
         // Image is now resolved client-side from the local manifest — no auto-fetch needed here.
       }
@@ -383,27 +410,42 @@ export async function POST(request: NextRequest) {
       createdItems.push(createdItem)
 
       if (ingredientId) {
-        const ingredientUpdatePayload = {
-          current_price: pricing.currentPrice,
-          price_unit: pricing.priceUnit,
-          package_size: pricing.packageSize,
-          package_unit: pricing.packageUnit,
-          last_purchase_date: invoiceDate,
-          last_supplier_id: supplierId,
-        }
-        const { error: ingredientUpdateError } = await admin
-          .from('ingredients')
-          .update(ingredientUpdatePayload)
-          .eq('id', ingredientId)
-          .select('id, tenant_id, name')
-          .single()
+        const { data: latestHistoryData } = await admin
+          .from('ingredient_price_history')
+          .select('recorded_at')
+          .eq('ingredient_id', ingredientId)
+          .order('recorded_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        const latestHistory = latestHistoryData as { recorded_at: string } | null
 
-        if (ingredientUpdateError) {
-          console.error('[/api/invoices/save] ingredient update failed:', ingredientUpdateError)
-          return NextResponse.json(
-            { error: ingredientUpdateError.message ?? 'Unable to update ingredient price' },
-            { status: 500 }
-          )
+        const shouldUpdateCurrent =
+          !latestHistory?.recorded_at ||
+          new Date(invoiceDate).getTime() >= new Date(latestHistory.recorded_at).getTime()
+
+        if (shouldUpdateCurrent) {
+          const ingredientUpdatePayload = {
+            current_price: pricing.currentPrice,
+            price_unit: pricing.priceUnit,
+            package_size: pricing.packageSize,
+            package_unit: pricing.packageUnit,
+            last_purchase_date: invoiceDate,
+            last_supplier_id: supplierId,
+          }
+          const { error: ingredientUpdateError } = await admin
+            .from('ingredients')
+            .update(ingredientUpdatePayload)
+            .eq('id', ingredientId)
+            .select('id, tenant_id, name')
+            .single()
+
+          if (ingredientUpdateError) {
+            console.error('[/api/invoices/save] ingredient update failed:', ingredientUpdateError)
+            return NextResponse.json(
+              { error: ingredientUpdateError.message ?? 'Unable to update ingredient price' },
+              { status: 500 }
+            )
+          }
         }
 
         const historyPayload = {
@@ -411,6 +453,7 @@ export async function POST(request: NextRequest) {
           tenant_id: tenantId,
           price: pricing.currentPrice,
           unit: pricing.priceUnit,
+          brand: item.newIngredientBrand?.trim() || null,
           invoice_id: invoiceId,
           recorded_at: invoiceDate,
         }

@@ -25,6 +25,13 @@ import {
   scoreIngredientMatch,
   recalculateInvoiceTotals,
 } from '@/lib/invoices'
+import {
+  bytesToSize,
+  extractPdfText,
+  fileTypeFromName,
+  normalizeExtractedItems,
+  type ExtractedInvoiceItem,
+} from '@/lib/invoices-client'
 import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
 import type { IngredientLookup, SupplierLookup } from '@/hooks/useInvoices'
@@ -37,71 +44,6 @@ type Step = 'upload' | 'review' | 'confirm'
 type CsvData = {
   headers: string[]
   rows: Record<string, string>[]
-}
-
-function fileTypeFromName(file: File): InvoiceFileType {
-  if (file.type.includes('pdf') || file.name.toLowerCase().endsWith('.pdf')) return 'pdf'
-  if (file.type.includes('csv') || file.name.toLowerCase().endsWith('.csv')) return 'csv'
-  return 'image'
-}
-
-function bytesToSize(size: number) {
-  if (size < 1024 * 1024) {
-    return `${(size / 1024).toFixed(0)} KB`
-  }
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`
-}
-
-async function extractPdfText(file: File) {
-  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs')
-  pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
-
-  const arrayBuffer = await file.arrayBuffer()
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
-  const pageTexts: string[] = []
-
-  for (let pageIndex = 1; pageIndex <= pdf.numPages; pageIndex += 1) {
-    const page = await pdf.getPage(pageIndex)
-    const content = await page.getTextContent()
-    const items = content.items as Array<{ str?: string; transform?: number[] }>
-    const lines = items
-      .map((item, index) => ({
-        text: item.str ?? '',
-        x: item.transform?.[4] ?? index,
-        y: item.transform?.[5] ?? 0,
-      }))
-      .filter((item) => item.text.trim())
-      .sort((a, b) => b.y - a.y || a.x - b.x)
-
-    const pageLines: string[] = []
-    let currentY: number | null = null
-    let currentLine: string[] = []
-
-    for (const item of lines) {
-      const lineY = Math.round(item.y)
-      if (currentY === null || Math.abs(lineY - currentY) <= 2) {
-        currentLine.push(item.text)
-      } else {
-        const text = currentLine.join(' ').replace(/\s+/g, ' ').trim()
-        if (text) {
-          pageLines.push(text)
-        }
-        currentLine = [item.text]
-      }
-      currentY = lineY
-    }
-
-    const finalLine = currentLine.join(' ').replace(/\s+/g, ' ').trim()
-    if (finalLine) {
-      pageLines.push(finalLine)
-    }
-
-    if (pageLines.length > 0) {
-      pageTexts.push(pageLines.join('\n'))
-    }
-  }
-
-  return pageTexts.join('\n')
 }
 
 function createInitialDraft(): InvoiceFormState {
@@ -182,62 +124,6 @@ function buildDraftFromItems(
     fileType,
     items: draftItems,
   }
-}
-
-type ExtractedInvoiceItem = {
-  description: string
-  quantity: number
-  unit: string
-  packageSize?: number | null
-  packageUnit?: string | null
-  unitPrice: number
-  total: number
-}
-
-function normalizeExtractedItems(
-  items: Array<
-    | ExtractedInvoiceItem
-    | {
-        description?: string
-        quantity?: number
-        unit?: string
-        unit_price?: number
-        unitPrice?: number
-        total?: number
-      }
-  >
-): ExtractedInvoiceItem[] {
-  return items.map((item) => ({
-      description: (item as { description?: string }).description ?? '',
-      quantity: Number((item as { quantity?: number }).quantity ?? 1) || 1,
-      unit: (item as { unit?: string }).unit ?? 'unit',
-      packageSize:
-        (item as { packageSize?: number | null; package_size?: number | null }).packageSize ??
-        (item as { packageSize?: number | null; package_size?: number | null }).package_size ??
-        null,
-      packageUnit:
-        (item as { packageUnit?: string | null; package_unit?: string | null }).packageUnit ??
-        (item as { packageUnit?: string | null; package_unit?: string | null }).package_unit ??
-        null,
-      unitPrice:
-        Number(
-          (item as { unitPrice?: number; unit_price?: number }).unitPrice ??
-          (item as { unitPrice?: number; unit_price?: number }).unit_price ??
-          0
-      ) || 0,
-    total:
-      Number((item as { total?: number }).total ?? 0) ||
-      Number(
-        (
-          Number((item as { quantity?: number }).quantity ?? 1) *
-          Number(
-            (item as { unitPrice?: number; unit_price?: number }).unitPrice ??
-              (item as { unitPrice?: number; unit_price?: number }).unit_price ??
-              0
-          )
-        ).toFixed(2)
-      ),
-  }))
 }
 
 function matchDraftItems(

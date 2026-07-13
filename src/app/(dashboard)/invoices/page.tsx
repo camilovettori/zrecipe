@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { ArrowUpDown, CalendarDays, ChevronLeft, ChevronRight, FileText, Plus, Search, UploadCloud, X } from 'lucide-react'
+import { ArrowUpDown, CalendarDays, ChevronLeft, ChevronRight, FileText, Layers, Plus, Search, Sparkles, UploadCloud, X } from 'lucide-react'
 import { useInvoices, type InvoiceRecord } from '@/hooks/useInvoices'
+import { createClient } from '@/lib/supabase/client'
+import { resolveTenantId } from '@/hooks/useTenant'
 import { cn } from '@/lib/utils'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 
@@ -327,6 +329,28 @@ export default function InvoicesPage() {
   const [toPickerOpen, setToPickerOpen] = useState(false)
   const fromPickerRef = useRef<HTMLDivElement>(null)
   const toPickerRef = useRef<HTMLDivElement>(null)
+  const [ingredientCount, setIngredientCount] = useState<number | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const loadIngredientCount = async () => {
+      try {
+        const supabase = createClient()
+        const tenantId = await resolveTenantId()
+        const { count } = await supabase
+          .from('ingredients')
+          .select('id', { count: 'exact', head: true })
+          .eq('tenant_id', tenantId)
+        if (!cancelled) setIngredientCount(count ?? 0)
+      } catch {
+        // Non-critical — the onboarding banner just won't show.
+      }
+    }
+    loadIngredientCount()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     const handleMouseDown = (event: MouseEvent) => {
@@ -423,6 +447,14 @@ export default function InvoicesPage() {
           </button>
           <button
             type="button"
+            onClick={() => router.push('/invoices/import-bulk')}
+            className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            <Layers className="h-4 w-4" />
+            Import Multiple
+          </button>
+          <button
+            type="button"
             onClick={() => router.push('/invoices/new')}
             className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
@@ -431,6 +463,31 @@ export default function InvoicesPage() {
           </button>
         </div>
       </div>
+
+      {ingredientCount === 0 && (
+        <div className="flex flex-col gap-4 rounded-3xl border border-emerald-200 bg-emerald-50/60 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="rounded-2xl bg-emerald-100 p-2.5 text-emerald-700">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="font-display text-base font-semibold text-slate-900">New here?</p>
+              <p className="mt-1 max-w-xl text-sm text-slate-600">
+                Skip adding ingredients one by one. Import several invoices at once and AI will build your
+                ingredient library — you review everything before it&apos;s saved.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => router.push('/invoices/import-bulk')}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500"
+          >
+            <Layers className="h-4 w-4" />
+            Import multiple invoices
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center">
         <div className="relative flex-1">
