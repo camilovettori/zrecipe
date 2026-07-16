@@ -2,8 +2,9 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { Loader2, X } from 'lucide-react'
+import { Check, Loader2, Pencil, X } from 'lucide-react'
 import { CustomSelect } from '@/components/ui/CustomSelect'
+import { useIngredientCategories } from '@/hooks/useIngredientCategories'
 
 export type NewIngredientFormData = {
   name: string
@@ -26,7 +27,6 @@ interface NewIngredientModalProps {
   onSave: (data: NewIngredientFormData) => Promise<void> | void
 }
 
-const CATEGORY_OPTIONS = ['Baking', 'Dairy', 'Produce', 'Eggs', 'Condiments', 'Beverages', 'Other']
 const PRICE_UNITS = ['kg', 'g', 'L', 'ml', 'unit']
 const RECIPE_UNITS = ['g', 'kg', 'ml', 'L', 'unit']
 
@@ -43,10 +43,13 @@ export default function NewIngredientModal({
   onClose,
   onSave,
 }: NewIngredientModalProps) {
+  const categories = useIngredientCategories()
   const nameInputRef = useRef<HTMLInputElement | null>(null)
   const [name, setName] = useState(initialName)
   const [brand, setBrand] = useState('')
   const [category, setCategory] = useState('Other')
+  const [categoryMode, setCategoryMode] = useState<'select' | 'custom'>('select')
+  const [customCategoryInput, setCustomCategoryInput] = useState('')
   const [pricePerUnit, setPricePerUnit] = useState('')
   const [unit, setUnit] = useState('kg')
   const [packageSize, setPackageSize] = useState('')
@@ -60,6 +63,8 @@ export default function NewIngredientModal({
     setName(initialName)
     setBrand('')
     setCategory('Other')
+    setCategoryMode('select')
+    setCustomCategoryInput('')
     setPricePerUnit('')
     setUnit('kg')
     setPackageSize('')
@@ -93,6 +98,16 @@ export default function NewIngredientModal({
   const parsedPrice = parsePositiveNumber(pricePerUnit)
   const parsedRecipeQuantity = parsePositiveNumber(recipeQuantity)
   const parsedPackageSize = packageSize ? parsePositiveNumber(packageSize) : null
+
+  const isCustomCategory = Boolean(category) && !categories.includes(category)
+
+  const confirmCustomCategory = () => {
+    const trimmed = customCategoryInput.trim()
+    if (!trimmed) return
+    setCategory(trimmed)
+    setCategoryMode('select')
+    setCustomCategoryInput('')
+  }
 
   const nameError = submitted && !trimmedName ? 'Name is required' : null
   const priceError = submitted && parsedPrice == null ? 'Price is required to calculate costs' : null
@@ -197,12 +212,72 @@ export default function NewIngredientModal({
                   </label>
 
                   <label className="block">
-                    <span className="mb-1.5 block text-xs font-medium text-slate-600">Category</span>
-                    <CustomSelect
-                      value={category}
-                      onChange={setCategory}
-                      options={CATEGORY_OPTIONS.map((o) => ({ value: o, label: o }))}
-                    />
+                    <span className="mb-1.5 flex items-center gap-1 text-xs font-medium text-slate-600">
+                      Category
+                      {isCustomCategory && categoryMode === 'select' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomCategoryInput(category)
+                            setCategoryMode('custom')
+                          }}
+                          className="text-gray-400 transition-colors hover:text-emerald-600"
+                          title="Edit custom category"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                      )}
+                    </span>
+                    {categoryMode === 'select' ? (
+                      <CustomSelect
+                        value={isCustomCategory ? '__custom__' : category}
+                        onChange={(v) => {
+                          if (v === '__create__') {
+                            setCategoryMode('custom')
+                            setCustomCategoryInput('')
+                          } else {
+                            setCategory(v)
+                          }
+                        }}
+                        options={[
+                          ...categories.map((c) => ({ value: c, label: c })),
+                          ...(isCustomCategory ? [{ value: '__custom__', label: category }] : []),
+                          { value: '__create__', label: '+ Create category...' },
+                        ]}
+                      />
+                    ) : (
+                      <div className="flex gap-2">
+                        <input
+                          autoFocus
+                          type="text"
+                          value={customCategoryInput}
+                          onChange={(e) => setCustomCategoryInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              confirmCustomCategory()
+                            }
+                            if (e.key === 'Escape') setCategoryMode('select')
+                          }}
+                          placeholder="Category name..."
+                          className="flex-1 rounded-lg border border-emerald-400 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-100"
+                        />
+                        <button
+                          type="button"
+                          onClick={confirmCustomCategory}
+                          className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white"
+                        >
+                          <Check className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCategoryMode('select')}
+                          className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-500"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
                   </label>
                 </div>
 

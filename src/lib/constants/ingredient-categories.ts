@@ -1,0 +1,15 @@
+export const DEFAULT_INGREDIENT_CATEGORIES = [
+  'Dairy',
+  'Flour',
+  'Sugar',
+  'Spice',
+  'Meat',
+  'Vegetable',
+  'Fruit',
+  'Produce',
+  'Bakery',
+  'Condiments',
+  'Beverages',
+  'Eggs',
+  'Other',
+]

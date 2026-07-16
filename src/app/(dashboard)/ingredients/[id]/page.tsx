@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { AlertTriangle, ArrowDownRight, ArrowLeft, ArrowUpRight, Calculator, Camera, Check, ChefHat, Loader2, Minus, Repeat, Save, Trash2, X } from 'lucide-react'
+import { AlertTriangle, ArrowDownRight, ArrowLeft, ArrowUpRight, Calculator, Camera, Check, ChefHat, Loader2, Minus, Repeat, Save, Trash2, X, type LucideIcon } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
 import IngredientForm, {
@@ -142,6 +142,45 @@ function AutoSaveIndicator({ status }: { status: AutoSaveStatus }) {
     <span className="text-xs text-red-600 dark:text-red-400">Save failed</span>
   )
   return null
+}
+
+function IconButtonWithTooltip({
+  icon: Icon,
+  tooltip,
+  onClick,
+  disabled,
+  iconClassName,
+}: {
+  icon: LucideIcon
+  tooltip: string
+  onClick: () => void
+  disabled?: boolean
+  iconClassName?: string
+}) {
+  const [show, setShow] = useState(false)
+  return (
+    <div className="relative inline-flex">
+      <button
+        type="button"
+        onClick={onClick}
+        onMouseEnter={() => setShow(true)}
+        onMouseLeave={() => setShow(false)}
+        disabled={disabled}
+        aria-label={tooltip}
+        className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-400"
+      >
+        <Icon className={cn('h-3.5 w-3.5', iconClassName)} />
+      </button>
+      {show && (
+        <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-max max-w-[180px] -translate-x-1/2">
+          <div className="relative rounded-lg bg-gray-800 px-3 py-2 text-xs leading-relaxed text-white shadow-lg">
+            {tooltip}
+            <div className="absolute left-1/2 top-full -mt-1 h-2 w-2 -translate-x-1/2 rotate-45 bg-gray-800" />
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function IngredientDetailPage() {
@@ -741,19 +780,15 @@ export default function IngredientDetailPage() {
                   </span>
                 )}
                 {!isNew && usedRecipes.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setSubstituteModalOpen(true)}
-                    disabled={substituting}
-                    className="ml-auto flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-300"
-                  >
-                    {substituting ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Repeat className="h-3.5 w-3.5" />
-                    )}
-                    Substitute in all recipes
-                  </button>
+                  <div className="ml-auto">
+                    <IconButtonWithTooltip
+                      icon={substituting ? Loader2 : Repeat}
+                      iconClassName={substituting ? 'animate-spin' : undefined}
+                      tooltip="Substitute in all recipes"
+                      onClick={() => setSubstituteModalOpen(true)}
+                      disabled={substituting}
+                    />
+                  </div>
                 )}
               </div>
 

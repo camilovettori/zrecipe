@@ -12,6 +12,7 @@ import { resolveTenantId } from '@/hooks/useTenant'
 import { cn } from '@/lib/utils'
 import type { IngredientRow } from '@/hooks/useIngredients'
 import { CustomSelect } from '@/components/ui/CustomSelect'
+import { useIngredientCategories } from '@/hooks/useIngredientCategories'
 import {
   calculateNormalizedIngredientPrice,
   calculatePackagePriceFromUnitPrice,
@@ -20,22 +21,6 @@ import {
   hasMeaningfulPriceChange,
   type IngredientPricingResult,
 } from '@/lib/utils/ingredient-pricing'
-
-export const CATEGORIES = [
-  'Dairy',
-  'Flour',
-  'Sugar',
-  'Spice',
-  'Meat',
-  'Vegetable',
-  'Fruit',
-  'Produce',
-  'Bakery',
-  'Condiments',
-  'Beverages',
-  'Eggs',
-  'Other',
-]
 
 export const UNITS = [
   'kg',
@@ -129,6 +114,7 @@ export default function IngredientForm({
 }: IngredientFormProps) {
   const router = useRouter()
   const isExisting = !!ingredient?.id
+  const categories = useIngredientCategories()
 
   const [categoryMode, setCategoryMode] = useState<'select' | 'custom'>('select')
   const [customCategoryInput, setCustomCategoryInput] = useState('')
@@ -404,7 +390,7 @@ export default function IngredientForm({
 
   const onSubmit = useCallback((data: FormData) => performSave(data, false), [performSave])
 
-  const isCustomCategory = categoryValue && !CATEGORIES.includes(categoryValue)
+  const isCustomCategory = categoryValue && !categories.includes(categoryValue)
 
   const confirmCustomCategory = () => {
     const trimmed = customCategoryInput.trim()
@@ -463,7 +449,7 @@ export default function IngredientForm({
                 }}
                 placeholder="Select category…"
                 options={[
-                  ...CATEGORIES.map((c) => ({ value: c, label: c })),
+                  ...categories.map((c) => ({ value: c, label: c })),
                   ...(isCustomCategory ? [{ value: '__custom__', label: categoryValue }] : []),
                   { value: '__create__', label: '+ Create category...' },
                 ]}
