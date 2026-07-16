@@ -72,10 +72,12 @@ function buildPdfCostInputs(recipe: RecipeRecord, tenant?: PdfTenant | null): Co
       current_price: item.currentPrice ?? null,
       price_unit: item.priceUnit ?? item.unit,
     })),
+    laborEnabled: recipe.laborEnabled,
     laborMode: recipe.laborMode,
     laborCostFixed: Number(recipe.laborCost ?? 0),
     prepTimeMinutes: Number(recipe.prepTimeMinutes ?? 0),
-    laborHourlyRate: Number(tenant?.labor_hourly_rate ?? 15),
+    laborHourlyRate: Number(recipe.laborHourlyRate ?? tenant?.labor_hourly_rate ?? 15),
+    overheadEnabled: recipe.overheadEnabled,
     overheadMode: recipe.overheadMode,
     overheadCostFixed: Number(recipe.overheadCost ?? 0),
     overheadPercent: Number(recipe.overheadPercent ?? 0),
@@ -874,7 +876,7 @@ function KitchenCardDocument({
   includesCosts: boolean
   tenant?: PdfTenant | null
 }) {
-  const laborRate = Number(tenant?.labor_hourly_rate ?? 15)
+  const laborRate = Number(recipe.laborHourlyRate ?? tenant?.labor_hourly_rate ?? 15)
   const wastePercent = Number(recipe.wastePercent ?? 0)
   const yieldQty = Number(recipe.yieldQuantity ?? 1)
   const pdfCosts = calculateCost(buildPdfCostInputs(recipe, tenant))
@@ -1040,22 +1042,26 @@ function KitchenCardDocument({
             <Text style={kitchen.sectionTitle}>Cost Summary{yieldQty > 1 ? ' (batch total)' : ''}</Text>
             <View style={kitchen.costBox}>
               <CostRow label="Ingredient cost" value={fmt(pdfCosts.ingredientCost)} />
-              <CostRow
-                label={
-                  recipe.laborMode === 'time'
-                    ? `Labor (${recipe.prepTimeMinutes}min x ${fmt(laborRate)}/hr)`
-                    : 'Labor cost'
-                }
-                value={fmt(pdfCosts.laborCost)}
-              />
-              <CostRow
-                label={
-                  recipe.overheadMode === 'percent'
-                    ? `Overhead (${recipe.overheadPercent}% of ingredients)`
-                    : 'Overhead'
-                }
-                value={fmt(pdfCosts.overheadCost)}
-              />
+              {recipe.laborEnabled && (
+                <CostRow
+                  label={
+                    recipe.laborMode === 'time'
+                      ? `Labor (${recipe.laborJobTitle ? `${recipe.laborJobTitle}, ` : ''}${recipe.prepTimeMinutes}min x ${fmt(laborRate)}/hr)`
+                      : 'Labor cost'
+                  }
+                  value={fmt(pdfCosts.laborCost)}
+                />
+              )}
+              {recipe.overheadEnabled && (
+                <CostRow
+                  label={
+                    recipe.overheadMode === 'percent'
+                      ? `Overhead (${recipe.overheadPercent}% of ingredients)`
+                      : 'Overhead'
+                  }
+                  value={fmt(pdfCosts.overheadCost)}
+                />
+              )}
               {wastePercent > 0 && (
                 <CostRow
                   label={`Waste (${wastePercent}%)`}
@@ -1119,7 +1125,7 @@ function CostReportDocument({
   logoBase64: string | null
   tenant?: PdfTenant | null
 }) {
-  const laborRate = Number(tenant?.labor_hourly_rate ?? 15)
+  const laborRate = Number(recipe.laborHourlyRate ?? tenant?.labor_hourly_rate ?? 15)
   const wastePercent = Number(recipe.wastePercent ?? 0)
   const yieldQty = Number(recipe.yieldQuantity ?? 1)
   const pdfCosts = calculateCost(buildPdfCostInputs(recipe, tenant))
@@ -1134,7 +1140,7 @@ function CostReportDocument({
   const isGenericUnit = !yieldUnitTrimmed || ['unit', 'units'].includes(yieldUnitTrimmed.toLowerCase())
 
   const laborLabel = recipe.laborMode === 'time'
-    ? `Labor (${recipe.prepTimeMinutes} min × €${laborRate}/hr)`
+    ? `Labor (${recipe.laborJobTitle ? `${recipe.laborJobTitle}, ` : ''}${recipe.prepTimeMinutes} min × €${laborRate}/hr)`
     : 'Labor cost'
   const overheadLabel = recipe.overheadMode === 'percent'
     ? `Overhead (${recipe.overheadPercent}% of ingredients)`
@@ -1228,14 +1234,18 @@ function CostReportDocument({
               <Text style={report.analysisLabel}>Ingredient cost</Text>
               <Text style={report.analysisValue}>{fmt(pdfCosts.ingredientCost)}</Text>
             </View>
-            <View style={report.analysisRow}>
-              <Text style={report.analysisLabel}>{laborLabel}</Text>
-              <Text style={report.analysisValue}>{fmt(pdfCosts.laborCost)}</Text>
-            </View>
-            <View style={report.analysisRow}>
-              <Text style={report.analysisLabel}>{overheadLabel}</Text>
-              <Text style={report.analysisValue}>{fmt(pdfCosts.overheadCost)}</Text>
-            </View>
+            {recipe.laborEnabled && (
+              <View style={report.analysisRow}>
+                <Text style={report.analysisLabel}>{laborLabel}</Text>
+                <Text style={report.analysisValue}>{fmt(pdfCosts.laborCost)}</Text>
+              </View>
+            )}
+            {recipe.overheadEnabled && (
+              <View style={report.analysisRow}>
+                <Text style={report.analysisLabel}>{overheadLabel}</Text>
+                <Text style={report.analysisValue}>{fmt(pdfCosts.overheadCost)}</Text>
+              </View>
+            )}
             {wastePercent > 0 && (
               <View style={report.analysisRow}>
                 <Text style={report.analysisLabel}>Waste ({wastePercent}%)</Text>

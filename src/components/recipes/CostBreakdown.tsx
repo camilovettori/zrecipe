@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Info } from 'lucide-react'
+import { Info, Pencil } from 'lucide-react'
 import type { RecipeCostSummary } from '@/hooks/useRecipes'
 import { cn } from '@/lib/utils'
 import { convertUnit } from '@/lib/utils/unit-converter'
@@ -57,15 +57,21 @@ export default function CostBreakdown({
   yieldQuantity,
   yieldUnit,
   prepTimeMinutes,
+  laborEnabled = false,
   laborHourlyRate,
   laborMode,
+  laborJobTitle = null,
+  overheadEnabled = false,
   overheadMode,
   overheadPercent,
   wastePercent,
   isSubRecipe = false,
   batchMultiplier = 1,
+  onLaborEnabledChange,
   onLaborModeChange,
   onLaborCostChange,
+  onOpenLaborConfig,
+  onOverheadEnabledChange,
   onOverheadModeChange,
   onOverheadCostChange,
   onOverheadPercentChange,
@@ -76,15 +82,21 @@ export default function CostBreakdown({
   yieldQuantity?: number
   yieldUnit?: string
   prepTimeMinutes?: number
+  laborEnabled?: boolean
   laborHourlyRate?: number
   laborMode?: 'fixed' | 'time'
+  laborJobTitle?: string | null
+  overheadEnabled?: boolean
   overheadMode?: 'fixed' | 'percent'
   overheadPercent?: number
   wastePercent?: number
   isSubRecipe?: boolean
   batchMultiplier?: number
+  onLaborEnabledChange: (v: boolean) => void
   onLaborModeChange: (v: 'fixed' | 'time') => void
   onLaborCostChange: (v: number) => void
+  onOpenLaborConfig: () => void
+  onOverheadEnabledChange: (v: boolean) => void
   onOverheadModeChange: (v: 'fixed' | 'percent') => void
   onOverheadCostChange: (v: number) => void
   onOverheadPercentChange: (v: number) => void
@@ -202,36 +214,70 @@ export default function CostBreakdown({
           <div className="flex flex-1 items-center gap-1.5">
             <span className="text-sm text-gray-500">Labor</span>
             <InfoTooltip text="Cost of staff time to prepare this recipe. Use 'time' mode to calculate from prep minutes × hourly rate." />
-            <div className="flex rounded-lg bg-gray-100 p-0.5">
-              <button
-                type="button"
-                onClick={() => onLaborModeChange('fixed')}
-                className={cn(
-                  'rounded-md px-2 py-0.5 text-[11px] font-medium transition-all',
-                  !laborIsTime ? 'bg-white text-gray-700 shadow-sm' : 'text-gray-400 hover:text-gray-500'
-                )}
-              >
-                fixed
-              </button>
-              <button
-                type="button"
-                onClick={() => onLaborModeChange('time')}
-                className={cn(
-                  'rounded-md px-2 py-0.5 text-[11px] font-medium transition-all',
-                  laborIsTime ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400 hover:text-gray-500'
-                )}
-              >
-                time
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (!laborEnabled && !laborJobTitle) {
+                  onOpenLaborConfig()
+                } else {
+                  onLaborEnabledChange(!laborEnabled)
+                }
+              }}
+              className={cn(
+                'relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0',
+                laborEnabled ? 'bg-emerald-500' : 'bg-gray-200'
+              )}
+            >
+              <span className={cn(
+                'inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform',
+                laborEnabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
+              )} />
+            </button>
+            {laborEnabled && (
+              <div className="flex rounded-lg bg-gray-100 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => onLaborModeChange('fixed')}
+                  className={cn(
+                    'rounded-md px-2 py-0.5 text-[11px] font-medium transition-all',
+                    !laborIsTime ? 'bg-white text-gray-700 shadow-sm' : 'text-gray-400 hover:text-gray-500'
+                  )}
+                >
+                  fixed
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onLaborModeChange('time')}
+                  className={cn(
+                    'rounded-md px-2 py-0.5 text-[11px] font-medium transition-all',
+                    laborIsTime ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400 hover:text-gray-500'
+                  )}
+                >
+                  time
+                </button>
+              </div>
+            )}
           </div>
-          {laborIsTime ? (
+          {!laborEnabled ? (
+            <span className="text-xs text-gray-400">Off</span>
+          ) : laborIsTime ? (
             <div className="text-right">
-              <div className="text-sm font-semibold text-gray-800">
-                €{(cost.laborCost * batchMultiplier).toFixed(2)}
+              <div className="flex items-center justify-end gap-1">
+                <div className="text-sm font-semibold text-gray-800">
+                  €{(cost.laborCost * batchMultiplier).toFixed(2)}
+                </div>
+                <button
+                  type="button"
+                  onClick={onOpenLaborConfig}
+                  className="text-gray-300 transition-colors hover:text-emerald-600"
+                  aria-label="Edit labor configuration"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
               </div>
               <div className="text-xs text-gray-400">
-                {batchMultiplier > 1 ? `×${batchMultiplier} batches · ` : ''}{prepTimeMinutes ?? 0}min × €{laborHourlyRate ?? 0}/hr
+                {batchMultiplier > 1 ? `×${batchMultiplier} batches · ` : ''}
+                {laborJobTitle ? `${laborJobTitle} · ` : ''}{prepTimeMinutes ?? 0}min × €{laborHourlyRate ?? 0}/hr
               </div>
             </div>
           ) : (
@@ -260,30 +306,47 @@ export default function CostBreakdown({
           <div className="flex items-center gap-1.5">
             <span className="text-sm text-gray-500">Overhead</span>
             <InfoTooltip text="Indirect costs like energy, packaging, rent. Use '% ingr.' to auto-calculate as a percentage of ingredient cost." />
-            <div className="flex rounded-lg bg-gray-100 p-0.5">
-              <button
-                type="button"
-                onClick={() => onOverheadModeChange('fixed')}
-                className={cn(
-                  'rounded-md px-2 py-0.5 text-[11px] font-medium transition-all',
-                  !overheadIsPercent ? 'bg-white text-gray-700 shadow-sm' : 'text-gray-400 hover:text-gray-500'
-                )}
-              >
-                fixed
-              </button>
-              <button
-                type="button"
-                onClick={() => onOverheadModeChange('percent')}
-                className={cn(
-                  'rounded-md px-2 py-0.5 text-[11px] font-medium transition-all',
-                  overheadIsPercent ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400 hover:text-gray-500'
-                )}
-              >
-                % ingr.
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => onOverheadEnabledChange(!overheadEnabled)}
+              className={cn(
+                'relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0',
+                overheadEnabled ? 'bg-emerald-500' : 'bg-gray-200'
+              )}
+            >
+              <span className={cn(
+                'inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform',
+                overheadEnabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
+              )} />
+            </button>
+            {overheadEnabled && (
+              <div className="flex rounded-lg bg-gray-100 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => onOverheadModeChange('fixed')}
+                  className={cn(
+                    'rounded-md px-2 py-0.5 text-[11px] font-medium transition-all',
+                    !overheadIsPercent ? 'bg-white text-gray-700 shadow-sm' : 'text-gray-400 hover:text-gray-500'
+                  )}
+                >
+                  fixed
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onOverheadModeChange('percent')}
+                  className={cn(
+                    'rounded-md px-2 py-0.5 text-[11px] font-medium transition-all',
+                    overheadIsPercent ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400 hover:text-gray-500'
+                  )}
+                >
+                  % ingr.
+                </button>
+              </div>
+            )}
           </div>
-          {overheadIsPercent ? (
+          {!overheadEnabled ? (
+            <span className="text-xs text-gray-400">Off</span>
+          ) : overheadIsPercent ? (
             <div className="flex items-center gap-1.5">
               <input
                 type="number"

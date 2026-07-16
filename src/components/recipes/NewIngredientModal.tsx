@@ -43,7 +43,7 @@ export default function NewIngredientModal({
   onClose,
   onSave,
 }: NewIngredientModalProps) {
-  const categories = useIngredientCategories()
+  const { categories } = useIngredientCategories()
   const nameInputRef = useRef<HTMLInputElement | null>(null)
   const [name, setName] = useState(initialName)
   const [brand, setBrand] = useState('')

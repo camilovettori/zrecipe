@@ -44,6 +44,7 @@ interface InvoiceRow {
 interface IngredientRow {
   id: string
   name: string
+  brand?: string | null
   current_price?: number | null
   price_unit?: string | null
   supplier?: { name: string } | Array<{ name: string }> | null
@@ -177,9 +178,9 @@ export default function CommandPalette() {
             .limit(5),
           supabase
             .from('ingredients')
-            .select('id, name, current_price, price_unit, supplier:suppliers!last_supplier_id(name)')
+            .select('id, name, brand, current_price, price_unit, supplier:suppliers!last_supplier_id(name)')
             .eq('tenant_id', tenantId)
-            .ilike('name', `%${term}%`)
+            .or(`name.ilike.%${term}%,brand.ilike.%${term}%`)
             .order('updated_at', { ascending: false })
             .limit(5),
           supabase
@@ -209,7 +210,8 @@ export default function CommandPalette() {
               : null
             const supPart = sup?.name ?? null
             const subtitle = [pricePart, supPart].filter(Boolean).join(' · ') || 'Ingredient'
-            return { id: i.id, kind: 'ingredient' as const, title: i.name, subtitle, href: `/ingredients/${i.id}` }
+            const title = i.brand ? `${i.name} (${i.brand})` : i.name
+            return { id: i.id, kind: 'ingredient' as const, title, subtitle, href: `/ingredients/${i.id}` }
           })
 
         const invoices: SearchResult[] = (invoicesRes.data as InvoiceRow[] ?? [])

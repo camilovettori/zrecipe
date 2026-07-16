@@ -18,6 +18,7 @@ export interface SupplierLookup {
 export interface IngredientLookup {
   id: string
   name: string
+  brand?: string | null
   currentPrice?: number | null
   priceUnit?: string | null
   packageSize?: number | null

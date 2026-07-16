@@ -1,18 +1,21 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Check, Package, Pencil } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, Check, Package, Pencil, Plus } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
 import { cn } from '@/lib/utils'
 import type { IngredientRow } from '@/hooks/useIngredients'
 import { CustomSelect } from '@/components/ui/CustomSelect'
+import DeleteCategoryModal from '@/components/ingredients/DeleteCategoryModal'
 import { useIngredientCategories } from '@/hooks/useIngredientCategories'
+import { useIngredientBrands } from '@/hooks/useIngredientBrands'
+import { useSuppliers } from '@/hooks/useSuppliers'
 import {
   calculateNormalizedIngredientPrice,
   calculatePackagePriceFromUnitPrice,
@@ -104,6 +107,44 @@ function parsePositiveNumber(value: string) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
+function TypeaheadDropdown<T>({
+  items,
+  getKey,
+  getLabel,
+  onSelect,
+  icon: Icon = Plus,
+  header,
+}: {
+  items: T[]
+  getKey: (item: T) => string
+  getLabel: (item: T) => string
+  onSelect: (item: T) => void
+  icon?: ComponentType<{ className?: string }>
+  header?: ReactNode
+}) {
+  if (items.length === 0) return null
+  return (
+    <div className="absolute z-20 mt-1.5 w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-800">
+      {header && (
+        <div className="flex items-center gap-1.5 border-b border-slate-100 bg-amber-50/60 px-4 py-2 text-xs font-semibold text-amber-700 dark:border-slate-700 dark:bg-amber-950/20 dark:text-amber-400">
+          {header}
+        </div>
+      )}
+      {items.map((item) => (
+        <button
+          key={getKey(item)}
+          type="button"
+          onClick={() => onSelect(item)}
+          className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm transition hover:bg-slate-50 dark:hover:bg-slate-700"
+        >
+          <span className="font-medium text-slate-900 dark:text-white">{getLabel(item)}</span>
+          <Icon className="h-4 w-4 shrink-0 text-slate-400" />
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function IngredientForm({
   ingredient,
   onSubmittingChange,
@@ -114,12 +155,22 @@ export default function IngredientForm({
 }: IngredientFormProps) {
   const router = useRouter()
   const isExisting = !!ingredient?.id
-  const categories = useIngredientCategories()
+  const { categories, refetch: refetchCategories } = useIngredientCategories()
+  const brands = useIngredientBrands()
+  const { suppliers, createSupplier } = useSuppliers()
 
   const [categoryMode, setCategoryMode] = useState<'select' | 'custom'>('select')
   const [customCategoryInput, setCustomCategoryInput] = useState('')
+  const [categoryToDelete, setCategoryToDelete] = useState<{ name: string; count: number } | null>(null)
+  const [deleteCategoryModalOpen, setDeleteCategoryModalOpen] = useState(false)
   const [overrideUnitPrice, setOverrideUnitPrice] = useState(false)
   const [packagePriceInput, setPackagePriceInput] = useState('')
+  const [supplierQuery, setSupplierQuery] = useState(ingredient?.supplier?.name ?? '')
+  const [supplierId, setSupplierId] = useState<string | null>(ingredient?.last_supplier_id ?? null)
+  const [supplierDropdownOpen, setSupplierDropdownOpen] = useState(false)
+  const [brandDropdownOpen, setBrandDropdownOpen] = useState(false)
+  const [nameDropdownOpen, setNameDropdownOpen] = useState(false)
+  const [duplicateMatches, setDuplicateMatches] = useState<Array<{ id: string; name: string }>>([])
   const priceUnitTouchedRef = useRef(false)
 
   const defaultValues: FormData = {
@@ -146,6 +197,7 @@ export default function IngredientForm({
     mode: 'onChange',
   })
 
+  const nameField = register('name')
   const lastSavedRef = useRef<FormData>(defaultValues)
   const watched = useWatch({ control }) as FormData
   const categoryValue = (watched.category ?? '') as string
@@ -153,12 +205,16 @@ export default function IngredientForm({
   const packageUnitValue = (watched.package_unit ?? '') as string
   const packageQuantity = watched.package_size ?? null
   const currentUnitPrice = watched.current_price ?? null
+  const brandValue = (watched.brand ?? '') as string
+  const nameValue = (watched.name ?? '') as string
 
   useEffect(() => {
     if (!ingredient) {
       setPackagePriceInput('')
       setOverrideUnitPrice(false)
       priceUnitTouchedRef.current = false
+      setSupplierQuery('')
+      setSupplierId(null)
       return
     }
 
@@ -171,7 +227,54 @@ export default function IngredientForm({
     setPackagePriceInput(derived != null ? derived.toFixed(2) : '')
     setOverrideUnitPrice(false)
     priceUnitTouchedRef.current = false
+    setSupplierQuery(ingredient.supplier?.name ?? '')
+    setSupplierId(ingredient.last_supplier_id ?? null)
   }, [ingredient])
+
+  const supplierSuggestions = useMemo(() => {
+    const q = supplierQuery.trim().toLowerCase()
+    if (!q) return []
+    return suppliers.filter((s) => s.name.toLowerCase().includes(q)).slice(0, 6)
+  }, [suppliers, supplierQuery])
+
+  const brandSuggestions = useMemo(() => {
+    const q = brandValue.trim().toLowerCase()
+    if (!q) return []
+    return brands.filter((b) => b.toLowerCase().includes(q)).slice(0, 6)
+  }, [brands, brandValue])
+
+  useEffect(() => {
+    const originalName = ingredient?.name?.trim().toLowerCase() ?? ''
+    const currentName = nameValue.trim().toLowerCase()
+    const shouldCheckDuplicate = currentName.length > 0 && currentName !== originalName
+
+    if (!shouldCheckDuplicate) {
+      setDuplicateMatches([])
+      return
+    }
+
+    const query = nameValue.trim()
+
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      const supabase = createClient()
+      let request = supabase
+        .from('ingredients')
+        .select('id, name')
+        .ilike('name', `%${query}%`)
+      if (ingredient?.id) {
+        request = request.neq('id', ingredient.id)
+      }
+      const { data } = await request.limit(5)
+      if (cancelled) return
+      setDuplicateMatches(data ?? [])
+    }, 400)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [nameValue, ingredient])
 
   const pricingPreview = useMemo(() => {
     const parsedPackagePrice = parsePositiveNumber(packagePriceInput)
@@ -264,18 +367,30 @@ export default function IngredientForm({
         ? data.current_price ?? null
         : pricingPreview.normalizedPrice ?? ingredient?.current_price ?? data.current_price ?? null
 
-      const payload = {
-        name: data.name,
-        brand: data.brand?.trim() || null,
-        category: data.category,
-        current_price: effectiveCurrentPrice ?? null,
-        price_unit: data.base_unit,
-        package_size: data.package_size ?? null,
-        package_unit: data.package_unit ?? null,
-        notes: data.notes ?? null,
-      }
-
       try {
+        const trimmedSupplierQuery = supplierQuery.trim()
+        let resolvedSupplierId: string | null = supplierId
+
+        if (trimmedSupplierQuery && !resolvedSupplierId) {
+          const created = await createSupplier({ name: trimmedSupplierQuery })
+          resolvedSupplierId = created.id
+          setSupplierId(created.id)
+        } else if (!trimmedSupplierQuery) {
+          resolvedSupplierId = null
+        }
+
+        const payload = {
+          name: data.name,
+          brand: data.brand?.trim() || null,
+          category: data.category,
+          current_price: effectiveCurrentPrice ?? null,
+          price_unit: data.base_unit,
+          package_size: data.package_size ?? null,
+          package_unit: data.package_unit ?? null,
+          notes: data.notes ?? null,
+          last_supplier_id: resolvedSupplierId,
+        }
+
         if (!payload.current_price || payload.current_price <= 0) {
           throw new Error('Enter a valid purchase cost so ZRecipe can calculate the unit price.')
         }
@@ -318,6 +433,9 @@ export default function IngredientForm({
           onSaved?.({
             ...savedRow,
             base_unit: savedRow.price_unit ?? data.base_unit,
+            // .update().select() doesn't join suppliers — carry the display name through
+            // manually so the Supplier field doesn't blank out after a successful save.
+            supplier: resolvedSupplierId ? { name: trimmedSupplierQuery } : null,
           } as IngredientRow)
         } else {
           const tenantId = await resolveTenantId()
@@ -352,7 +470,18 @@ export default function IngredientForm({
         onSubmittingChange?.(false)
       }
     },
-    [ingredient, onSubmittingChange, onSaved, onAutoSaveStatus, overrideUnitPrice, pricingPreview.normalizedPrice, router]
+    [
+      ingredient,
+      onSubmittingChange,
+      onSaved,
+      onAutoSaveStatus,
+      overrideUnitPrice,
+      pricingPreview.normalizedPrice,
+      router,
+      supplierId,
+      supplierQuery,
+      createSupplier,
+    ]
   )
 
   const autoSaveFnRef = useRef<() => void>(() => {})
@@ -400,22 +529,169 @@ export default function IngredientForm({
     setCustomCategoryInput('')
   }
 
+  const hideCategoryForTenant = async (categoryName: string) => {
+    const supabase = createClient()
+    const tenantId = await resolveTenantId()
+    const { data: tenantRow } = await supabase
+      .from('tenants')
+      .select('hidden_ingredient_categories')
+      .eq('id', tenantId)
+      .single()
+    const current: string[] = tenantRow?.hidden_ingredient_categories ?? []
+    if (!current.some((c) => c.toLowerCase() === categoryName.toLowerCase())) {
+      await supabase
+        .from('tenants')
+        .update({ hidden_ingredient_categories: [...current, categoryName] })
+        .eq('id', tenantId)
+    }
+    toast.success(`"${categoryName}" removed from category list`)
+    await refetchCategories()
+  }
+
+  const handleDeleteCategory = async (categoryName: string) => {
+    const supabase = createClient()
+
+    // Count ingredients currently using this category (case-insensitive)
+    const { count } = await supabase
+      .from('ingredients')
+      .select('id', { count: 'exact', head: true })
+      .ilike('category', categoryName)
+
+    if ((count ?? 0) > 0) {
+      // Open the reassignment modal instead of deleting immediately
+      setCategoryToDelete({ name: categoryName, count: count ?? 0 })
+      setDeleteCategoryModalOpen(true)
+      return
+    }
+
+    // No ingredients use it — hide it immediately
+    await hideCategoryForTenant(categoryName)
+  }
+
+  const handleReassignAndRemoveCategory = async (replacementCategory: string) => {
+    if (!categoryToDelete) return
+    const supabase = createClient()
+
+    const { error } = await supabase
+      .from('ingredients')
+      .update({ category: replacementCategory })
+      .ilike('category', categoryToDelete.name)
+
+    if (error) {
+      toast.error('Unable to move ingredients to the new category')
+      return
+    }
+
+    await hideCategoryForTenant(categoryToDelete.name)
+
+    // If the deleted category was the one currently selected on this ingredient,
+    // fall back to the replacement so the form doesn't keep pointing at a hidden value.
+    if (categoryValue.toLowerCase() === categoryToDelete.name.toLowerCase()) {
+      setValue('category', replacementCategory, { shouldValidate: true })
+    }
+
+    setDeleteCategoryModalOpen(false)
+    setCategoryToDelete(null)
+  }
+
   return (
+    <>
     <form id="ingredient-form" onSubmit={handleSubmit(onSubmit)}>
       <div className="space-y-5">
           {/* Name */}
-          <div>
+          <div className="relative">
             <label className={label}>Name *</label>
-            <input {...register('name')} placeholder="e.g. Whole Milk" className={field} />
+            <input
+              {...nameField}
+              onFocus={() => setNameDropdownOpen(true)}
+              onBlur={(e) => {
+                nameField.onBlur(e)
+                setTimeout(() => setNameDropdownOpen(false), 150)
+              }}
+              placeholder="e.g. Whole Milk"
+              className={field}
+            />
             {errors.name && <p className="mt-1 text-xs text-red-500">{errors.name.message}</p>}
+            {nameDropdownOpen && (
+              <TypeaheadDropdown
+                items={duplicateMatches}
+                getKey={(m) => m.id}
+                getLabel={(m) => m.name}
+                icon={ArrowUpRight}
+                header={
+                  <>
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    Similar ingredients already exist
+                  </>
+                }
+                onSelect={(m) => window.open(`/ingredients/${m.id}`, '_blank')}
+              />
+            )}
           </div>
 
           {/* Brand */}
-          <div>
+          <div className="relative">
             <label className={label}>
               Brand <span className="font-normal text-slate-400">(optional)</span>
             </label>
-            <input {...register('brand')} placeholder="e.g. Lurpak, RHM, KTC" className={field} />
+            <input
+              value={brandValue}
+              onChange={(e) => {
+                setValue('brand', e.target.value, { shouldDirty: true, shouldValidate: true })
+                setBrandDropdownOpen(true)
+              }}
+              onFocus={() => setBrandDropdownOpen(true)}
+              onBlur={() => setTimeout(() => setBrandDropdownOpen(false), 150)}
+              placeholder="e.g. Lurpak, RHM, KTC"
+              className={field}
+            />
+            {brandDropdownOpen && (
+              <TypeaheadDropdown
+                items={brandSuggestions}
+                getKey={(b) => b}
+                getLabel={(b) => b}
+                onSelect={(b) => {
+                  setValue('brand', b, { shouldDirty: true, shouldValidate: true })
+                  setBrandDropdownOpen(false)
+                }}
+              />
+            )}
+          </div>
+
+          {/* Supplier */}
+          <div className="relative">
+            <label className={label}>
+              Supplier <span className="font-normal text-slate-400">(optional)</span>
+            </label>
+            <input
+              value={supplierQuery}
+              onChange={(e) => {
+                setSupplierQuery(e.target.value)
+                setSupplierId(null)
+                setSupplierDropdownOpen(true)
+              }}
+              onFocus={() => setSupplierDropdownOpen(true)}
+              onBlur={() => setTimeout(() => setSupplierDropdownOpen(false), 150)}
+              placeholder="e.g. Elliotts Cash & Carry"
+              className={field}
+            />
+            {supplierDropdownOpen && (
+              <TypeaheadDropdown
+                items={supplierSuggestions}
+                getKey={(s) => s.id}
+                getLabel={(s) => s.name}
+                onSelect={(s) => {
+                  setSupplierId(s.id)
+                  setSupplierQuery(s.name)
+                  setSupplierDropdownOpen(false)
+                }}
+              />
+            )}
+            {!supplierId && supplierQuery.trim() && (
+              <p className="mt-1.5 text-xs text-slate-400">
+                Will create a new supplier &quot;{supplierQuery.trim()}&quot; on save.
+              </p>
+            )}
           </div>
 
           {/* Category */}
@@ -449,7 +725,11 @@ export default function IngredientForm({
                 }}
                 placeholder="Select category…"
                 options={[
-                  ...categories.map((c) => ({ value: c, label: c })),
+                  ...categories.map((c) => ({
+                    value: c,
+                    label: c,
+                    onDelete: c === 'Other' ? undefined : () => handleDeleteCategory(c),
+                  })),
                   ...(isCustomCategory ? [{ value: '__custom__', label: categoryValue }] : []),
                   { value: '__create__', label: '+ Create category...' },
                 ]}
@@ -491,8 +771,8 @@ export default function IngredientForm({
           </div>
 
           {/* Purchase cost */}
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/40 dark:border-slate-700 dark:bg-slate-900/40 dark:shadow-none">
-            <div className="flex items-start gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-5 py-4 dark:border-slate-800 dark:from-slate-900 dark:to-slate-900/40">
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/40 dark:border-slate-700 dark:bg-slate-900/40 dark:shadow-none">
+            <div className="flex items-start gap-3 rounded-t-2xl border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-5 py-4 dark:border-slate-800 dark:from-slate-900 dark:to-slate-900/40">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
                 <Package className="h-5 w-5" />
               </div>
@@ -647,5 +927,20 @@ export default function IngredientForm({
           </div>
       </div>
     </form>
+
+    {categoryToDelete && (
+      <DeleteCategoryModal
+        open={deleteCategoryModalOpen}
+        categoryName={categoryToDelete.name}
+        count={categoryToDelete.count}
+        categories={categories}
+        onClose={() => {
+          setDeleteCategoryModalOpen(false)
+          setCategoryToDelete(null)
+        }}
+        onConfirm={handleReassignAndRemoveCategory}
+      />
+    )}
+    </>
   )
 }

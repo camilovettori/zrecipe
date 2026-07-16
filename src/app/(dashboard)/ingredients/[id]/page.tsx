@@ -63,11 +63,6 @@ type RecipeIngredientUsageRow = {
     | null
 }
 
-function formatPricePerKg(ingredient: IngredientRow | null) {
-  if (ingredient?.current_price == null) return null
-  return formatIngredientUnitPrice(ingredient.current_price, ingredient.base_unit || ingredient.package_unit)
-}
-
 function resolveHistorySupplierName(point: PricePoint | null) {
   if (!point?.invoice) return null
   const invoice = Array.isArray(point.invoice) ? point.invoice[0] : point.invoice
@@ -624,6 +619,56 @@ export default function IngredientDetailPage() {
                 )}
               </div>
 
+              {!isNew && ingredient && (
+                <>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {ingredient.package_size && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                          Package size
+                        </p>
+                        <p className="mt-1.5 text-sm font-medium text-slate-900 dark:text-white">
+                          {ingredient.package_size} {ingredient.package_unit}
+                        </p>
+                      </div>
+                    )}
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                        Price entries
+                      </p>
+                      <p className="mt-1.5 text-sm font-medium text-slate-900 dark:text-white">
+                        {priceHistory.length}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                      Allergens
+                    </p>
+                    <div className="mt-1.5">
+                      {Object.keys(allergenMap).length === 0 ? (
+                        <span className="text-xs text-slate-400">None declared</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-x-3 gap-y-1">
+                          {EU_ALLERGENS.filter((a) => allergenMap[a.id]).map((a) => (
+                            <span key={a.id} className="flex items-center gap-1 text-xs text-slate-700 dark:text-slate-300">
+                              <span
+                                className={`h-2 w-2 shrink-0 rounded-full ${
+                                  allergenMap[a.id] === 'contains' ? 'bg-red-500' : 'bg-amber-400'
+                                }`}
+                              />
+                              {a.shortName}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {(isNew || !previewIsValid) && (
               <div className={cn(
                 'rounded-xl border p-4',
                 previewIsValid
@@ -657,6 +702,7 @@ export default function IngredientDetailPage() {
                   </div>
                 </div>
               </div>
+              )}
 
               {suspiciousPriceWarning && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-800 dark:bg-amber-950/20">
@@ -830,68 +876,6 @@ export default function IngredientDetailPage() {
                   })}
                 </div>
               )}
-            </div>
-          )}
-
-          {/* Details panel */}
-          {!isNew && ingredient && (
-            <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-800">
-              <h2 className="mb-3 text-sm font-semibold text-slate-900 dark:text-white">
-                Details
-              </h2>
-              <dl className="space-y-2 text-sm">
-                {ingredient.package_size && (
-                  <div className="flex justify-between">
-                    <dt className="text-slate-500">Package size</dt>
-                    <dd className="font-medium text-slate-900 dark:text-white">
-                      {ingredient.package_size} {ingredient.package_unit}
-                    </dd>
-                  </div>
-                )}
-                {ingredient.supplier?.name && (
-                  <div className="flex justify-between">
-                    <dt className="text-slate-500">Supplier</dt>
-                    <dd className="font-medium text-slate-900 dark:text-white">
-                      {ingredient.supplier.name}
-                    </dd>
-                  </div>
-                )}
-                {ingredient.current_price != null && (
-                  <div className="flex justify-between">
-                    <dt className="text-slate-500">Unit price</dt>
-                    <dd className="font-medium text-slate-900 dark:text-white">
-                      {formatPricePerKg(ingredient)}
-                    </dd>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <dt className="text-slate-500">Price entries</dt>
-                  <dd className="font-medium text-slate-900 dark:text-white">
-                    {priceHistory.length}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="mb-1.5 text-slate-500">Allergens</dt>
-                  <dd>
-                    {Object.keys(allergenMap).length === 0 ? (
-                      <span className="text-xs text-slate-400">None declared</span>
-                    ) : (
-                      <div className="flex flex-wrap gap-x-3 gap-y-1">
-                        {EU_ALLERGENS.filter((a) => allergenMap[a.id]).map((a) => (
-                          <span key={a.id} className="flex items-center gap-1 text-xs text-slate-700 dark:text-slate-300">
-                            <span
-                              className={`h-2 w-2 shrink-0 rounded-full ${
-                                allergenMap[a.id] === 'contains' ? 'bg-red-500' : 'bg-amber-400'
-                              }`}
-                            />
-                            {a.shortName}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </dd>
-                </div>
-              </dl>
             </div>
           )}
         </div>

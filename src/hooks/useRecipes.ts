@@ -38,8 +38,12 @@ export interface RecipeEditorData {
   yieldUnit: string
   prepTimeMinutes: number
   cookTimeMinutes: number
+  laborEnabled: boolean
   laborCost: number
   laborMode: 'fixed' | 'time'
+  laborJobTitle: string | null
+  laborHourlyRate: number | null
+  overheadEnabled: boolean
   overheadCost: number
   overheadMode: 'fixed' | 'percent'
   overheadPercent: number
@@ -131,8 +135,12 @@ type DBRecipeRow = {
   yield_unit?: string | null
   prep_time_minutes?: number | null
   cook_time_minutes?: number | null
+  labor_enabled?: boolean | null
   labor_cost?: number | null
   labor_mode?: string | null
+  labor_job_title?: string | null
+  labor_hourly_rate?: number | null
+  overhead_enabled?: boolean | null
   overhead_cost?: number | null
   overhead_mode?: string | null
   overhead_percent?: number | null
@@ -248,9 +256,11 @@ export function calculateRecipeCost(
   overheadCost = 0,
   sellingPrice = 0,
   opts?: {
+    laborEnabled?: boolean
     laborMode?: 'fixed' | 'time'
     prepTimeMinutes?: number
     laborHourlyRate?: number
+    overheadEnabled?: boolean
     overheadMode?: 'fixed' | 'percent'
     overheadPercent?: number
     wastePercent?: number
@@ -266,10 +276,12 @@ export function calculateRecipeCost(
       current_price: item.currentPrice ?? 0,
       price_unit: item.priceUnit ?? item.unit,
     })),
+    laborEnabled: opts?.laborEnabled ?? false,
     laborMode: opts?.laborMode ?? 'fixed',
     laborCostFixed: laborCost,
     prepTimeMinutes: opts?.prepTimeMinutes ?? 0,
-    laborHourlyRate: opts?.laborHourlyRate ?? 15,
+    laborHourlyRate: opts?.laborHourlyRate ?? 0,
+    overheadEnabled: opts?.overheadEnabled ?? false,
     overheadMode: opts?.overheadMode ?? 'fixed',
     overheadCostFixed: overheadCost,
     overheadPercent: opts?.overheadPercent ?? 0,
@@ -317,8 +329,11 @@ function buildRecipeRecordFromInput(
     input.overheadCost,
     input.sellingPrice,
     {
+      laborEnabled: input.laborEnabled,
       laborMode: input.laborMode,
       prepTimeMinutes: input.prepTimeMinutes,
+      laborHourlyRate: input.laborHourlyRate ?? 0,
+      overheadEnabled: input.overheadEnabled,
       overheadMode: input.overheadMode,
       overheadPercent: input.overheadPercent,
       wastePercent: input.wastePercent,
@@ -337,8 +352,12 @@ function buildRecipeRecordFromInput(
     yieldUnit: input.yieldUnit,
     prepTimeMinutes: input.prepTimeMinutes,
     cookTimeMinutes: input.cookTimeMinutes,
+    laborEnabled: input.laborEnabled,
     laborCost: input.laborCost,
     laborMode: input.laborMode,
+    laborJobTitle: input.laborJobTitle,
+    laborHourlyRate: input.laborHourlyRate,
+    overheadEnabled: input.overheadEnabled,
     overheadCost: input.overheadCost,
     overheadMode: input.overheadMode,
     overheadPercent: input.overheadPercent,
@@ -356,7 +375,7 @@ function buildRecipeRecordFromInput(
   }
 }
 
-function mapRecipeRow(row: DBRecipeRow, laborHourlyRate = 15): RecipeRecord {
+function mapRecipeRow(row: DBRecipeRow, tenantLaborHourlyRate = 15): RecipeRecord {
   const recipeIngredients = Array.isArray(row.recipe_ingredients)
     ? row.recipe_ingredients
     : row.recipe_ingredients
@@ -416,6 +435,14 @@ function mapRecipeRow(row: DBRecipeRow, laborHourlyRate = 15): RecipeRecord {
   const overheadPercent = Number(row.overhead_percent ?? 0)
   const wastePercent = Number(row.waste_percent ?? 0)
   const prepTimeMinutes = Number(row.prep_time_minutes ?? 0)
+  const laborEnabled = row.labor_enabled ?? false
+  const overheadEnabled = row.overhead_enabled ?? false
+  const laborJobTitle = row.labor_job_title ?? null
+  // Per-recipe rate wins; tenant's rate is only a fallback for recipes saved
+  // before this field existed (see the backfill migration).
+  const laborHourlyRate = row.labor_hourly_rate != null
+    ? Number(row.labor_hourly_rate)
+    : tenantLaborHourlyRate
 
   const cost = calculateRecipeCost(
     ingredients,
@@ -423,7 +450,9 @@ function mapRecipeRow(row: DBRecipeRow, laborHourlyRate = 15): RecipeRecord {
     Number(row.overhead_cost ?? 0),
     Number(row.selling_price ?? 0),
     {
+      laborEnabled,
       laborMode,
+      overheadEnabled,
       overheadMode,
       overheadPercent,
       wastePercent,
@@ -444,8 +473,12 @@ function mapRecipeRow(row: DBRecipeRow, laborHourlyRate = 15): RecipeRecord {
     yieldUnit: row.yield_unit ?? 'portion',
     prepTimeMinutes,
     cookTimeMinutes: Number(row.cook_time_minutes ?? 0),
+    laborEnabled,
     laborCost: Number(row.labor_cost ?? 0),
     laborMode,
+    laborJobTitle,
+    laborHourlyRate,
+    overheadEnabled,
     overheadCost: Number(row.overhead_cost ?? 0),
     overheadMode,
     overheadPercent,
@@ -519,8 +552,12 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
             yield_unit,
             prep_time_minutes,
             cook_time_minutes,
+            labor_enabled,
             labor_cost,
             labor_mode,
+            labor_job_title,
+            labor_hourly_rate,
+            overhead_enabled,
             overhead_cost,
             overhead_mode,
             overhead_percent,
@@ -609,8 +646,12 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           yield_unit,
           prep_time_minutes,
           cook_time_minutes,
+          labor_enabled,
           labor_cost,
           labor_mode,
+          labor_job_title,
+          labor_hourly_rate,
+          overhead_enabled,
           overhead_cost,
           overhead_mode,
           overhead_percent,
@@ -682,8 +723,11 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
         input.overheadCost,
         input.sellingPrice,
         {
+          laborEnabled: input.laborEnabled,
           laborMode: input.laborMode,
           prepTimeMinutes: input.prepTimeMinutes,
+          laborHourlyRate: input.laborHourlyRate ?? 0,
+          overheadEnabled: input.overheadEnabled,
           overheadMode: input.overheadMode,
           overheadPercent: input.overheadPercent,
           wastePercent: input.wastePercent,
@@ -726,8 +770,12 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           yieldUnit: input.yieldUnit,
           prepTimeMinutes: input.prepTimeMinutes,
           cookTimeMinutes: input.cookTimeMinutes,
+          laborEnabled: input.laborEnabled,
           laborCost: input.laborCost,
           laborMode: input.laborMode,
+          laborJobTitle: input.laborJobTitle,
+          laborHourlyRate: input.laborHourlyRate,
+          overheadEnabled: input.overheadEnabled,
           overheadCost: input.overheadCost,
           overheadMode: input.overheadMode,
           overheadPercent: input.overheadPercent,

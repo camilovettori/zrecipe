@@ -23,8 +23,11 @@ type RecipeRow = {
   yield_quantity: number
   yield_unit: string
   prep_time_minutes: number
+  labor_enabled: boolean
   labor_cost: number
   labor_mode: string
+  labor_hourly_rate: number | null
+  overhead_enabled: boolean
   overhead_cost: number
   overhead_mode: string
   overhead_percent: number
@@ -131,8 +134,8 @@ export default function ReportsPage() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (supabase.from('recipes') as any).select(`
           id, name, category, yield_quantity, yield_unit,
-          prep_time_minutes, labor_cost, labor_mode,
-          overhead_cost, overhead_mode, overhead_percent,
+          prep_time_minutes, labor_enabled, labor_cost, labor_mode, labor_hourly_rate,
+          overhead_enabled, overhead_cost, overhead_mode, overhead_percent,
           waste_percent, selling_price,
           recipe_ingredients!recipe_ingredients_recipe_id_fkey (
             quantity, unit, yield_percent,
@@ -169,10 +172,12 @@ export default function ReportsPage() {
             current_price: ri.ingredient?.current_price,
             price_unit: ri.ingredient?.price_unit,
           })),
+          laborEnabled: r.labor_enabled,
           laborMode: r.labor_mode as 'fixed' | 'time',
           laborCostFixed: r.labor_cost,
           prepTimeMinutes: r.prep_time_minutes,
-          laborHourlyRate: lhr,
+          laborHourlyRate: r.labor_hourly_rate ?? lhr,
+          overheadEnabled: r.overhead_enabled,
           overheadMode: r.overhead_mode as 'fixed' | 'percent',
           overheadCostFixed: r.overhead_cost,
           overheadPercent: r.overhead_percent,

@@ -108,7 +108,10 @@ export function useIngredients() {
 
   const ingredients = applySort(
     all.filter((i) => {
-      const matchSearch = !search || i.name.toLowerCase().includes(search.toLowerCase())
+      const matchSearch =
+        !search ||
+        i.name.toLowerCase().includes(search.toLowerCase()) ||
+        (i.brand?.toLowerCase().includes(search.toLowerCase()) ?? false)
       const matchCat =
         category === 'all' || i.category?.toLowerCase() === category.toLowerCase()
       return matchSearch && matchCat

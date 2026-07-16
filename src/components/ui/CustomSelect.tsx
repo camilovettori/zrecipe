@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown } from 'lucide-react'
+import { Check, ChevronDown, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export interface SelectOption {
@@ -11,6 +11,7 @@ export interface SelectOption {
   separator?: boolean
   icon?: React.ReactNode
   description?: string
+  onDelete?: () => void
 }
 
 interface CustomSelectProps {
@@ -128,19 +129,28 @@ export function CustomSelect({
             const isSelected = option.value === value
             const isAction = option.value.startsWith('__')
 
+            const selectOption = () => {
+              if (!option.disabled) {
+                onChange(option.value)
+                setOpen(false)
+              }
+            }
+
             return (
-              <button
+              <div
                 key={option.value}
-                type="button"
-                disabled={option.disabled}
-                onClick={() => {
-                  if (!option.disabled) {
-                    onChange(option.value)
-                    setOpen(false)
+                role="button"
+                tabIndex={option.disabled ? -1 : 0}
+                aria-disabled={option.disabled}
+                onClick={selectOption}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    selectOption()
                   }
                 }}
                 className={cn(
-                  'flex w-full items-center gap-2 text-left transition-colors',
+                  'flex w-full cursor-pointer items-center gap-2 text-left transition-colors',
                   itemSizeClasses[size],
                   isSelected && !isAction && 'bg-emerald-50 font-medium text-emerald-700',
                   !isSelected && !isAction && 'text-slate-700 hover:bg-slate-50',
@@ -158,7 +168,20 @@ export function CustomSelect({
                     <span className="mt-0.5 block text-xs font-normal text-slate-400">{option.description}</span>
                   )}
                 </span>
-              </button>
+                {option.onDelete && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      option.onDelete?.()
+                    }}
+                    className="ml-2 shrink-0 rounded-md p-1 text-slate-300 transition hover:bg-red-50 hover:text-red-500"
+                    aria-label={`Delete ${option.label}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             )
           })}
         </div>

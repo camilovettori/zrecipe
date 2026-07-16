@@ -11,10 +11,12 @@ export type CostIngredientInput = {
 
 export type CostInputs = {
   ingredients: CostIngredientInput[]
+  laborEnabled?: boolean
   laborMode?: 'fixed' | 'time'
   laborCostFixed?: number
   prepTimeMinutes?: number
   laborHourlyRate?: number
+  overheadEnabled?: boolean
   overheadMode?: 'fixed' | 'percent'
   overheadCostFixed?: number
   overheadPercent?: number
@@ -80,15 +82,17 @@ export function calculateCost(inputs: CostInputs): CostResult {
   const ingredientCost = money(lines.reduce((sum, l) => sum + l.cost, 0))
   const warnings = lines.flatMap((l) => (l.warning ? [l.warning] : []))
 
-  const laborCost =
-    inputs.laborMode === 'time'
-      ? money(((inputs.prepTimeMinutes ?? 0) / 60) * (inputs.laborHourlyRate ?? 15))
-      : money(inputs.laborCostFixed ?? 0)
+  const laborCost = inputs.laborEnabled
+    ? (inputs.laborMode === 'time'
+        ? money(((inputs.prepTimeMinutes ?? 0) / 60) * (inputs.laborHourlyRate ?? 0))
+        : money(inputs.laborCostFixed ?? 0))
+    : 0
 
-  const overheadCost =
-    inputs.overheadMode === 'percent'
-      ? money(ingredientCost * ((inputs.overheadPercent ?? 0) / 100))
-      : money(inputs.overheadCostFixed ?? 0)
+  const overheadCost = inputs.overheadEnabled
+    ? (inputs.overheadMode === 'percent'
+        ? money(ingredientCost * ((inputs.overheadPercent ?? 0) / 100))
+        : money(inputs.overheadCostFixed ?? 0))
+    : 0
 
   const subtotal = money(ingredientCost + laborCost + overheadCost)
   const wasteCost = money(subtotal * ((inputs.wastePercent ?? 0) / 100))

@@ -39,8 +39,11 @@ type NormRecipe = {
   name: string
   yieldQty: number
   yieldUnit: string
+  laborEnabled: boolean
   laborCost: number
   laborMode: 'fixed' | 'time'
+  laborHourlyRate: number
+  overheadEnabled: boolean
   overheadCost: number
   overheadMode: 'fixed' | 'percent'
   overheadPercent: number
@@ -125,8 +128,11 @@ function computeSimRow(
   simPriceUnit: string | null,
 ): SimRow {
   const opts = {
+    laborEnabled: recipe.laborEnabled,
     laborMode: recipe.laborMode,
     laborCostFixed: recipe.laborCost,
+    laborHourlyRate: recipe.laborHourlyRate,
+    overheadEnabled: recipe.overheadEnabled,
     overheadMode: recipe.overheadMode,
     overheadCostFixed: recipe.overheadCost,
     overheadPercent: recipe.overheadPercent,
@@ -207,7 +213,8 @@ export function PriceSimulatorModal({ open, onClose, ingredient, usedRecipeIds }
           .from('recipes')
           .select(`
             id, name, yield_quantity, yield_unit,
-            labor_cost, labor_mode, overhead_cost, overhead_mode, overhead_percent,
+            labor_enabled, labor_cost, labor_mode, labor_hourly_rate,
+            overhead_enabled, overhead_cost, overhead_mode, overhead_percent,
             waste_percent, selling_price,
             recipe_ingredients!recipe_ingredients_recipe_id_fkey (
               id, ingredient_id, sub_recipe_id, quantity, unit, yield_percent,
@@ -226,8 +233,11 @@ export function PriceSimulatorModal({ open, onClose, ingredient, usedRecipeIds }
             name: r.name as string,
             yieldQty: Math.max(1, (r.yield_quantity as number) ?? 1),
             yieldUnit: (r.yield_unit as string) ?? 'unit',
+            laborEnabled: (r.labor_enabled as boolean) ?? false,
             laborCost: (r.labor_cost as number) ?? 0,
             laborMode: ((r.labor_mode ?? 'fixed') as 'fixed' | 'time'),
+            laborHourlyRate: (r.labor_hourly_rate as number) ?? 0,
+            overheadEnabled: (r.overhead_enabled as boolean) ?? false,
             overheadCost: (r.overhead_cost as number) ?? 0,
             overheadMode: ((r.overhead_mode ?? 'fixed') as 'fixed' | 'percent'),
             overheadPercent: (r.overhead_percent as number) ?? 0,

@@ -58,6 +58,7 @@ import { findYieldFactor } from '@/lib/data/yield-factors'
 import { compressImage } from '@/lib/utils/image-compress'
 import { isConvertible } from '@/lib/utils/unit-converter'
 import CostBreakdown from './CostBreakdown'
+import LaborConfigModal from './LaborConfigModal'
 import NewIngredientModal, { type NewIngredientFormData } from './NewIngredientModal'
 import { IngredientNoteModal } from './IngredientNoteModal'
 import { SubstituteIngredientModal, type SubstituteReplacement } from './SubstituteIngredientModal'
@@ -121,8 +122,12 @@ function blankRecipe(): RecipeEditorData {
     yieldUnit: 'portion',
     prepTimeMinutes: 0,
     cookTimeMinutes: 0,
+    laborEnabled: false,
     laborCost: 0,
     laborMode: 'fixed',
+    laborJobTitle: null,
+    laborHourlyRate: null,
+    overheadEnabled: false,
     overheadCost: 0,
     overheadMode: 'fixed',
     overheadPercent: 0,
@@ -147,8 +152,12 @@ function mapRecipeToState(recipe: RecipeRecord): RecipeEditorData {
     yieldUnit: recipe.yieldUnit,
     prepTimeMinutes: recipe.prepTimeMinutes,
     cookTimeMinutes: recipe.cookTimeMinutes,
+    laborEnabled: recipe.laborEnabled ?? false,
     laborCost: recipe.laborCost,
     laborMode: recipe.laborMode ?? 'fixed',
+    laborJobTitle: recipe.laborJobTitle ?? null,
+    laborHourlyRate: recipe.laborHourlyRate ?? null,
+    overheadEnabled: recipe.overheadEnabled ?? false,
     overheadCost: recipe.overheadCost,
     overheadMode: recipe.overheadMode ?? 'fixed',
     overheadPercent: recipe.overheadPercent ?? 0,
@@ -468,12 +477,12 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const [categoryMode, setCategoryMode] = useState<'select' | 'custom'>('select')
   const [customCategoryInput, setCustomCategoryInput] = useState('')
   const [yieldModalOpen, setYieldModalOpen] = useState(false)
+  const [laborConfigModalOpen, setLaborConfigModalOpen] = useState(false)
   const [showYfTooltip, setShowYfTooltip] = useState(false)
   const [newIngredientName, setNewIngredientName] = useState('')
   const [newIngredientModalOpen, setNewIngredientModalOpen] = useState(false)
   const [newIngredientSaving, setNewIngredientSaving] = useState(false)
   const [newIngredientError, setNewIngredientError] = useState<string | null>(null)
-  const [laborHourlyRate, setLaborHourlyRate] = useState(0)
   const [noteModalIngredientId, setNoteModalIngredientId] = useState<string | null>(null)
   const [substituteIngredientId, setSubstituteIngredientId] = useState<string | null>(null)
   const [assetOrigin, setAssetOrigin] = useState('')
@@ -610,7 +619,6 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
         .eq('id', tenantId)
         .maybeSingle()
       if (!data) return
-      setLaborHourlyRate(Number(data.labor_hourly_rate ?? 0))
       // Pre-fill defaults for NEW recipes only
       if (isNew) {
         setRecipe((prev) => ({
@@ -695,9 +703,11 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       recipe.overheadCost,
       recipe.sellingPrice,
       {
+        laborEnabled: recipe.laborEnabled,
         laborMode: recipe.laborMode,
         prepTimeMinutes: recipe.prepTimeMinutes,
-        laborHourlyRate,
+        laborHourlyRate: recipe.laborHourlyRate ?? 0,
+        overheadEnabled: recipe.overheadEnabled,
         overheadMode: recipe.overheadMode,
         overheadPercent: recipe.overheadPercent,
         wastePercent: recipe.wastePercent,
@@ -706,10 +716,11 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       }
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [computedIngredients, recipe.laborCost, recipe.laborMode, recipe.overheadCost,
+    [computedIngredients, recipe.laborEnabled, recipe.laborCost, recipe.laborMode,
+     recipe.laborHourlyRate, recipe.overheadEnabled, recipe.overheadCost,
      recipe.overheadMode, recipe.overheadPercent, recipe.wastePercent,
      recipe.sellingPrice, recipe.prepTimeMinutes, recipe.yieldQuantity,
-     recipe.yieldUnit, laborHourlyRate]
+     recipe.yieldUnit]
   )
 
   const hydrateIngredientAllergens = useCallback(
@@ -1218,8 +1229,8 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
   <p class="section-title">Cost Summary${N > 1 ? ` — Batch total ×${N}` : ''}</p>
   <div class="cost-row"><span class="cost-row-label">Ingredient cost</span><span class="cost-row-value">€${(cost.ingredientCost * N).toFixed(2)}</span></div>
-  <div class="cost-row"><span class="cost-row-label">Labor${recipe.laborMode === 'time' ? ` (${recipe.prepTimeMinutes}min × €${laborHourlyRate}/hr)` : ''}</span><span class="cost-row-value">€${(cost.laborCost * N).toFixed(2)}</span></div>
-  <div class="cost-row"><span class="cost-row-label">Overhead${recipe.overheadMode === 'percent' ? ` (${recipe.overheadPercent}%)` : ''}</span><span class="cost-row-value">€${(cost.overheadCost * N).toFixed(2)}</span></div>
+  ${recipe.laborEnabled ? `<div class="cost-row"><span class="cost-row-label">Labor${recipe.laborMode === 'time' ? ` (${recipe.laborJobTitle ? `${recipe.laborJobTitle}, ` : ''}${recipe.prepTimeMinutes}min × €${recipe.laborHourlyRate ?? 0}/hr)` : ''}</span><span class="cost-row-value">€${(cost.laborCost * N).toFixed(2)}</span></div>` : ''}
+  ${recipe.overheadEnabled ? `<div class="cost-row"><span class="cost-row-label">Overhead${recipe.overheadMode === 'percent' ? ` (${recipe.overheadPercent}%)` : ''}</span><span class="cost-row-value">€${(cost.overheadCost * N).toFixed(2)}</span></div>` : ''}
   ${(recipe.wastePercent ?? 0) > 0 ? `<div class="cost-row"><span class="cost-row-label">Waste (${recipe.wastePercent}%)</span><span class="cost-row-value">+€${(cost.wasteCost * N).toFixed(2)}</span></div>` : ''}
 
   <div class="cost-grid">
@@ -1265,7 +1276,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 </html>`)
 
     printWindow.document.close()
-  }, [recipe, cost, computedIngredients, recipeAllergens, laborHourlyRate, effectiveN])
+  }, [recipe, cost, computedIngredients, recipeAllergens, effectiveN])
 
   const handlePrintLabel = useCallback((labelData: LabelData) => {
     const printWindow = window.open('', '_blank')
@@ -2048,14 +2059,20 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
             yieldUnit={recipe.yieldUnit}
             isSubRecipe={recipe.isSubIngredient}
             prepTimeMinutes={recipe.prepTimeMinutes}
-            laborHourlyRate={laborHourlyRate}
+            laborEnabled={recipe.laborEnabled}
+            laborHourlyRate={recipe.laborHourlyRate ?? 0}
             laborMode={recipe.laborMode}
+            laborJobTitle={recipe.laborJobTitle}
+            overheadEnabled={recipe.overheadEnabled}
             overheadMode={recipe.overheadMode}
             overheadPercent={recipe.overheadPercent}
             wastePercent={recipe.wastePercent}
             batchMultiplier={effectiveN}
+            onLaborEnabledChange={(v) => updateRecipeField('laborEnabled', v)}
             onLaborModeChange={(v) => updateRecipeField('laborMode', v)}
             onLaborCostChange={(v) => updateRecipeField('laborCost', v)}
+            onOpenLaborConfig={() => setLaborConfigModalOpen(true)}
+            onOverheadEnabledChange={(v) => updateRecipeField('overheadEnabled', v)}
             onOverheadModeChange={(v) => updateRecipeField('overheadMode', v)}
             onOverheadCostChange={(v) => updateRecipeField('overheadCost', v)}
             onOverheadPercentChange={(v) => updateRecipeField('overheadPercent', v)}
@@ -2112,6 +2129,22 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       )}
 
       <YieldFactorModal open={yieldModalOpen} onClose={() => setYieldModalOpen(false)} />
+
+      <LaborConfigModal
+        open={laborConfigModalOpen}
+        initialJobTitle={recipe.laborJobTitle}
+        initialHourlyRate={recipe.laborHourlyRate}
+        onSave={(jobTitle, hourlyRate) => {
+          setRecipe((prev) => ({
+            ...prev,
+            laborJobTitle: jobTitle || null,
+            laborHourlyRate: hourlyRate,
+            laborEnabled: true,
+          }))
+          setLaborConfigModalOpen(false)
+        }}
+        onClose={() => setLaborConfigModalOpen(false)}
+      />
 
       {(() => {
         const noteIng = noteModalIngredientId

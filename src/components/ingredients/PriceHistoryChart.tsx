@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   LineChart,
@@ -13,6 +13,7 @@ import {
 } from 'recharts'
 import { format } from 'date-fns'
 import { ArrowDownRight, ArrowUpRight, Minus, FileText, Pencil } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 type JoinedSupplier = { name: string | null }
 type JoinedInvoice = {
@@ -115,6 +116,7 @@ interface PriceHistoryChartProps {
 
 export default function PriceHistoryChart({ priceHistory, unit }: PriceHistoryChartProps) {
   const router = useRouter()
+  const [showAll, setShowAll] = useState(false)
   const ordered = useMemo(
     () =>
       [...priceHistory].sort(
@@ -158,7 +160,9 @@ export default function PriceHistoryChart({ priceHistory, unit }: PriceHistoryCh
           : { label: 'Flat', tone: 'text-slate-600 bg-slate-100', Icon: Minus }
       : null
 
-  const recentEntries = [...data].reverse().slice(0, 5)
+  const allEntriesReversed = [...data].reverse()
+  const recentEntries = showAll ? allEntriesReversed : allEntriesReversed.slice(0, 3)
+  const hasMore = allEntriesReversed.length > 3
 
   return (
     <div className="space-y-4">
@@ -196,7 +200,7 @@ export default function PriceHistoryChart({ priceHistory, unit }: PriceHistoryCh
         </ResponsiveContainer>
       </div>
 
-      <div className="space-y-2">
+      <div className={cn('space-y-2', showAll && 'max-h-80 overflow-y-auto pr-1')}>
         {recentEntries.map((point) => {
           const date = format(new Date(resolveDate(point)), 'MMM d, yyyy')
           const fromInvoice = Boolean(point.invoice_id)
@@ -243,6 +247,16 @@ export default function PriceHistoryChart({ priceHistory, unit }: PriceHistoryCh
           )
         })}
       </div>
+
+      {hasMore && (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className="w-full rounded-lg py-1.5 text-center text-xs font-medium text-emerald-600 transition hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
+        >
+          {showAll ? 'Show less' : `Show all ${allEntriesReversed.length} entries`}
+        </button>
+      )}
     </div>
   )
 }

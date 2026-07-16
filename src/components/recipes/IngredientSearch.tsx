@@ -80,8 +80,8 @@ export default function IngredientSearch({
       const [ingredientResult, subRecipeResult] = await Promise.all([
         supabase
           .from('ingredients')
-          .select('id, name, current_price, price_unit')
-          .ilike('name', `%${debouncedQuery}%`)
+          .select('id, name, brand, current_price, price_unit')
+          .or(`name.ilike.%${debouncedQuery}%,brand.ilike.%${debouncedQuery}%`)
           .order('name')
           .limit(6),
         onAddSubRecipe
@@ -101,6 +101,7 @@ export default function IngredientSearch({
         (ingredientResult.data ?? []).map((item) => ({
           id: item.id,
           name: item.name,
+          brand: item.brand ?? null,
           currentPrice: item.current_price ?? null,
           priceUnit: item.price_unit ?? null,
         }))
@@ -301,6 +302,9 @@ export default function IngredientSearch({
                           i === highlightedIndex ? 'text-emerald-700' : 'text-slate-900'
                         )}>
                           {ing.name}
+                          {ing.brand && (
+                            <span className="ml-1.5 font-normal text-slate-400">({ing.brand})</span>
+                          )}
                         </p>
                         <p className="text-xs text-slate-500">{formatPrice(ing)}</p>
                       </div>

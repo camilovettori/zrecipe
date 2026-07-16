@@ -145,7 +145,7 @@ export default function CommandSearch() {
             .limit(8),
           supabase
             .from('ingredients')
-            .select('id, name, category')
+            .select('id, name, brand, category')
             .eq('tenant_id', tenantId)
             .order('updated_at', { ascending: false })
             .limit(8),
@@ -174,7 +174,9 @@ export default function CommandSearch() {
 
         const ingredientResults =
           ingredientsRes.data
-            ?.filter((item) => `${item.name} ${item.category ?? ''}`.toLowerCase().includes(needle))
+            ?.filter((item) =>
+              `${item.name} ${item.brand ?? ''} ${item.category ?? ''}`.toLowerCase().includes(needle)
+            )
             .map<SearchResult>((item) => ({
               id: item.id,
               kind: 'ingredient',
