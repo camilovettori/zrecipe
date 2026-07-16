@@ -32,6 +32,7 @@ import {
   normalizeExtractedItems,
   type ExtractedInvoiceItem,
 } from '@/lib/invoices-client'
+import { compressImage } from '@/lib/utils/image-compress'
 import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
 import type { IngredientLookup, SupplierLookup } from '@/hooks/useInvoices'
@@ -502,30 +503,92 @@ export default function ImportInvoicesPage() {
         return
       }
 
-      setDraft(
-        buildMatchedDraft(
-          '',
-          '',
-          new Date().toISOString().slice(0, 10),
-          null,
-          'image',
-          null,
-          [
+      if (fileKind === 'image') {
+        const compressed = await compressImage(file, 1400, 0.85)
+        const imageBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => {
+            const result = reader.result as string
+            resolve(result.split(',')[1] ?? '')
+          }
+          reader.onerror = () => reject(new Error('Failed to read image'))
+          reader.readAsDataURL(compressed)
+        })
+
+        const response = await fetch('/api/invoices/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            kind: 'image',
+            imageBase64,
+            mimeType: compressed.type,
+            fileName: file.name,
+          }),
+        })
+
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string
+          supplier_name?: string
+          invoice_number?: string | null
+          invoice_date?: string
+          total_amount?: number | null
+          subtotal_amount?: number | null
+          vat_amount?: number | null
+          vat_rate?: number | null
+          items?: Array<{
+            description: string
+            quantity: number
+            unit: string
+            package_size?: number | null
+            package_unit?: string | null
+            packageSize?: number | null
+            packageUnit?: string | null
+            unit_price?: number
+            unitPrice?: number
+            total: number
+          }>
+        }
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? 'Unable to extract image data')
+        }
+
+        const extractedItems = normalizeExtractedItems(payload.items ?? [])
+        setDraft(
+          buildMatchedDraft(
+            payload.supplier_name ?? '',
+            payload.invoice_number,
+            payload.invoice_date,
+            payload.total_amount,
+            'image',
+            null,
+            extractedItems.length > 0
+              ? extractedItems
+              : [
+                {
+                  description: '',
+                  quantity: 1,
+                  unit: 'unit',
+                  packageSize: null,
+                  packageUnit: 'kg',
+                  unitPrice: 0,
+                  total: 0,
+                  },
+                ],
+            ingredients,
             {
-              description: '',
-              quantity: 1,
-              unit: 'unit',
-              packageSize: null,
-              packageUnit: 'kg',
-              unitPrice: 0,
-              total: 0,
-            },
-          ],
-          ingredients,
-          { subtotalAmount: null, vatAmount: null, vatRate: null }
+              subtotalAmount: payload.subtotal_amount ?? null,
+              vatAmount: payload.vat_amount ?? null,
+              vatRate: payload.vat_rate ?? null,
+            }
+          )
         )
-      )
-      setStep('review')
+        if (extractedItems.length === 0) {
+          toast.info("We couldn't extract all data. Please fill in the missing fields.")
+        }
+        setStep('review')
+        return
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to extract invoice data'
       setFileError(message)

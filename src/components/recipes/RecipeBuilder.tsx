@@ -281,15 +281,19 @@ function IngredientRow({
                 {item.ingredientName}
               </button>
             </div>
-          ) : (
-            <button
-              type="button"
-              onClick={onSubstituteClick}
-              title="Substitute ingredient"
+          ) : item.ingredientId ? (
+            <Link
+              href={`/ingredients/${item.ingredientId}`}
+              target="_blank"
+              title="View ingredient details"
               className="min-w-0 whitespace-normal break-words text-left text-sm leading-tight text-slate-800 transition hover:text-emerald-600 hover:underline"
             >
               {item.ingredientName}
-            </button>
+            </Link>
+          ) : (
+            <span className="min-w-0 whitespace-normal break-words text-left text-sm leading-tight text-slate-800">
+              {item.ingredientName}
+            </span>
           )}
 
           {/* Note */}

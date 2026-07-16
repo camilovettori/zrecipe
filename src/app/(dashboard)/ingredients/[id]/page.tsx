@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { AlertTriangle, ArrowDownRight, ArrowLeft, ArrowUpRight, Calculator, Camera, Check, ChefHat, Loader2, Minus, Save, Trash2, X } from 'lucide-react'
+import { AlertTriangle, ArrowDownRight, ArrowLeft, ArrowUpRight, Calculator, Camera, Check, ChefHat, Loader2, Minus, Repeat, Save, Trash2, X } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
 import IngredientForm, {
@@ -18,6 +18,7 @@ import { EU_ALLERGENS, type AllergenStatus, type IngredientAllergen } from '@/li
 import { findIngredientImage } from '@/lib/utils/ingredient-image'
 import { compressImage } from '@/lib/utils/image-compress'
 import { PriceSimulatorModal } from '@/components/ingredients/PriceSimulatorModal'
+import { SubstituteIngredientModal, type SubstituteReplacement } from '@/components/recipes/SubstituteIngredientModal'
 import { cn } from '@/lib/utils'
 import {
   buildCostExamples,
@@ -162,6 +163,8 @@ export default function IngredientDetailPage() {
   const [manifestImageUrl, setManifestImageUrl] = useState<string | null>(null)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [simulatorOpen, setSimulatorOpen] = useState(false)
+  const [substituteModalOpen, setSubstituteModalOpen] = useState(false)
+  const [substituting, setSubstituting] = useState(false)
   const [formCanSave, setFormCanSave] = useState(false)
   const [costPreview, setCostPreview] = useState<IngredientCostPreview | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -229,14 +232,11 @@ export default function IngredientDetailPage() {
     })
   }, [id, isNew, router])
 
-  useEffect(() => {
+  const refreshUsedRecipes = useCallback(async () => {
     if (isNew) return
-
-    let cancelled = false
-    const supabase = createClient()
     setUsedRecipesLoading(true)
-
-    supabase
+    const supabase = createClient()
+    const { data } = await supabase
       .from('recipe_ingredients')
       .select(`
         quantity,
@@ -248,16 +248,19 @@ export default function IngredientDetailPage() {
         )
       `)
       .eq('ingredient_id', id)
-      .then((usedRecipesRes) => {
-        if (cancelled) return
-        setUsedRecipes(normalizeUsedRecipes((usedRecipesRes.data ?? []) as RecipeIngredientUsageRow[]))
-        setUsedRecipesLoading(false)
-      })
+    setUsedRecipes(normalizeUsedRecipes((data ?? []) as RecipeIngredientUsageRow[]))
+    setUsedRecipesLoading(false)
+  }, [id, isNew])
 
+  useEffect(() => {
+    let cancelled = false
+    refreshUsedRecipes().then(() => {
+      if (cancelled) return
+    })
     return () => {
       cancelled = true
     }
-  }, [id, isNew])
+  }, [refreshUsedRecipes])
 
   // Resolve manifest image whenever ingredient name changes (client-side, no DB write)
   useEffect(() => {
@@ -737,6 +740,21 @@ export default function IngredientDetailPage() {
                     {usedRecipes.length}
                   </span>
                 )}
+                {!isNew && usedRecipes.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSubstituteModalOpen(true)}
+                    disabled={substituting}
+                    className="ml-auto flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-300"
+                  >
+                    {substituting ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Repeat className="h-3.5 w-3.5" />
+                    )}
+                    Substitute in all recipes
+                  </button>
+                )}
               </div>
 
               {usedRecipesLoading ? (
@@ -860,6 +878,45 @@ export default function IngredientDetailPage() {
           usedRecipeIds={usedRecipes.map((r) => r.id)}
         />
       )}
+
+      <SubstituteIngredientModal
+        open={substituteModalOpen}
+        currentIngredientId={ingredient?.id ?? null}
+        currentSubRecipeId={null}
+        currentIngredientName={ingredient?.name ?? ''}
+        hasNote={false}
+        onSubstitute={async (replacement: SubstituteReplacement) => {
+          if (!ingredient) return
+          setSubstituting(true)
+          try {
+            const supabase = createClient()
+            const updatePayload =
+              replacement.kind === 'ingredient'
+                ? { ingredient_id: replacement.data.id, sub_recipe_id: null }
+                : { sub_recipe_id: replacement.data.id, ingredient_id: null }
+
+            const affectedCount = usedRecipes.length
+
+            const { error } = await supabase
+              .from('recipe_ingredients')
+              .update(updatePayload)
+              .eq('ingredient_id', ingredient.id)
+
+            if (error) {
+              toast.error('Failed to substitute ingredient')
+              return
+            }
+
+            toast.success(
+              `Substituted in ${affectedCount} recipe${affectedCount !== 1 ? 's' : ''}`
+            )
+            await refreshUsedRecipes()
+          } finally {
+            setSubstituting(false)
+          }
+        }}
+        onClose={() => setSubstituteModalOpen(false)}
+      />
     </div>
   )
 }

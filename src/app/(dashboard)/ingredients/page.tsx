@@ -70,13 +70,19 @@ export default function IngredientsPage() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
-  const [viewMode, setViewMode] = useState<ViewMode>(() => {
-    if (typeof window !== 'undefined') {
-      return (localStorage.getItem('ingredients-view-mode') as ViewMode) ?? 'grid'
-    }
-    return 'grid'
-  })
+  const [viewMode, setViewMode] = useState<ViewMode>('grid')
   const [trends, setTrends] = useState<Record<string, TrendData>>({})
+
+  // Read the persisted view mode after mount, not during the initial render —
+  // reading localStorage in the useState initializer made the client's first
+  // render tree diverge from the server-rendered 'grid' skeleton, causing a
+  // hydration mismatch whenever a user had 'list' saved.
+  useEffect(() => {
+    const stored = localStorage.getItem('ingredients-view-mode') as ViewMode | null
+    if (stored === 'grid' || stored === 'list') {
+      setViewMode(stored)
+    }
+  }, [])
 
   // Fetch price trends when switching to list view (or when ingredients change in list mode)
   useEffect(() => {

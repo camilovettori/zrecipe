@@ -18,7 +18,7 @@ interface Props {
   currentSubRecipeId: string | null
   currentIngredientName: string
   hasNote: boolean
-  onSubstitute: (replacement: SubstituteReplacement, keepNote: boolean) => void
+  onSubstitute: (replacement: SubstituteReplacement, keepNote: boolean) => void | Promise<void>
   onClose: () => void
 }
 
