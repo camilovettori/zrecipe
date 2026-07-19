@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { LayoutGrid, List, Plus, Search, SlidersHorizontal, Apple } from 'lucide-react'
+import { LayoutGrid, List, Lock, Plus, Search, SlidersHorizontal, Apple } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useIngredients, type SortKey } from '@/hooks/useIngredients'
+import { useSubscription } from '@/hooks/useSubscription'
 import IngredientCard from '@/components/ingredients/IngredientCard'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 import IngredientListView, { type TrendData } from '@/components/ingredients/IngredientListView'
@@ -66,6 +67,7 @@ export default function IngredientsPage() {
     sortBy,
     setSortBy,
   } = useIngredients()
+  const { limits, hasFullAccess } = useSubscription()
 
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -147,6 +149,7 @@ export default function IngredientsPage() {
   }
 
   const hasFilters = search !== '' || category !== 'all'
+  const atIngredientLimit = !hasFullAccess && ingredients.length >= limits.maxIngredients
 
   return (
     <div className="space-y-6">
@@ -169,13 +172,26 @@ export default function IngredientsPage() {
           <Search className="h-4 w-4" />
           Import supplier price list
         </button>
-        <button
-          onClick={() => router.push('/ingredients/new')}
-          className="flex shrink-0 items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500"
-        >
-          <Plus className="h-4 w-4" />
-          Add Ingredient
-        </button>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            onClick={() => !atIngredientLimit && router.push('/ingredients/new')}
+            disabled={atIngredientLimit}
+            title={atIngredientLimit ? `Free plan limit: ${limits.maxIngredients} ingredients` : undefined}
+            className={cn(
+              'flex shrink-0 items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors',
+              atIngredientLimit ? 'cursor-not-allowed bg-slate-400' : 'bg-emerald-600 hover:bg-emerald-500'
+            )}
+          >
+            {atIngredientLimit ? <Lock className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            Add Ingredient
+          </button>
+          {atIngredientLimit && (
+            <p className="text-right text-xs text-slate-500">
+              Free plan limit of {limits.maxIngredients} reached.{' '}
+              <a href="/settings/billing" className="font-medium text-emerald-600 hover:underline">Upgrade</a>
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Filters + view toggle */}

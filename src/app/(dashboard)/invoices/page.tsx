@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { ArrowUpDown, CalendarDays, ChevronLeft, ChevronRight, FileText, Layers, Plus, Search, Sparkles, UploadCloud, X } from 'lucide-react'
+import { ArrowUpDown, CalendarDays, ChevronLeft, ChevronRight, FileText, Layers, Lock, Plus, Search, Sparkles, UploadCloud, X } from 'lucide-react'
 import { useInvoices, type InvoiceRecord } from '@/hooks/useInvoices'
 import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
+import { useSubscription } from '@/hooks/useSubscription'
 import { cn } from '@/lib/utils'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 
@@ -314,6 +315,8 @@ function EmptyState({ title, description }: { title: string; description: string
 export default function InvoicesPage() {
   const router = useRouter()
   const { invoices, loading, error } = useInvoices()
+  const { limits } = useSubscription()
+  const canImportInvoices = limits.canUploadInvoices
   const [search, setSearch] = useState('')
   const [sortMode, setSortMode] = useState<SortMode>('newest')
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('this-month')
@@ -436,31 +439,51 @@ export default function InvoicesPage() {
           </p>
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <button
-            type="button"
-            onClick={() => router.push('/invoices/import')}
-            className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500"
-          >
-            <UploadCloud className="h-4 w-4" />
-            Import Invoice
-          </button>
-          <button
-            type="button"
-            onClick={() => router.push('/invoices/import-bulk')}
-            className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-          >
-            <Layers className="h-4 w-4" />
-            Import Multiple
-          </button>
-          <button
-            type="button"
-            onClick={() => router.push('/invoices/new')}
-            className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-          >
-            <Plus className="h-4 w-4" />
-            Manual Entry
-          </button>
+        <div className="flex flex-col items-end gap-1.5">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => canImportInvoices && router.push('/invoices/import')}
+              disabled={!canImportInvoices}
+              title={!canImportInvoices ? 'Invoice import is a Pro feature' : undefined}
+              className={cn(
+                'inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-white transition',
+                canImportInvoices ? 'bg-emerald-600 hover:bg-emerald-500' : 'cursor-not-allowed bg-slate-400'
+              )}
+            >
+              {canImportInvoices ? <UploadCloud className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+              Import Invoice
+            </button>
+            <button
+              type="button"
+              onClick={() => canImportInvoices && router.push('/invoices/import-bulk')}
+              disabled={!canImportInvoices}
+              title={!canImportInvoices ? 'Invoice import is a Pro feature' : undefined}
+              className={cn(
+                'inline-flex items-center justify-center gap-2 rounded-full border px-5 py-2.5 text-sm font-semibold transition',
+                canImportInvoices
+                  ? 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                  : 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400'
+              )}
+            >
+              {canImportInvoices ? <Layers className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+              Import Multiple
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push('/invoices/new')}
+              className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              <Plus className="h-4 w-4" />
+              Manual Entry
+            </button>
+          </div>
+          {!canImportInvoices && (
+            <p className="text-right text-xs text-slate-500">
+              Invoice import requires Pro.{' '}
+              <a href="/settings/billing" className="font-medium text-emerald-600 hover:underline">Upgrade</a>
+            </p>
+          )}
         </div>
       </div>
 
@@ -478,14 +501,27 @@ export default function InvoicesPage() {
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => router.push('/invoices/import-bulk')}
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500"
-          >
-            <Layers className="h-4 w-4" />
-            Import multiple invoices
-          </button>
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <button
+              type="button"
+              onClick={() => canImportInvoices && router.push('/invoices/import-bulk')}
+              disabled={!canImportInvoices}
+              title={!canImportInvoices ? 'Invoice import is a Pro feature' : undefined}
+              className={cn(
+                'inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-white transition',
+                canImportInvoices ? 'bg-emerald-600 hover:bg-emerald-500' : 'cursor-not-allowed bg-slate-400'
+              )}
+            >
+              {canImportInvoices ? <Layers className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+              Import multiple invoices
+            </button>
+            {!canImportInvoices && (
+              <p className="text-xs text-slate-500">
+                Requires Pro.{' '}
+                <a href="/settings/billing" className="font-medium text-emerald-600 hover:underline">Upgrade</a>
+              </p>
+            )}
+          </div>
         </div>
       )}
 

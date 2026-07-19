@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
   const origin = request.nextUrl.origin
   const session = await createCustomerPortalSession({
     customerId: tenant.stripe_customer_id,
-    returnUrl:  `${origin}/settings?tab=billing`,
+    returnUrl:  `${origin}/settings/billing`,
   })
 
   return NextResponse.json({ url: session.url })

@@ -73,6 +73,15 @@ export async function middleware(request: NextRequest) {
 
   const { response, user } = await updateSession(request)
 
+  // Root path: public marketing page for logged-out visitors,
+  // dashboard for logged-in users.
+  if (pathname === '/') {
+    if (user) {
+      return NextResponse.redirect(new URL('/dashboard', request.url))
+    }
+    return response
+  }
+
   // ── Exempt paths bypass all checks ──────────────────────────────────────
   if (isExemptPath(pathname)) {
     return response
@@ -185,6 +194,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|icon.svg|.*\\.(?:css|js|mjs|map|json|txt|xml|ico|png|jpg|jpeg|gif|webp|svg|woff2?|ttf|otf|eot|glb)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|icon.svg|.*\\.(?:css|js|mjs|map|json|txt|xml|ico|png|jpg|jpeg|gif|webp|svg|woff2?|ttf|otf|eot|glb|mp4|webm)$).*)",
   ],
 }

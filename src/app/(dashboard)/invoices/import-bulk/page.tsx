@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useDropzone } from 'react-dropzone'
-import { AlertCircle, FileText, Loader2, Trash2, UploadCloud, X } from 'lucide-react'
+import { AlertCircle, FileText, Loader2, Lock, Trash2, UploadCloud, X } from 'lucide-react'
 import BulkInvoiceReview, {
   type BulkInvoiceDraft,
   type ConsolidatedGroup,
@@ -14,8 +14,10 @@ import { bytesToSize, extractPdfText, fileTypeFromName, normalizeExtractedItems 
 import { compressImage } from '@/lib/utils/image-compress'
 import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
+import { useSubscription } from '@/hooks/useSubscription'
 import type { IngredientLookup, SupplierLookup } from '@/hooks/useInvoices'
 import { toast } from '@/lib/toast'
+import EmptyState from '@/components/shared/EmptyState'
 
 type Step = 'upload' | 'processing' | 'review'
 
@@ -107,6 +109,7 @@ async function extractFile(file: File, kind: InvoiceFileKind): Promise<ExtractRe
 
 export default function BulkImportInvoicesPage() {
   const router = useRouter()
+  const { limits, loading: subLoading } = useSubscription()
   const [step, setStep] = useState<Step>('upload')
   const [files, setFiles] = useState<File[]>([])
   const [tenantId, setTenantId] = useState<string | null>(null)
@@ -376,6 +379,19 @@ export default function BulkImportInvoicesPage() {
       <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
         <div className="h-8 w-48 animate-pulse rounded-full bg-slate-100" />
         <div className="mt-6 h-[36rem] animate-pulse rounded-3xl bg-slate-100" />
+      </div>
+    )
+  }
+
+  if (!subLoading && !limits.canUploadInvoices) {
+    return (
+      <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+        <EmptyState
+          icon={Lock}
+          title="Invoice import is a Pro feature"
+          description="Upgrade to Pro to import invoices with AI-powered extraction."
+          action={{ label: 'Upgrade to Pro', onClick: () => router.push('/settings/billing') }}
+        />
       </div>
     )
   }

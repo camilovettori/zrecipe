@@ -83,8 +83,8 @@ export async function POST(request: NextRequest) {
         metadata: { tenantId: tenant.id as string },
       },
       metadata: { tenantId: tenant.id as string },
-      success_url: `${appUrl}/settings?tab=billing&success=true`,
-      cancel_url:  `${appUrl}/settings?tab=billing&notice=checkout_canceled`,
+      success_url: `${appUrl}/settings/billing?success=true`,
+      cancel_url:  `${appUrl}/settings/billing?notice=checkout_canceled`,
       allow_promotion_codes: true,
     })
 

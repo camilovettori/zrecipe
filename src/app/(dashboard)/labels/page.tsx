@@ -1,11 +1,14 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Tag, Search, Plus, Minus, Trash2, Printer, Eye, Pencil, X } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Tag, Search, Plus, Minus, Trash2, Printer, Eye, Pencil, X, Lock } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import { EU_ALLERGENS } from '@/lib/allergens'
 import type { IngredientAllergen } from '@/lib/allergens'
+import { useSubscription } from '@/hooks/useSubscription'
+import EmptyState from '@/components/shared/EmptyState'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -68,6 +71,8 @@ const SIZE_MAP: Record<string, { w: number; h: number }> = {
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LabelsPage() {
+  const router = useRouter()
+  const { hasFullAccess, loading: subLoading } = useSubscription()
   const [labelQueue, setLabelQueue] = useState<LabelItem[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<RecipeResult[]>([])
@@ -352,6 +357,19 @@ export default function LabelsPage() {
   const queueLabelCls = 'mb-1 block text-[10px] font-bold uppercase tracking-widest text-gray-400'
 
   // ── Render ────────────────────────────────────────────────────────────────
+
+  if (!subLoading && !hasFullAccess) {
+    return (
+      <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+        <EmptyState
+          icon={Lock}
+          title="Label printing is a Pro feature"
+          description="Upgrade to Pro to print product labels for Brother, Dymo, Zebra and A4 sheets."
+          action={{ label: 'Upgrade to Pro', onClick: () => router.push('/settings/billing') }}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6 pb-12">

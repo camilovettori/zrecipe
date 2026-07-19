@@ -1,5 +1,7 @@
 export interface SubscriptionLimits {
   maxRecipes:                number   // Infinity = unlimited
+  maxIngredients:            number   // Infinity = unlimited
+  maxTeamMembers:            number   // Infinity = unlimited
   canDeleteRecipes:          boolean
   canUploadInvoices:         boolean
   aiRecipeIdeasPerMonth:     number   // Infinity = unlimited
@@ -9,15 +11,19 @@ export interface SubscriptionLimits {
 
 export const FREE_LIMITS: SubscriptionLimits = {
   maxRecipes:                5,
+  maxIngredients:            20,
+  maxTeamMembers:            0,
   canDeleteRecipes:          false,
   canUploadInvoices:         false,
   aiRecipeIdeasPerMonth:     5,
   aiInvoiceExtractsPerMonth: 5,
-  popupIntervalMinutes:      15,
+  popupIntervalMinutes:      5,
 }
 
 export const PRO_LIMITS: SubscriptionLimits = {
   maxRecipes:                Infinity,
+  maxIngredients:            Infinity,
+  maxTeamMembers:            5,
   canDeleteRecipes:          true,
   canUploadInvoices:         true,
   aiRecipeIdeasPerMonth:     50,

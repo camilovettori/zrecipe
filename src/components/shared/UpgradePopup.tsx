@@ -4,10 +4,10 @@ import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Zap } from 'lucide-react'
 import { useSubscription } from '@/hooks/useSubscription'
+import { FREE_LIMITS } from '@/lib/subscription/limits'
 
 const LS_POPUP_KEY    = 'zrecipe-upgrade-popup-ts'
 const LS_BANNER_KEY   = 'zrecipe-upgrade-banner-dismissed'
-const POPUP_INTERVAL  = 15 * 60 * 1000 // 15 minutes in ms
 
 const FEATURES = [
   'Unlimited recipes',
@@ -89,15 +89,25 @@ export function UpgradeBanner() {
 // ── Upgrade popup (modal, every 15 min) ───────────────────────────────────────
 
 export default function UpgradePopup() {
-  const { hasFullAccess, loading } = useSubscription()
+  const { isPro, isTrialing, loading } = useSubscription()
   const [open, setOpen]           = useState(false)
   const [checkingOut, setCheckingOut] = useState(false)
 
   useEffect(() => {
-    if (loading || hasFullAccess) return
+    if (loading || isPro) return
+
+    // Note: this intentionally reads FREE_LIMITS directly rather than the
+    // hook's `limits` field — `limits` follows `hasFullAccess` (isPro ||
+    // isTrialing), so during an active trial it would resolve to
+    // PRO_LIMITS.popupIntervalMinutes (0), which would either suppress the
+    // popup entirely or fire it on every render. The interval only ever
+    // applies to non-Pro tenants (trialing or free), so FREE_LIMITS is the
+    // correct source regardless of trial status.
+    const popupInterval = FREE_LIMITS.popupIntervalMinutes * 60 * 1000
+    if (popupInterval <= 0) return
 
     const lastShown = Number(localStorage.getItem(LS_POPUP_KEY) ?? '0')
-    if (Date.now() - lastShown > POPUP_INTERVAL) {
+    if (Date.now() - lastShown > popupInterval) {
       // Small delay so the page finishes rendering first
       const t = setTimeout(() => {
         setOpen(true)
@@ -105,7 +115,7 @@ export default function UpgradePopup() {
       }, 800)
       return () => clearTimeout(t)
     }
-  }, [loading, hasFullAccess])
+  }, [loading, isPro])
 
   const dismiss = () => setOpen(false)
 
@@ -154,7 +164,9 @@ export default function UpgradePopup() {
                 Unlock the full power of ZRecipe
               </h2>
               <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                Your free trial has ended. Upgrade to keep using all features.
+                {isTrialing
+                  ? 'Enjoying ZRecipe? Upgrade now to keep full access after your trial.'
+                  : 'Your free trial has ended. Upgrade to keep using all features.'}
               </p>
             </div>
 

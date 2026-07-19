@@ -20,6 +20,7 @@ import {
   Link2,
   Loader2,
   Info,
+  Lock,
   Pencil,
   Plus,
   Printer,
@@ -47,6 +48,7 @@ import {
 } from '@/hooks/useRecipes'
 import type { IngredientLookup } from '@/hooks/useInvoices'
 import { resolveTenantContext, resolveTenantId } from '@/hooks/useTenant'
+import { useSubscription } from '@/hooks/useSubscription'
 import { computeRecipeAllergens, type RecipeAllergenSummary, type IngredientAllergen } from '@/lib/allergens'
 import KitchenCardOptionsModal from '@/components/recipes/KitchenCardOptionsModal'
 import type { KitchenCardData } from '@/lib/print/kitchenCard'
@@ -457,6 +459,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const router = useRouter()
   const isNew = recipeId === 'new'
   const { getRecipeWithIngredients, createRecipe, updateRecipe, deleteRecipe } = useRecipes({ autoLoad: false })
+  const { hasFullAccess } = useSubscription()
 
   const [loading, setLoading] = useState(!isNew)
   const [saving, setSaving] = useState(false)
@@ -1464,10 +1467,18 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
           <button
             type="button"
-            onClick={() => setShowPrintModal(true)}
+            onClick={() => {
+              if (!hasFullAccess) {
+                toast('PDF & Kitchen Card export is a Pro feature', {
+                  description: 'Upgrade to Pro from Settings → Billing to print or export recipes.',
+                })
+                return
+              }
+              setShowPrintModal(true)
+            }}
             className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
-            <Printer className="h-4 w-4" />
+            {hasFullAccess ? <Printer className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
             <span className="hidden sm:inline">Print</span>
           </button>
 
@@ -1800,12 +1811,22 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setBatchEnabled((v) => !v)}
-                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${batchEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`}
+                    onClick={() => {
+                      if (!hasFullAccess) {
+                        toast('Batch costing is a Pro feature', {
+                          description: 'Upgrade to Pro from Settings → Billing to scale recipes into batches.',
+                        })
+                        return
+                      }
+                      setBatchEnabled((v) => !v)
+                    }}
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${!hasFullAccess ? 'cursor-not-allowed opacity-50' : ''} ${batchEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`}
                     aria-pressed={batchEnabled}
+                    aria-disabled={!hasFullAccess}
                   >
                     <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${batchEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                   </button>
+                  {!hasFullAccess && <Lock className="h-3.5 w-3.5 shrink-0 text-slate-400" />}
                   {batchEnabled && (
                     <input
                       type="number"
@@ -1897,7 +1918,15 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
             <div className="relative ml-auto">
               <button
                 type="button"
-                onClick={() => setYieldModalOpen(true)}
+                onClick={() => {
+                  if (!hasFullAccess) {
+                    toast('Yield factor calculator is a Pro feature', {
+                      description: 'Upgrade to Pro from Settings → Billing to unlock this.',
+                    })
+                    return
+                  }
+                  setYieldModalOpen(true)
+                }}
                 onMouseEnter={() => setShowYfTooltip(true)}
                 onMouseLeave={() => setShowYfTooltip(false)}
                 className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-400 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-600"

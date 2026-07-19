@@ -13,6 +13,7 @@ import {
   FileText,
   Image as ImageIcon,
   Loader2,
+  Lock,
   UploadCloud,
 } from 'lucide-react'
 import InvoiceEditor from '@/components/invoices/InvoiceEditor'
@@ -35,10 +36,12 @@ import {
 import { compressImage } from '@/lib/utils/image-compress'
 import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
+import { useSubscription } from '@/hooks/useSubscription'
 import type { IngredientLookup, SupplierLookup } from '@/hooks/useInvoices'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 import { CustomSelect } from '@/components/ui/CustomSelect'
+import EmptyState from '@/components/shared/EmptyState'
 
 type Step = 'upload' | 'review' | 'confirm'
 
@@ -188,6 +191,7 @@ function buildMatchedDraft(
 
 export default function ImportInvoicesPage() {
   const router = useRouter()
+  const { limits, loading: subLoading } = useSubscription()
   const [step, setStep] = useState<Step>('upload')
   const [file, setFile] = useState<File | null>(null)
   const [fileKind, setFileKind] = useState<InvoiceFileType | null>(null)
@@ -693,6 +697,19 @@ export default function ImportInvoicesPage() {
       <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
         <div className="h-8 w-48 animate-pulse rounded-full bg-slate-100" />
         <div className="mt-6 h-[36rem] animate-pulse rounded-3xl bg-slate-100" />
+      </div>
+    )
+  }
+
+  if (!subLoading && !limits.canUploadInvoices) {
+    return (
+      <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+        <EmptyState
+          icon={Lock}
+          title="Invoice import is a Pro feature"
+          description="Upgrade to Pro to import invoices with AI-powered extraction."
+          action={{ label: 'Upgrade to Pro', onClick: () => router.push('/settings/billing') }}
+        />
       </div>
     )
   }

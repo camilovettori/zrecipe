@@ -614,7 +614,7 @@ export default function AIIdeasPage() {
                 </p>
               </div>
               <a
-                href="/settings?tab=billing"
+                href="/settings/billing"
                 className="shrink-0 rounded-full bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-400"
               >
                 Upgrade

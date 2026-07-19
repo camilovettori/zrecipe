@@ -170,7 +170,7 @@ export default function RecipesPage() {
           {atRecipeLimit && (
             <p className="text-right text-xs text-slate-500">
               Free plan limit of {limits.maxRecipes} reached.{' '}
-              <a href="/settings?tab=billing" className="font-medium text-emerald-600 hover:underline">Upgrade</a>
+              <a href="/settings/billing" className="font-medium text-emerald-600 hover:underline">Upgrade</a>
             </p>
           )}
         </div>

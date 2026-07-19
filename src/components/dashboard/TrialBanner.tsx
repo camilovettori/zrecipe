@@ -50,7 +50,7 @@ export default function TrialBanner({ info }: { info: TrialInfo }) {
           </p>
         </div>
         <Link
-          href="/settings?tab=billing"
+          href="/settings/billing"
           className="shrink-0 rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-red-500"
         >
           Subscribe to keep your data
@@ -122,7 +122,7 @@ export default function TrialBanner({ info }: { info: TrialInfo }) {
         {/* CTAs */}
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           <Link
-            href="/settings?tab=billing"
+            href="/settings/billing"
             className={`rounded-lg px-4 py-2 text-xs font-semibold text-white transition-colors ${
               isUrgent
                 ? 'bg-amber-500 hover:bg-amber-400'
@@ -132,7 +132,7 @@ export default function TrialBanner({ info }: { info: TrialInfo }) {
             {isUrgent ? 'Subscribe to keep your data' : 'Subscribe now — €25/month'}
           </Link>
           <Link
-            href="/settings?tab=billing"
+            href="/settings/billing"
             className={`text-[11px] underline-offset-2 hover:underline ${
               isUrgent
                 ? 'text-amber-600 dark:text-amber-400'

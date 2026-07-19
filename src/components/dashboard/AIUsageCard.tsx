@@ -90,7 +90,7 @@ export default function AIUsageCard() {
 
       {anyAtLimit && (
         <a
-          href="/settings?tab=billing"
+          href="/settings/billing"
           className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-amber-600 hover:text-amber-500 transition-colors"
         >
           <Zap className="h-3.5 w-3.5" />
