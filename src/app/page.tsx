@@ -17,6 +17,13 @@ export const metadata: Metadata = {
   alternates: { canonical: '/' },
 }
 
+const STATS = [
+  { label: '14-day free trial' },
+  { label: '€25/month, no surprises', emphasize: true },
+  { label: 'EU Reg. 1169/2011 compliant' },
+  { label: 'Built by 20+ years in hospitality' },
+]
+
 const PROBLEMS = [
   {
     Icon: Clock,
@@ -102,7 +109,7 @@ const FAQ_ITEMS: FAQItem[] = [
   },
 ]
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://zrecipe.ie'
 
 const softwareApplicationJsonLd = {
   '@context': 'https://schema.org',
@@ -169,19 +176,19 @@ export default function LandingPage() {
         <LandingNav />
 
         {/* ══ HERO ═══════════════════════════════════════════════════════════ */}
-        <section className="relative overflow-hidden bg-gradient-to-br from-slate-50 via-white to-emerald-50/40">
+        <section className="relative overflow-hidden bg-gradient-to-br from-brand-paper via-white to-emerald-50/30">
           {/* Ambient animated glow — lazy-mounted after first paint, see HeroGlowLayer */}
           <HeroGlowLayer />
 
-          <div className="relative mx-auto grid max-w-7xl items-center gap-12 px-5 py-16 sm:px-8 sm:py-20 lg:grid-cols-2 lg:gap-16 lg:py-28">
+          <div className="relative mx-auto grid max-w-7xl items-center gap-12 px-5 py-16 sm:px-8 sm:py-20 lg:grid-cols-[0.9fr_1.1fr] lg:gap-14 lg:py-24 xl:py-28">
             <div>
               <span className="inline-flex items-center gap-1.5 rounded-full border border-primary-200 bg-primary-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary-700">
                 <Sparkles className="h-3.5 w-3.5" />
                 Recipe costing for independent food businesses
               </span>
 
-              <h1 className="mt-5 font-display text-4xl font-bold leading-[1.1] tracking-tight text-slate-900 sm:text-5xl lg:text-[3.25rem]">
-                Know exactly what every dish costs you — before you sell it.
+              <h1 className="mt-5 max-w-2xl text-balance font-display text-4xl font-bold leading-[1.05] tracking-tight text-slate-900 sm:text-5xl lg:text-6xl xl:text-6xl">
+                Know exactly what every dish costs you — before you sell&nbsp;it.
               </h1>
 
               <p className="mt-5 max-w-xl text-base leading-relaxed text-slate-600 sm:text-lg">
@@ -211,8 +218,8 @@ export default function LandingPage() {
 
             <div className="relative">
               <div className="absolute -inset-6 -z-10 rounded-[2rem] bg-gradient-to-br from-primary-200/40 via-amber-100/30 to-transparent blur-2xl" />
-              <div className="rounded-2xl bg-white p-4 shadow-[0_8px_32px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)] sm:p-5">
-                <div className="mb-3 flex items-center gap-1.5">
+              <div className="rounded-2xl bg-white p-2.5 shadow-[0_8px_32px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)] sm:p-3">
+                <div className="mb-2.5 flex items-center gap-1.5 px-1">
                   <span className="h-2.5 w-2.5 rounded-full bg-slate-200" />
                   <span className="h-2.5 w-2.5 rounded-full bg-slate-200" />
                   <span className="h-2.5 w-2.5 rounded-full bg-slate-200" />
@@ -224,27 +231,53 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ══ PROBLEM ════════════════════════════════════════════════════════ */}
-        <section className="mx-auto max-w-7xl px-5 py-16 sm:px-8 sm:py-20">
-          <Reveal>
-            <div className="mx-auto max-w-2xl text-center">
-              <h2 className="font-display text-3xl font-bold text-slate-900 sm:text-4xl">
-                Running the numbers by hand doesn&apos;t scale
-              </h2>
-            </div>
-
-            <div className="mt-12 grid gap-6 sm:grid-cols-3">
-              {PROBLEMS.map(({ Icon, title, description }) => (
-                <div key={title} className="rounded-2xl border border-slate-100 bg-slate-50/60 p-6">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white shadow-sm">
-                    <Icon className="h-5 w-5 text-primary-600" />
-                  </div>
-                  <h3 className="mt-4 font-sans text-base font-semibold text-slate-900">{title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-600">{description}</p>
+        {/* ══ STATS / TRUST BAR ═════════════════════════════════════════════ */}
+        <section className="border-y border-brand-terra/10 bg-brand-cream/30 py-5">
+          <div className="mx-auto grid max-w-5xl grid-cols-2 items-center gap-x-4 gap-y-3 px-5 text-center sm:px-8 lg:grid-cols-4 lg:gap-0 lg:divide-x lg:divide-brand-terra/15">
+            {STATS.map((stat) =>
+              stat.emphasize ? (
+                <div key={stat.label} className="flex min-h-9 items-center justify-center lg:px-4">
+                  <span className="rounded-full border border-accent-200 bg-accent-50 px-3.5 py-1 text-xs font-semibold uppercase tracking-wide text-accent-700 sm:text-sm">
+                    {stat.label}
+                  </span>
                 </div>
-              ))}
-            </div>
-          </Reveal>
+              ) : (
+                <div key={stat.label} className="flex min-h-9 items-center justify-center lg:px-6">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-700 sm:text-sm">
+                    {stat.label}
+                  </span>
+                </div>
+              )
+            )}
+          </div>
+        </section>
+
+        {/* ══ PROBLEM ════════════════════════════════════════════════════════ */}
+        <section className="bg-brand-paper">
+          <div className="mx-auto max-w-7xl px-5 py-16 sm:px-8 sm:py-20">
+            <Reveal>
+              <div className="mx-auto max-w-2xl text-center">
+                <h2 className="font-display text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+                  Running the numbers by hand doesn&apos;t scale
+                </h2>
+              </div>
+
+              <div className="mt-12 grid gap-6 sm:grid-cols-3">
+                {PROBLEMS.map(({ Icon, title, description }) => (
+                  <div
+                    key={title}
+                    className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md"
+                  >
+                    <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary-50">
+                      <Icon className="h-5 w-5 text-primary-600" />
+                    </div>
+                    <h3 className="mt-4 font-sans text-base font-semibold text-slate-900">{title}</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-600">{description}</p>
+                  </div>
+                ))}
+              </div>
+            </Reveal>
+          </div>
         </section>
 
         {/* ══ FEATURES ═══════════════════════════════════════════════════════ */}
@@ -257,27 +290,38 @@ export default function LandingPage() {
         <section className="mx-auto max-w-7xl px-5 py-16 sm:px-8 sm:py-20">
           <Reveal>
             <div className="mx-auto max-w-2xl text-center">
-              <h2 className="font-display text-3xl font-bold text-slate-900 sm:text-4xl">How it works</h2>
+              <h2 className="font-display text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">How it works</h2>
             </div>
 
-            <div className="mt-12 grid gap-8 sm:grid-cols-3">
-              {STEPS.map(({ number, title, description }) => (
-                <div key={number}>
-                  <span className="font-display text-4xl font-bold text-primary-200">{number}</span>
+            <div className="relative mt-12 grid gap-5 sm:grid-cols-3">
+              <div className="absolute left-[16.666%] right-[16.666%] top-11 hidden border-t border-dashed border-slate-200 sm:block" />
+              {STEPS.map(({ number, title, description }, index) => {
+                const stepAccent = [
+                  'text-primary-600 bg-primary-50 border-primary-100',
+                  'text-accent-500 bg-accent-50 border-accent-100',
+                  'text-brand-terra bg-brand-terra/10 border-brand-terra/15',
+                ][index]
+
+                return (
+                <div key={number} className="relative rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+                  <span className={`inline-flex h-20 w-20 items-center justify-center rounded-2xl border font-display text-5xl font-bold leading-none ${stepAccent}`}>
+                    {number}
+                  </span>
                   <h3 className="mt-3 font-sans text-lg font-semibold text-slate-900">{title}</h3>
                   <p className="mt-2 text-sm leading-relaxed text-slate-600">{description}</p>
                 </div>
-              ))}
+                )
+              })}
             </div>
           </Reveal>
         </section>
 
         {/* ══ PRICING ════════════════════════════════════════════════════════ */}
-        <section id="pricing" className="scroll-mt-16 bg-slate-50/60 py-16 sm:py-20">
+        <section id="pricing" className="scroll-mt-16 bg-brand-paper py-16 sm:py-20">
           <div className="mx-auto max-w-7xl px-5 sm:px-8">
             <Reveal>
               <div className="mx-auto max-w-2xl text-center">
-                <h2 className="font-display text-3xl font-bold text-slate-900 sm:text-4xl">
+                <h2 className="font-display text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
                   Simple, transparent pricing
                 </h2>
                 <p className="mt-3 text-base text-slate-600">
@@ -285,9 +329,9 @@ export default function LandingPage() {
                 </p>
               </div>
 
-              <div className="mx-auto mt-12 grid max-w-3xl gap-6 sm:grid-cols-2">
+              <div className="mx-auto mt-12 grid max-w-3xl items-stretch gap-6 sm:grid-cols-2">
                 {/* Free */}
-                <div className="rounded-2xl border border-slate-200 bg-white p-7">
+                <div className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-7">
                   <h3 className="font-sans text-lg font-semibold text-slate-900">Free</h3>
                   <p className="mt-3 flex items-baseline gap-1">
                     <span className="text-3xl font-bold text-slate-900">€0</span>
@@ -303,15 +347,15 @@ export default function LandingPage() {
                   </ul>
                   <Link
                     href="/register"
-                    className="mt-7 block rounded-lg border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                    className="mt-auto block rounded-lg border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
                   >
                     Start for free
                   </Link>
                 </div>
 
                 {/* Pro */}
-                <div className="relative rounded-2xl border-2 border-primary-600 bg-white p-7 shadow-[0_8px_32px_rgba(0,0,0,0.08)]">
-                  <span className="absolute -top-3 left-7 rounded-full bg-amber-500 px-3 py-1 text-xs font-semibold text-white">
+                <div className="relative flex h-full flex-col rounded-2xl border-2 border-primary-600 bg-white p-7 shadow-[0_8px_32px_rgba(0,0,0,0.08)]">
+                  <span className="absolute -top-3 left-7 rounded-full bg-accent-500 px-3 py-1 text-xs font-semibold text-white">
                     Most popular
                   </span>
                   <h3 className="font-sans text-lg font-semibold text-slate-900">Pro</h3>
@@ -329,7 +373,7 @@ export default function LandingPage() {
                   </ul>
                   <PrimaryCTALink
                     href="/register"
-                    className="mt-7 block rounded-lg bg-primary-600 px-5 py-3 text-center text-sm font-semibold text-white transition-colors hover:bg-primary-700"
+                    className="mt-auto block rounded-lg bg-primary-600 px-5 py-3 text-center text-sm font-semibold text-white transition-colors hover:bg-primary-700"
                   >
                     Start 14-day trial
                   </PrimaryCTALink>
@@ -343,7 +387,7 @@ export default function LandingPage() {
         <section id="faq" className="scroll-mt-16 mx-auto max-w-7xl px-5 py-16 sm:px-8 sm:py-20">
           <Reveal>
             <div className="mx-auto max-w-2xl text-center">
-              <h2 className="font-display text-3xl font-bold text-slate-900 sm:text-4xl">
+              <h2 className="font-display text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
                 Frequently asked questions
               </h2>
             </div>
@@ -357,7 +401,7 @@ export default function LandingPage() {
         {/* ══ FINAL CTA ══════════════════════════════════════════════════════ */}
         <section className="bg-dark py-16 sm:py-20">
           <Reveal className="mx-auto max-w-3xl px-5 text-center sm:px-8">
-            <h2 className="font-display text-3xl font-bold text-white sm:text-4xl">
+            <h2 className="font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
               Stop guessing what your dishes cost.
             </h2>
             <p className="mt-4 text-base text-slate-300">

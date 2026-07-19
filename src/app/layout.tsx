@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Toaster } from '@/components/shared/Toaster'
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://zrecipe.ie'
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),

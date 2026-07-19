@@ -18,7 +18,9 @@ export default function LandingFAQ({ items }: { items: FAQItem[] }) {
         return (
           <div
             key={item.question}
-            className="rounded-2xl border border-slate-200 bg-white shadow-sm"
+            className={`rounded-2xl border shadow-sm transition-colors ${
+              isOpen ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200 bg-white'
+            }`}
           >
             <button
               type="button"
@@ -30,7 +32,9 @@ export default function LandingFAQ({ items }: { items: FAQItem[] }) {
                 {item.question}
               </h3>
               <ChevronDown
-                className={`h-5 w-5 shrink-0 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                className={`h-5 w-5 shrink-0 transition-transform ${
+                  isOpen ? 'rotate-180 text-accent-600' : 'text-slate-400'
+                }`}
               />
             </button>
             {isOpen && (

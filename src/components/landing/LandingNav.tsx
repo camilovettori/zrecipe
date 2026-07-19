@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Menu, X } from 'lucide-react'
@@ -15,9 +15,23 @@ const LINKS = [
 
 export default function LandingNav() {
   const [open, setOpen] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 20)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
 
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-100 bg-white/85 backdrop-blur-md">
+    <header
+      className={`sticky top-0 z-50 border-b transition-all duration-300 ${
+        scrolled
+          ? 'border-slate-100 bg-white/80 shadow-sm backdrop-blur-md'
+          : 'border-transparent bg-transparent'
+      }`}
+    >
       <nav className="mx-auto flex max-w-7xl items-center justify-between px-5 py-3 sm:px-8">
         <Link href="/" className="flex items-center gap-2" onClick={() => setOpen(false)}>
           <Image
