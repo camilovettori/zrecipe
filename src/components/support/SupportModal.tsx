@@ -30,12 +30,13 @@ interface SupportModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   mode: 'public' | 'internal'
+  onTicketCreated?: (ticket: { ticketId: string; ticketNumber?: string }) => void
   /** Only meaningful when mode='public' — which entry point this is, so the
    *  server can route the notification to the right channel. */
   source?: 'contact' | 'support'
 }
 
-export default function SupportModal({ open, onOpenChange, mode, source = 'support' }: SupportModalProps) {
+export default function SupportModal({ open, onOpenChange, mode, onTicketCreated, source = 'support' }: SupportModalProps) {
   const [sent, setSent] = useState(false)
 
   const handleOpenChange = (next: boolean) => {
@@ -84,7 +85,12 @@ export default function SupportModal({ open, onOpenChange, mode, source = 'suppo
           ) : mode === 'public' ? (
             <PublicSupportForm source={source} onSent={() => setSent(true)} />
           ) : (
-            <InternalSupportForm onSent={() => setSent(true)} />
+            <InternalSupportForm
+              onSent={(ticket) => {
+                onTicketCreated?.(ticket)
+                if (!onTicketCreated) setSent(true)
+              }}
+            />
           )}
         </Dialog.Content>
       </Dialog.Portal>
@@ -172,7 +178,11 @@ function PublicSupportForm({
   )
 }
 
-function InternalSupportForm({ onSent }: { onSent: () => void }) {
+function InternalSupportForm({
+  onSent,
+}: {
+  onSent: (ticket: { ticketId: string; ticketNumber?: string }) => void
+}) {
   const [serverError, setServerError] = useState<string | null>(null)
   const { register, handleSubmit, formState: { errors, isSubmitting } } =
     useForm<InternalFormData>({ resolver: zodResolver(internalSchema) })
@@ -185,12 +195,12 @@ function InternalSupportForm({ onSent }: { onSent: () => void }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       })
+      const body = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
         setServerError((body as { error?: string }).error ?? 'Something went wrong. Please try again.')
         return
       }
-      onSent()
+      onSent(body as { ticketId: string; ticketNumber?: string })
     } catch {
       setServerError('Something went wrong. Please try again.')
     }

@@ -4,6 +4,7 @@ import { createRequestSupabaseClient } from '@/lib/supabase/request'
 import { sendEmail, SUPPORT_FROM } from '@/lib/email/send'
 import { renderEmail, paragraphs } from '@/lib/email/template'
 import { ADMIN_SUPPORT_INBOX } from '@/lib/email/constants'
+import { formatTicketNumber } from '@/lib/support/formatTicketNumber'
 
 export const runtime = 'nodejs'
 
@@ -32,7 +33,7 @@ export async function POST(
 
   const { data: ticket } = await supabase
     .from('support_tickets')
-    .select('id, user_id, subject')
+    .select('id, user_id, subject, number')
     .eq('id', params.ticketId)
     .maybeSingle()
 
@@ -72,11 +73,12 @@ export async function POST(
     .eq('id', ticket.id)
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://zrecipe.ie'
+  const ticketNumber = formatTicketNumber(ticket.number as number)
 
   const adminResult = await sendEmail({
     from: SUPPORT_FROM,
     to: ADMIN_SUPPORT_INBOX,
-    subject: `[ZRecipe Internal Ticket] New reply: ${ticket.subject}`,
+    subject: `[ZRecipe Support ${ticketNumber}] New reply: ${ticket.subject}`,
     html: renderEmail({
       preheader: `${requesterName} replied`,
       eyebrow: 'New reply · In-app channel',

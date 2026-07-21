@@ -8,10 +8,12 @@ import { cn } from '@/lib/utils'
 import TicketThread, { type ThreadMessage } from '@/components/support/TicketThread'
 import { toast } from '@/components/shared/Toaster'
 import { getChannelSourceBadge } from '@/lib/support/channelSource'
+import { formatTicketNumber } from '@/lib/support/formatTicketNumber'
 import { replyToTicket, setTicketStatus } from '../actions'
 
 interface Ticket {
   id: string
+  number: number
   channel: 'email' | 'internal'
   channel_source?: string | null
   status: 'open' | 'closed'
@@ -82,6 +84,9 @@ export default function TicketDetailClient({
             <h1 className="text-lg font-semibold text-slate-900">{ticket.subject}</h1>
           </div>
           <p className="mt-1 text-sm text-slate-500">
+            Ticket {formatTicketNumber(ticket.number)} · {badge.label}
+          </p>
+          <p className="mt-0.5 text-sm text-slate-500">
             {ticket.requester_name} · {ticket.requester_email}
           </p>
         </div>

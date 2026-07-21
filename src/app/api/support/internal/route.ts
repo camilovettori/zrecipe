@@ -4,6 +4,7 @@ import { createRequestSupabaseClient } from '@/lib/supabase/request'
 import { sendEmail, SUPPORT_FROM } from '@/lib/email/send'
 import { renderEmail, paragraphs } from '@/lib/email/template'
 import { ADMIN_SUPPORT_INBOX } from '@/lib/email/constants'
+import { formatTicketNumber } from '@/lib/support/formatTicketNumber'
 
 export const runtime = 'nodejs'
 
@@ -65,7 +66,7 @@ export async function POST(request: NextRequest) {
       last_message_preview: message.slice(0, 200),
       admin_unread: true,
     })
-    .select('id')
+    .select('id, number')
     .single()
 
   if (ticketError || !ticket) {
@@ -89,11 +90,12 @@ export async function POST(request: NextRequest) {
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://zrecipe.ie'
+  const ticketNumber = formatTicketNumber(ticket.number as number)
 
   const adminResult = await sendEmail({
     from: SUPPORT_FROM,
     to: ADMIN_SUPPORT_INBOX,
-    subject: `[ZRecipe Internal Ticket] ${subject}`,
+    subject: `[ZRecipe Support ${ticketNumber}] ${subject}`,
     html: renderEmail({
       preheader: `In-app support from ${requesterName}`,
       eyebrow: 'New support ticket · In-app channel',
@@ -112,5 +114,5 @@ export async function POST(request: NextRequest) {
     console.error('[support/internal] admin notification email failed:', adminResult.error)
   }
 
-  return NextResponse.json({ success: true, ticketId: ticket.id as string })
+  return NextResponse.json({ success: true, ticketId: ticket.id as string, ticketNumber })
 }

@@ -7,6 +7,7 @@ const POLL_INTERVAL_MS = 30_000
 
 export interface UnreadTicket {
   id: string
+  number: number
   subject: string
   last_message_at: string
 }
@@ -31,7 +32,7 @@ export function useUserUnread() {
           .eq('user_unread', true),
         supabase
           .from('support_tickets')
-          .select('id, subject, last_message_at')
+          .select('id, number, subject, last_message_at')
           .eq('user_id', user.id)
           .eq('user_unread', true)
           .order('last_message_at', { ascending: false })

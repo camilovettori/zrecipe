@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useAppStore } from '@/stores/app'
 import { useUserUnread } from '@/hooks/useUserUnread'
 import CommandPalette from '@/components/shared/CommandPalette'
+import { formatTicketNumber } from '@/lib/support/formatTicketNumber'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -103,7 +104,10 @@ function NotificationBell() {
                   onClick={() => setOpen(false)}
                   className="rounded-lg px-3 py-2 text-sm transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
                 >
-                  <p className="truncate font-medium text-slate-800 dark:text-white">{t.subject}</p>
+                  <p className="truncate font-medium text-slate-800 dark:text-white">
+                    <span className="text-slate-400">{formatTicketNumber(t.number)} · </span>
+                    {t.subject}
+                  </p>
                   <p className="text-xs text-slate-400">
                     {formatDistanceToNow(new Date(t.last_message_at), { addSuffix: true })}
                   </p>

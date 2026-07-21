@@ -6,6 +6,7 @@ import { requireSuperAdmin, SUPER_ADMIN_EMAIL } from '@/lib/auth/admin'
 import { sendEmail, SUPPORT_FROM, HELLO_FROM } from '@/lib/email/send'
 import { renderEmail, paragraphs } from '@/lib/email/template'
 import { ADMIN_HELLO_INBOX, ADMIN_SUPPORT_INBOX } from '@/lib/email/constants'
+import { formatTicketNumber } from '@/lib/support/formatTicketNumber'
 
 function revalidateInbox(ticketId: string) {
   revalidatePath('/adminziffera/inbox')
@@ -42,11 +43,12 @@ export async function replyToTicket(ticketId: string, body: string): Promise<{ e
 
   const { data: ticket } = await admin
     .from('support_tickets')
-    .select('id, channel, channel_source, subject, requester_name, requester_email')
+    .select('id, number, channel, channel_source, subject, requester_name, requester_email')
     .eq('id', ticketId)
     .maybeSingle()
 
   if (!ticket) return { error: 'Ticket not found.' }
+  const ticketNumber = formatTicketNumber(ticket.number as number)
 
   const { error: messageError } = await admin.from('support_messages').insert({
     ticket_id: ticketId,
@@ -75,7 +77,7 @@ export async function replyToTicket(ticketId: string, body: string): Promise<{ e
     const result = await sendEmail({
       from: SUPPORT_FROM,
       to: ticket.requester_email,
-      subject: 'You have a new reply from ZRecipe Support',
+      subject: `Ticket ${ticketNumber} — new reply from ZRecipe Support`,
       html: renderEmail({
         preheader: 'New reply from ZRecipe Support',
         eyebrow: 'New reply from ZRecipe Support',
@@ -100,7 +102,7 @@ export async function replyToTicket(ticketId: string, body: string): Promise<{ e
       from,
       to: ticket.requester_email,
       replyTo: replyToInbox,
-      subject: `Re: ${ticket.subject}`,
+      subject: `Re: ${ticketNumber} ${ticket.subject}`,
       html: renderEmail({
         preheader: trimmed.slice(0, 90),
         heading: `Re: ${ticket.subject}`,

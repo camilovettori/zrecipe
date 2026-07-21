@@ -4,6 +4,7 @@ import { createClient as createAdminClient } from '@supabase/supabase-js'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { formatTicketNumber } from '@/lib/support/formatTicketNumber'
 import SubscriptionSection from './SubscriptionSection'
 import TenantActions from './TenantActions'
 
@@ -27,6 +28,7 @@ interface AiFeatureRow {
 
 interface SupportTicketRow {
   id: string
+  number: number
   channel: 'email' | 'internal'
   status: 'open' | 'closed'
   subject: string
@@ -144,7 +146,7 @@ export default async function TenantDetail({ params }: { params: { id: string } 
     const [{ data: ticketRows }, { count: ticketCount }] = await Promise.all([
       admin
         .from('support_tickets')
-        .select('id, channel, status, subject, last_message_at')
+        .select('id, number, channel, status, subject, last_message_at')
         .eq('requester_email', owner.email)
         .order('last_message_at', { ascending: false })
         .limit(10),
@@ -384,7 +386,10 @@ export default async function TenantDetail({ params }: { params: { id: string } 
                   >
                     {t.channel === 'email' ? 'Email' : 'Internal'}
                   </span>
-                  <span className="truncate text-sm text-slate-700">{t.subject}</span>
+                  <span className="truncate text-sm text-slate-700">
+                    <span className="text-slate-400">{formatTicketNumber(t.number)} · </span>
+                    {t.subject}
+                  </span>
                   {t.status === 'closed' && (
                     <span className="shrink-0 rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
                       Closed

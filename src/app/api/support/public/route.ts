@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendEmail, SUPPORT_FROM, HELLO_FROM } from '@/lib/email/send'
 import { renderEmail, paragraphs } from '@/lib/email/template'
 import { ADMIN_HELLO_INBOX, ADMIN_SUPPORT_INBOX } from '@/lib/email/constants'
+import { formatTicketNumber } from '@/lib/support/formatTicketNumber'
 
 export const runtime = 'nodejs'
 
@@ -77,7 +78,7 @@ export async function POST(request: NextRequest) {
       last_message_preview: message.slice(0, 200),
       admin_unread: true,
     })
-    .select('id')
+    .select('id, number')
     .single()
 
   if (ticketError || !ticket) {
@@ -101,13 +102,14 @@ export async function POST(request: NextRequest) {
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://zrecipe.ie'
+  const ticketNumber = formatTicketNumber(ticket.number as number)
 
   // Admin notification — reply-to is the requester so the admin can just hit
   // "Reply" in Gmail and the conversation continues over email from there.
   const adminResult = await sendEmail({
     from: senderFrom,
     to: adminInbox,
-    subject: `[ZRecipe Support] ${subject}`,
+    subject: `[ZRecipe Support ${ticketNumber}] ${subject}`,
     replyTo: email,
     html: renderEmail({
       preheader: `${name}: ${subject}`,
@@ -129,13 +131,13 @@ export async function POST(request: NextRequest) {
   const confirmResult = await sendEmail({
     from: senderFrom,
     to: email,
-    subject: 'We received your message',
+    subject: `Ticket ${ticketNumber} received — we'll be in touch`,
     html: renderEmail({
       preheader: 'We received your message and will reply soon.',
       heading: 'Thanks — we received your message',
       bodyHtml: paragraphs(
         `Hi ${name},`,
-        "Thanks for reaching out to ZRecipe. We've received your message and will get back to you as soon as possible, usually within one business day.",
+        `Thanks for reaching out to ZRecipe. We've received your message (ticket ${ticketNumber}) and will get back to you as soon as possible, usually within one business day.`,
         '— The ZRecipe team'
       ),
     }),
@@ -144,5 +146,5 @@ export async function POST(request: NextRequest) {
     console.error('[support/public] confirmation email failed:', confirmResult.error)
   }
 
-  return NextResponse.json({ success: true, ticketId: ticket.id as string })
+  return NextResponse.json({ success: true, ticketId: ticket.id as string, ticketNumber })
 }
