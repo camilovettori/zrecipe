@@ -160,7 +160,7 @@ export default function LoginForm() {
         </button>
       </p>
 
-      <SupportModal open={supportOpen} onOpenChange={setSupportOpen} mode="public" />
+      <SupportModal open={supportOpen} onOpenChange={setSupportOpen} mode="public" source="support" />
 
     </form>
   )

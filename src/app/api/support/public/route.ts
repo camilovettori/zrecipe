@@ -1,9 +1,9 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendEmail } from '@/lib/email/send'
+import { sendEmail, SUPPORT_FROM, HELLO_FROM } from '@/lib/email/send'
 import { renderEmail, paragraphs } from '@/lib/email/template'
-import { SUPER_ADMIN_EMAIL } from '@/lib/auth/admin'
+import { ADMIN_HELLO_INBOX, ADMIN_SUPPORT_INBOX } from '@/lib/email/constants'
 
 export const runtime = 'nodejs'
 
@@ -14,6 +14,10 @@ const schema = z.object({
   email: z.string().email('Please enter a valid email'),
   subject: z.string().min(3, 'Subject is too short').max(140, 'Subject is too long'),
   message: z.string().min(10, 'Message is too short').max(5000, 'Message is too long'),
+  // Which entry point this came from — landing "Contact" nav vs the
+  // login/register "Support" modal. Server-side only; defaults to
+  // 'support' so any request that omits it keeps prior behavior.
+  source: z.enum(['contact', 'support']).optional().default('support'),
   // Honeypot — real users never see or fill this field.
   website: z.string().optional(),
 })
@@ -38,6 +42,10 @@ export async function POST(request: NextRequest) {
   const email = payload.email.trim().toLowerCase()
   const subject = payload.subject.trim()
   const message = payload.message.trim()
+  const source = payload.source
+  const isContact = source === 'contact'
+  const senderFrom = isContact ? HELLO_FROM : SUPPORT_FROM
+  const adminInbox = isContact ? ADMIN_HELLO_INBOX : ADMIN_SUPPORT_INBOX
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const admin = createAdminClient() as any
@@ -62,6 +70,7 @@ export async function POST(request: NextRequest) {
     .from('support_tickets')
     .insert({
       channel: 'email',
+      channel_source: source,
       requester_name: name,
       requester_email: email,
       subject,
@@ -96,12 +105,13 @@ export async function POST(request: NextRequest) {
   // Admin notification — reply-to is the requester so the admin can just hit
   // "Reply" in Gmail and the conversation continues over email from there.
   const adminResult = await sendEmail({
-    to: SUPER_ADMIN_EMAIL,
+    from: senderFrom,
+    to: adminInbox,
     subject: `[ZRecipe Support] ${subject}`,
     replyTo: email,
     html: renderEmail({
       preheader: `${name}: ${subject}`,
-      eyebrow: 'New support ticket · Email channel',
+      eyebrow: isContact ? 'New contact message · Landing page' : 'New support ticket · Email channel',
       heading: subject,
       bodyHtml: paragraphs(`${name} just submitted a support message via the ZRecipe contact form.`),
       meta: [
@@ -117,6 +127,7 @@ export async function POST(request: NextRequest) {
   }
 
   const confirmResult = await sendEmail({
+    from: senderFrom,
     to: email,
     subject: 'We received your message',
     html: renderEmail({

@@ -3,8 +3,9 @@
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireSuperAdmin, SUPER_ADMIN_EMAIL } from '@/lib/auth/admin'
-import { sendEmail } from '@/lib/email/send'
+import { sendEmail, SUPPORT_FROM, HELLO_FROM } from '@/lib/email/send'
 import { renderEmail, paragraphs } from '@/lib/email/template'
+import { ADMIN_HELLO_INBOX, ADMIN_SUPPORT_INBOX } from '@/lib/email/constants'
 
 function revalidateInbox(ticketId: string) {
   revalidatePath('/adminziffera/inbox')
@@ -41,7 +42,7 @@ export async function replyToTicket(ticketId: string, body: string): Promise<{ e
 
   const { data: ticket } = await admin
     .from('support_tickets')
-    .select('id, channel, subject, requester_name, requester_email')
+    .select('id, channel, channel_source, subject, requester_name, requester_email')
     .eq('id', ticketId)
     .maybeSingle()
 
@@ -72,6 +73,7 @@ export async function replyToTicket(ticketId: string, body: string): Promise<{ e
   if (ticket.channel === 'internal') {
     const firstName = ticket.requester_name.split(' ')[0] || ticket.requester_name
     const result = await sendEmail({
+      from: SUPPORT_FROM,
       to: ticket.requester_email,
       subject: 'You have a new reply from ZRecipe Support',
       html: renderEmail({
@@ -87,8 +89,17 @@ export async function replyToTicket(ticketId: string, body: string): Promise<{ e
     })
     if (!result.ok) console.error('[inbox] reply notification email failed:', result.error)
   } else {
+    // Which admin inbox originally received this ticket determines both
+    // which sender identity replies as, and where the customer's next
+    // reply should land — older rows with no channel_source recorded yet
+    // fall back to the Support channel.
+    const isContact = ticket.channel_source === 'contact'
+    const from = isContact ? HELLO_FROM : SUPPORT_FROM
+    const replyToInbox = isContact ? ADMIN_HELLO_INBOX : ADMIN_SUPPORT_INBOX
     const result = await sendEmail({
+      from,
       to: ticket.requester_email,
+      replyTo: replyToInbox,
       subject: `Re: ${ticket.subject}`,
       html: renderEmail({
         preheader: trimmed.slice(0, 90),

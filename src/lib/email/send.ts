@@ -2,12 +2,10 @@ import 'server-only'
 
 import { Resend } from 'resend'
 
-const FROM = 'ZRecipe Support <support@auth.ziffera.ie>'
-
-// Reserved for a future landing-page-specific "hello@" sender — not wired
-// up yet (see /api/support/public, which currently sends everything from
-// FROM above regardless of entry point).
-export const HELLO_FROM = 'ZRecipe <hello@zrecipe.ie>'
+// Two sender identities on the verified auth.ziffera.ie domain — callers
+// pick one based on which channel (Contact vs Support) the email belongs to.
+export const SUPPORT_FROM = 'ZRecipe Support <support@auth.ziffera.ie>'
+export const HELLO_FROM = 'ZRecipe <hello@auth.ziffera.ie>'
 
 let client: Resend | null = null
 
@@ -46,6 +44,7 @@ export function escapeHtml(input: string): string {
 }
 
 interface SendEmailArgs {
+  from: string
   to: string
   subject: string
   html: string
@@ -59,7 +58,7 @@ interface SendEmailResult {
 
 // Never throws — callers (API routes) should always be able to proceed and
 // return a normal response even if the email failed to send.
-export async function sendEmail({ to, subject, html, replyTo }: SendEmailArgs): Promise<SendEmailResult> {
+export async function sendEmail({ from, to, subject, html, replyTo }: SendEmailArgs): Promise<SendEmailResult> {
   const resend = getClient()
   if (!resend) {
     return { ok: false, error: 'Email is not configured (RESEND_API_KEY missing).' }
@@ -67,7 +66,7 @@ export async function sendEmail({ to, subject, html, replyTo }: SendEmailArgs): 
 
   try {
     const { error } = await resend.emails.send({
-      from: FROM,
+      from,
       to,
       subject,
       html,

@@ -5,10 +5,12 @@ import Link from 'next/link'
 import { formatDistanceToNow } from 'date-fns'
 import { Mail, MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { getChannelSourceBadge } from '@/lib/support/channelSource'
 
 export interface InboxTicket {
   id: string
   channel: 'email' | 'internal'
+  channel_source?: string | null
   status: 'open' | 'closed'
   requester_name: string
   requester_email: string
@@ -88,7 +90,9 @@ export default function InboxClient({ tickets }: { tickets: InboxTicket[] }) {
           <p className="px-5 py-8 text-center text-sm text-slate-400">No tickets here.</p>
         ) : (
           <div className="divide-y divide-slate-100">
-            {filtered.map((t) => (
+            {filtered.map((t) => {
+              const badge = getChannelSourceBadge(t.channel, t.channel_source)
+              return (
               <Link
                 key={t.id}
                 href={`/adminziffera/inbox/${t.id}`}
@@ -100,12 +104,12 @@ export default function InboxClient({ tickets }: { tickets: InboxTicket[] }) {
 
                 <span
                   className={cn(
-                    'flex h-7 w-7 shrink-0 items-center justify-center rounded-full',
-                    t.channel === 'email' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'
+                    'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium',
+                    badge.className
                   )}
-                  title={t.channel === 'email' ? 'Email' : 'Internal'}
                 >
-                  {t.channel === 'email' ? <Mail className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
+                  {badge.icon === 'mail' ? <Mail className="h-3 w-3" /> : <MessageSquare className="h-3 w-3" />}
+                  {badge.label}
                 </span>
 
                 <div className="min-w-0 flex-1">
@@ -128,7 +132,8 @@ export default function InboxClient({ tickets }: { tickets: InboxTicket[] }) {
                   {formatDistanceToNow(new Date(t.last_message_at), { addSuffix: true })}
                 </span>
               </Link>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

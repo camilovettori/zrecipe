@@ -1,9 +1,9 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
-import { sendEmail } from '@/lib/email/send'
+import { sendEmail, SUPPORT_FROM } from '@/lib/email/send'
 import { renderEmail, paragraphs } from '@/lib/email/template'
-import { SUPER_ADMIN_EMAIL } from '@/lib/auth/admin'
+import { ADMIN_SUPPORT_INBOX } from '@/lib/email/constants'
 
 export const runtime = 'nodejs'
 
@@ -74,7 +74,8 @@ export async function POST(
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://zrecipe.ie'
 
   const adminResult = await sendEmail({
-    to: SUPER_ADMIN_EMAIL,
+    from: SUPPORT_FROM,
+    to: ADMIN_SUPPORT_INBOX,
     subject: `[ZRecipe Internal Ticket] New reply: ${ticket.subject}`,
     html: renderEmail({
       preheader: `${requesterName} replied`,

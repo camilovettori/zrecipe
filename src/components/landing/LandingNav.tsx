@@ -130,7 +130,7 @@ export default function LandingNav() {
         </div>
       )}
 
-      <SupportModal open={supportOpen} onOpenChange={setSupportOpen} mode="public" />
+      <SupportModal open={supportOpen} onOpenChange={setSupportOpen} mode="public" source="contact" />
     </header>
   )
 }

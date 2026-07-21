@@ -298,7 +298,7 @@ export default function RegisterForm() {
         </button>
       </p>
 
-      <SupportModal open={supportOpen} onOpenChange={setSupportOpen} mode="public" />
+      <SupportModal open={supportOpen} onOpenChange={setSupportOpen} mode="public" source="support" />
 
     </form>
   )

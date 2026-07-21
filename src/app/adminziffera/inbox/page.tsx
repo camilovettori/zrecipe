@@ -13,7 +13,7 @@ export default async function InboxPage() {
   const admin = createAdminClient() as any
   const { data: tickets } = await admin
     .from('support_tickets')
-    .select('id, channel, status, requester_name, requester_email, subject, last_message_preview, last_message_at, admin_unread')
+    .select('id, channel, channel_source, status, requester_name, requester_email, subject, last_message_preview, last_message_at, admin_unread')
     .order('last_message_at', { ascending: false })
     .limit(200)
 

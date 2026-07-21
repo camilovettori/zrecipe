@@ -30,9 +30,12 @@ interface SupportModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   mode: 'public' | 'internal'
+  /** Only meaningful when mode='public' — which entry point this is, so the
+   *  server can route the notification to the right channel. */
+  source?: 'contact' | 'support'
 }
 
-export default function SupportModal({ open, onOpenChange, mode }: SupportModalProps) {
+export default function SupportModal({ open, onOpenChange, mode, source = 'support' }: SupportModalProps) {
   const [sent, setSent] = useState(false)
 
   const handleOpenChange = (next: boolean) => {
@@ -79,7 +82,7 @@ export default function SupportModal({ open, onOpenChange, mode }: SupportModalP
               </p>
             </div>
           ) : mode === 'public' ? (
-            <PublicSupportForm onSent={() => setSent(true)} />
+            <PublicSupportForm source={source} onSent={() => setSent(true)} />
           ) : (
             <InternalSupportForm onSent={() => setSent(true)} />
           )}
@@ -89,7 +92,13 @@ export default function SupportModal({ open, onOpenChange, mode }: SupportModalP
   )
 }
 
-function PublicSupportForm({ onSent }: { onSent: () => void }) {
+function PublicSupportForm({
+  source,
+  onSent,
+}: {
+  source: 'contact' | 'support'
+  onSent: () => void
+}) {
   const [serverError, setServerError] = useState<string | null>(null)
   const { register, handleSubmit, formState: { errors, isSubmitting } } =
     useForm<PublicFormData>({ resolver: zodResolver(publicSchema) })
@@ -100,7 +109,7 @@ function PublicSupportForm({ onSent }: { onSent: () => void }) {
       const res = await fetch('/api/support/public', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ ...data, source }),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))

@@ -7,11 +7,13 @@ import { ArrowLeft, Mail, MessageSquare, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import TicketThread, { type ThreadMessage } from '@/components/support/TicketThread'
 import { toast } from '@/components/shared/Toaster'
+import { getChannelSourceBadge } from '@/lib/support/channelSource'
 import { replyToTicket, setTicketStatus } from '../actions'
 
 interface Ticket {
   id: string
   channel: 'email' | 'internal'
+  channel_source?: string | null
   status: 'open' | 'closed'
   requester_name: string
   requester_email: string
@@ -44,6 +46,8 @@ export default function TicketDetailClient({
     })
   }
 
+  const badge = getChannelSourceBadge(ticket.channel, ticket.channel_source)
+
   const handleToggleStatus = () => {
     const next = ticket.status === 'open' ? 'closed' : 'open'
     startStatus(async () => {
@@ -68,11 +72,12 @@ export default function TicketDetailClient({
           <div className="flex items-center gap-2">
             <span
               className={cn(
-                'flex h-6 w-6 items-center justify-center rounded-full',
-                ticket.channel === 'email' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'
+                'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium',
+                badge.className
               )}
             >
-              {ticket.channel === 'email' ? <Mail className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
+              {badge.icon === 'mail' ? <Mail className="h-3 w-3" /> : <MessageSquare className="h-3 w-3" />}
+              {badge.label}
             </span>
             <h1 className="text-lg font-semibold text-slate-900">{ticket.subject}</h1>
           </div>
