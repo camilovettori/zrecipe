@@ -1,7 +1,8 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
-import { sendEmail, escapeHtml } from '@/lib/email/send'
+import { sendEmail } from '@/lib/email/send'
+import { renderEmail, paragraphs } from '@/lib/email/template'
 import { SUPER_ADMIN_EMAIL } from '@/lib/auth/admin'
 
 export const runtime = 'nodejs'
@@ -75,11 +76,17 @@ export async function POST(
   const adminResult = await sendEmail({
     to: SUPER_ADMIN_EMAIL,
     subject: `[ZRecipe Internal Ticket] New reply: ${ticket.subject}`,
-    html: `
-      <p>${escapeHtml(requesterName)} replied to their ticket.</p>
-      <p>${escapeHtml(message).replace(/\n/g, '<br/>')}</p>
-      <p><a href="${appUrl}/adminziffera/inbox/${ticket.id}">View in admin inbox</a></p>
-    `,
+    html: renderEmail({
+      preheader: `${requesterName} replied`,
+      eyebrow: 'New reply · In-app channel',
+      heading: `Re: ${ticket.subject}`,
+      bodyHtml: paragraphs(`${requesterName} replied to their internal support ticket.`),
+      meta: [
+        { label: 'From', value: `${requesterName} <${requesterEmail}>` },
+        { label: 'Reply', value: message },
+      ],
+      button: { label: 'Continue in admin inbox', href: `${appUrl}/adminziffera/inbox/${ticket.id}` },
+    }),
   })
   if (!adminResult.ok) {
     console.error('[support/internal/reply] admin notification email failed:', adminResult.error)

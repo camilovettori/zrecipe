@@ -1,7 +1,8 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
-import { sendEmail, escapeHtml } from '@/lib/email/send'
+import { sendEmail } from '@/lib/email/send'
+import { renderEmail, paragraphs } from '@/lib/email/template'
 import { SUPER_ADMIN_EMAIL } from '@/lib/auth/admin'
 
 export const runtime = 'nodejs'
@@ -36,6 +37,16 @@ export async function POST(request: NextRequest) {
     .select('tenant_id')
     .eq('user_id', user.id)
     .maybeSingle()
+
+  let tenantName: string | null = null
+  if (membership?.tenant_id) {
+    const { data: tenantRow } = await supabase
+      .from('tenants')
+      .select('name')
+      .eq('id', membership.tenant_id)
+      .maybeSingle()
+    tenantName = tenantRow?.name ?? null
+  }
 
   const requesterName =
     (user.user_metadata?.full_name as string | undefined) ?? user.email ?? 'ZRecipe user'
@@ -81,13 +92,19 @@ export async function POST(request: NextRequest) {
   const adminResult = await sendEmail({
     to: SUPER_ADMIN_EMAIL,
     subject: `[ZRecipe Internal Ticket] ${subject}`,
-    html: `
-      <p>New internal support ticket from ${escapeHtml(requesterName)} (${escapeHtml(requesterEmail)}).</p>
-      <p><strong>Subject:</strong> ${escapeHtml(subject)}</p>
-      <p>${escapeHtml(message).replace(/\n/g, '<br/>')}</p>
-      <p>This is an internal ticket — reply inside the admin inbox, not by email.</p>
-      <p><a href="${appUrl}/adminziffera/inbox/${ticket.id}">View in admin inbox</a></p>
-    `,
+    html: renderEmail({
+      preheader: `In-app support from ${requesterName}`,
+      eyebrow: 'New support ticket · In-app channel',
+      heading: subject,
+      bodyHtml: paragraphs(`${requesterName} submitted a support message from inside the app.`),
+      meta: [
+        { label: 'From', value: `${requesterName} <${requesterEmail}>` },
+        { label: 'Business', value: tenantName ?? '—' },
+        { label: 'Subject', value: subject },
+        { label: 'Message', value: message },
+      ],
+      button: { label: 'View ticket in admin inbox', href: `${appUrl}/adminziffera/inbox/${ticket.id}` },
+    }),
   })
   if (!adminResult.ok) {
     console.error('[support/internal] admin notification email failed:', adminResult.error)

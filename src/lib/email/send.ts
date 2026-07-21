@@ -4,6 +4,11 @@ import { Resend } from 'resend'
 
 const FROM = 'ZRecipe Support <support@auth.ziffera.ie>'
 
+// Reserved for a future landing-page-specific "hello@" sender — not wired
+// up yet (see /api/support/public, which currently sends everything from
+// FROM above regardless of entry point).
+export const HELLO_FROM = 'ZRecipe <hello@zrecipe.ie>'
+
 let client: Resend | null = null
 
 // Lazy singleton — logs loudly the first time an email is attempted without

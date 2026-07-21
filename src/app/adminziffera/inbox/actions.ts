@@ -3,7 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireSuperAdmin, SUPER_ADMIN_EMAIL } from '@/lib/auth/admin'
-import { sendEmail, escapeHtml } from '@/lib/email/send'
+import { sendEmail } from '@/lib/email/send'
+import { renderEmail, paragraphs } from '@/lib/email/template'
 
 function revalidateInbox(ticketId: string) {
   revalidatePath('/adminziffera/inbox')
@@ -69,21 +70,31 @@ export async function replyToTicket(ticketId: string, body: string): Promise<{ e
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://zrecipe.ie'
 
   if (ticket.channel === 'internal') {
+    const firstName = ticket.requester_name.split(' ')[0] || ticket.requester_name
     const result = await sendEmail({
       to: ticket.requester_email,
       subject: 'You have a new reply from ZRecipe Support',
-      html: `
-        <p>Hi ${escapeHtml(ticket.requester_name)},</p>
-        <p>You have a new reply from ZRecipe Support — view it in your account.</p>
-        <p><a href="${appUrl}/support/${ticketId}">View your ticket</a></p>
-      `,
+      html: renderEmail({
+        preheader: 'New reply from ZRecipe Support',
+        eyebrow: 'New reply from ZRecipe Support',
+        heading: `Re: ${ticket.subject}`,
+        bodyHtml: paragraphs(
+          `Hi ${firstName},`,
+          'You have a new reply from ZRecipe Support. View the full conversation and reply from your account.'
+        ),
+        button: { label: 'Open ticket in ZRecipe', href: `${appUrl}/support/${ticketId}` },
+      }),
     })
     if (!result.ok) console.error('[inbox] reply notification email failed:', result.error)
   } else {
     const result = await sendEmail({
       to: ticket.requester_email,
       subject: `Re: ${ticket.subject}`,
-      html: `<p>${escapeHtml(trimmed).replace(/\n/g, '<br/>')}</p>`,
+      html: renderEmail({
+        preheader: trimmed.slice(0, 90),
+        heading: `Re: ${ticket.subject}`,
+        bodyHtml: paragraphs(...trimmed.split(/\n{2,}/)),
+      }),
     })
     if (!result.ok) console.error('[inbox] email-channel reply failed:', result.error)
   }

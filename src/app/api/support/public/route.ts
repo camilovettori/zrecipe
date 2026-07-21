@@ -1,7 +1,8 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendEmail, escapeHtml } from '@/lib/email/send'
+import { sendEmail } from '@/lib/email/send'
+import { renderEmail, paragraphs } from '@/lib/email/template'
 import { SUPER_ADMIN_EMAIL } from '@/lib/auth/admin'
 
 export const runtime = 'nodejs'
@@ -98,13 +99,18 @@ export async function POST(request: NextRequest) {
     to: SUPER_ADMIN_EMAIL,
     subject: `[ZRecipe Support] ${subject}`,
     replyTo: email,
-    html: `
-      <p><strong>From:</strong> ${escapeHtml(name)} (${escapeHtml(email)})</p>
-      <p><strong>Subject:</strong> ${escapeHtml(subject)}</p>
-      <p><strong>Message:</strong></p>
-      <p>${escapeHtml(message).replace(/\n/g, '<br/>')}</p>
-      <p><a href="${appUrl}/adminziffera/inbox/${ticket.id}">View this ticket in the admin inbox</a></p>
-    `,
+    html: renderEmail({
+      preheader: `${name}: ${subject}`,
+      eyebrow: 'New support ticket · Email channel',
+      heading: subject,
+      bodyHtml: paragraphs(`${name} just submitted a support message via the ZRecipe contact form.`),
+      meta: [
+        { label: 'From', value: `${name} <${email}>` },
+        { label: 'Subject', value: subject },
+        { label: 'Message', value: message },
+      ],
+      button: { label: 'View ticket in admin inbox', href: `${appUrl}/adminziffera/inbox/${ticket.id}` },
+    }),
   })
   if (!adminResult.ok) {
     console.error('[support/public] admin notification email failed:', adminResult.error)
@@ -113,11 +119,15 @@ export async function POST(request: NextRequest) {
   const confirmResult = await sendEmail({
     to: email,
     subject: 'We received your message',
-    html: `
-      <p>Hi ${escapeHtml(name)},</p>
-      <p>Thanks for reaching out. We'll get back to you as soon as possible.</p>
-      <p>— The ZRecipe team</p>
-    `,
+    html: renderEmail({
+      preheader: 'We received your message and will reply soon.',
+      heading: 'Thanks — we received your message',
+      bodyHtml: paragraphs(
+        `Hi ${name},`,
+        "Thanks for reaching out to ZRecipe. We've received your message and will get back to you as soon as possible, usually within one business day.",
+        '— The ZRecipe team'
+      ),
+    }),
   })
   if (!confirmResult.ok) {
     console.error('[support/public] confirmation email failed:', confirmResult.error)
