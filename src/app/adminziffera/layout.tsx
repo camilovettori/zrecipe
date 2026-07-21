@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import Link from 'next/link'
 import { Shield, ArrowLeft } from 'lucide-react'
 import AdminNav from './AdminNav'
@@ -10,6 +11,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || user.email?.toLowerCase() !== SUPER_ADMIN_EMAIL) redirect('/')
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const admin = createAdminClient() as any
+  const { count: unreadCount } = await admin
+    .from('support_tickets')
+    .select('id', { count: 'exact', head: true })
+    .eq('admin_unread', true)
+  const hasUnreadTickets = (unreadCount ?? 0) > 0
 
   return (
     <div className="flex min-h-screen">
@@ -24,7 +33,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </div>
 
         <div className="flex-1">
-          <AdminNav />
+          <AdminNav hasUnreadTickets={hasUnreadTickets} />
         </div>
 
         <div className="border-t border-slate-800 pt-3">

@@ -19,7 +19,7 @@ export default function LandingFAQ({ items }: { items: FAQItem[] }) {
           <div
             key={item.question}
             className={`rounded-2xl border shadow-sm transition-colors ${
-              isOpen ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200 bg-white'
+              isOpen ? 'border-accent-200 bg-accent-50/40' : 'border-slate-200 bg-white'
             }`}
           >
             <button

@@ -2,16 +2,17 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Users, CreditCard } from 'lucide-react'
+import { LayoutDashboard, Users, CreditCard, Inbox } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const NAV = [
   { href: '/adminziffera',         icon: LayoutDashboard, label: 'Overview' },
   { href: '/adminziffera/tenants', icon: Users,           label: 'Tenants' },
+  { href: '/adminziffera/inbox',   icon: Inbox,           label: 'Inbox' },
   { href: '/adminziffera/billing', icon: CreditCard,      label: 'Billing' },
 ]
 
-export default function AdminNav() {
+export default function AdminNav({ hasUnreadTickets = false }: { hasUnreadTickets?: boolean }) {
   const pathname = usePathname()
 
   const isActive = (href: string) =>
@@ -32,7 +33,12 @@ export default function AdminNav() {
                 : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
             )}
           >
-            <Icon className="h-4 w-4 shrink-0" />
+            <span className="relative shrink-0">
+              <Icon className="h-4 w-4" />
+              {href === '/adminziffera/inbox' && hasUnreadTickets && (
+                <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-red-500" />
+              )}
+            </span>
             {label}
           </Link>
         )

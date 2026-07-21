@@ -1,11 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { formatDistanceToNow } from 'date-fns'
 import { Bell, Menu, ChevronRight, Home } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useAppStore } from '@/stores/app'
+import { useUserUnread } from '@/hooks/useUserUnread'
 import CommandPalette from '@/components/shared/CommandPalette'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -59,6 +61,62 @@ function useBreadcrumbs(pathname: string, entityName: string | null) {
   ]
 }
 
+function NotificationBell() {
+  const { count, tickets } = useUserUnread()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [open])
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="relative rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+        aria-label="Notifications"
+      >
+        <Bell className="h-5 w-5" />
+        {count > 0 && (
+          <span className="absolute right-0.5 top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">
+            {count > 9 ? '9+' : count}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full z-50 mt-2 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-800">
+          {tickets.length === 0 ? (
+            <p className="px-3 py-6 text-center text-sm text-slate-400">You&apos;re all caught up ✨</p>
+          ) : (
+            <div className="flex flex-col">
+              {tickets.map((t) => (
+                <Link
+                  key={t.id}
+                  href={`/support/${t.id}`}
+                  onClick={() => setOpen(false)}
+                  className="rounded-lg px-3 py-2 text-sm transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
+                >
+                  <p className="truncate font-medium text-slate-800 dark:text-white">{t.subject}</p>
+                  <p className="text-xs text-slate-400">
+                    {formatDistanceToNow(new Date(t.last_message_at), { addSuffix: true })}
+                  </p>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function TopBar() {
   const pathname = usePathname()
   const entityName = useEntityName(pathname)
@@ -103,13 +161,7 @@ export default function TopBar() {
       {/* Inline command palette — dropdown appears below the input */}
       <CommandPalette />
 
-      <button
-        className="relative rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
-        aria-label="Notifications"
-      >
-        <Bell className="h-5 w-5" />
-        <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-emerald-500" />
-      </button>
+      <NotificationBell />
     </header>
   )
 }

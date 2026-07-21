@@ -5,6 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { Menu, X } from 'lucide-react'
 import PrimaryCTALink from './PrimaryCTALink'
+import SupportModal from '@/components/support/SupportModal'
 
 const LINKS = [
   { href: '#features', label: 'Features' },
@@ -16,6 +17,7 @@ const LINKS = [
 export default function LandingNav() {
   const [open, setOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
+  const [supportOpen, setSupportOpen] = useState(false)
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20)
@@ -54,6 +56,13 @@ export default function LandingNav() {
               {l.label}
             </a>
           ))}
+          <button
+            type="button"
+            onClick={() => setSupportOpen(true)}
+            className="text-sm font-medium text-slate-600 transition-colors hover:text-primary-600"
+          >
+            Contact
+          </button>
         </div>
 
         <div className="hidden items-center gap-3 lg:flex">
@@ -95,6 +104,16 @@ export default function LandingNav() {
                 {l.label}
               </a>
             ))}
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                setSupportOpen(true)
+              }}
+              className="text-left text-sm font-medium text-slate-600"
+            >
+              Contact
+            </button>
             <div className="mt-2 flex flex-col gap-3 border-t border-slate-100 pt-4">
               <Link href="/login" onClick={() => setOpen(false)} className="text-sm font-medium text-slate-600">
                 Log in
@@ -110,6 +129,8 @@ export default function LandingNav() {
           </div>
         </div>
       )}
+
+      <SupportModal open={supportOpen} onOpenChange={setSupportOpen} mode="public" />
     </header>
   )
 }

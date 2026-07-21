@@ -25,6 +25,14 @@ interface AiFeatureRow {
   cost: number
 }
 
+interface SupportTicketRow {
+  id: string
+  channel: 'email' | 'internal'
+  status: 'open' | 'closed'
+  subject: string
+  last_message_at: string
+}
+
 const STATUS_BADGE: Record<string, string> = {
   active:    'bg-emerald-50 text-emerald-700 border border-emerald-200',
   trialing:  'bg-amber-50 text-amber-700 border border-amber-200',
@@ -66,7 +74,6 @@ export default async function TenantDetail({ params }: { params: { id: string } 
   const { data: tenant } = await admin.from('tenants').select('*').eq('id', id).single()
   if (!tenant) notFound()
 
-  const { data: recentRecipes } = await admin.from('recipes').select('id, name, created_at').eq('tenant_id', id).order('created_at', { ascending: false }).limit(5)
   const { data: allRecipes }    = await admin.from('recipes').select('id').eq('tenant_id', id)
   const { data: ingredients }   = await admin.from('ingredients').select('id').eq('tenant_id', id)
   const { data: invoices }      = await admin.from('invoices').select('id').eq('tenant_id', id)
@@ -129,6 +136,26 @@ export default async function TenantDetail({ params }: { params: { id: string } 
 
   const owner       = teamMembers.find((m) => m.role === 'owner') ?? null
   const isComped    = (tenant.is_comped ?? false) as boolean
+
+  // Support tickets opened by this tenant's owner
+  let supportTickets: SupportTicketRow[] = []
+  let supportTicketCount = 0
+  if (owner?.email && owner.email !== 'Unknown') {
+    const [{ data: ticketRows }, { count: ticketCount }] = await Promise.all([
+      admin
+        .from('support_tickets')
+        .select('id, channel, status, subject, last_message_at')
+        .eq('requester_email', owner.email)
+        .order('last_message_at', { ascending: false })
+        .limit(10),
+      admin
+        .from('support_tickets')
+        .select('id', { count: 'exact', head: true })
+        .eq('requester_email', owner.email),
+    ])
+    supportTickets = (ticketRows ?? []) as SupportTicketRow[]
+    supportTicketCount = ticketCount ?? 0
+  }
 
   // Subscription display values (serializable for client component)
   const trialEnds          = new Date(new Date(tenant.created_at).getTime() + 14 * 86_400_000)
@@ -328,23 +355,46 @@ export default async function TenantDetail({ params }: { params: { id: string } 
         )}
       </div>
 
-      {/* Recent recipes */}
+      {/* Support tickets */}
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
-          <h2 className="text-sm font-semibold text-slate-900">Recent recipes</h2>
-          <span className="text-xs text-slate-400">{recipeCount} total</span>
+          <h2 className="text-sm font-semibold text-slate-900">Support tickets</h2>
+          <span className="text-xs text-slate-400">{supportTicketCount} total</span>
         </div>
-        {!recentRecipes || recentRecipes.length === 0 ? (
-          <p className="px-5 py-6 text-sm text-slate-400">No recipes yet</p>
+        {supportTickets.length === 0 ? (
+          <p className="px-5 py-6 text-sm text-slate-400">
+            {owner?.email ? 'No support tickets from this tenant' : 'No owner on record'}
+          </p>
         ) : (
           <div className="divide-y divide-slate-100">
-            {recentRecipes.map((r: any) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
-              <div key={r.id} className="flex items-center justify-between px-5 py-3">
-                <span className="text-sm text-slate-700">{r.name}</span>
-                <span className="text-xs text-slate-400">
-                  {new Date(r.created_at).toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: 'numeric' })}
+            {supportTickets.map((t) => (
+              <Link
+                key={t.id}
+                href={`/adminziffera/inbox/${t.id}`}
+                className="flex items-center justify-between gap-3 px-5 py-3 transition-colors hover:bg-slate-50"
+              >
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span
+                    className={cn(
+                      'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium',
+                      t.channel === 'email'
+                        ? 'border border-blue-200 bg-blue-50 text-blue-600'
+                        : 'border border-amber-200 bg-amber-50 text-amber-600'
+                    )}
+                  >
+                    {t.channel === 'email' ? 'Email' : 'Internal'}
+                  </span>
+                  <span className="truncate text-sm text-slate-700">{t.subject}</span>
+                  {t.status === 'closed' && (
+                    <span className="shrink-0 rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
+                      Closed
+                    </span>
+                  )}
+                </div>
+                <span className="shrink-0 text-xs text-slate-400">
+                  {new Date(t.last_message_at).toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </span>
-              </div>
+              </Link>
             ))}
           </div>
         )}

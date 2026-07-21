@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronRight, Search, X, Sparkles, AlertTriangle, Gift } from 'lucide-react'
+import { ChevronRight, Search, X, Sparkles, AlertTriangle, Gift, MessageCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export interface TenantRow {
@@ -19,6 +19,7 @@ export interface TenantRow {
   owner_email: string | null
   is_new_subscriber: boolean
   is_comped: boolean
+  unread_ticket_count: number
 }
 
 const AVATAR_COLORS = [
@@ -125,6 +126,8 @@ export default function TenantsClient({ tenants }: { tenants: TenantRow[] }) {
       return (t.name ?? '').toLowerCase().includes(q) || (t.owner_email ?? '').toLowerCase().includes(q)
     })
     .sort((a, b) => {
+      if (a.unread_ticket_count > 0 && b.unread_ticket_count === 0) return -1
+      if (a.unread_ticket_count === 0 && b.unread_ticket_count > 0) return 1
       if (a.is_new_subscriber && !b.is_new_subscriber) return -1
       if (!a.is_new_subscriber && b.is_new_subscriber) return 1
       return (a.name ?? '').localeCompare(b.name ?? '')
@@ -213,7 +216,10 @@ export default function TenantsClient({ tenants }: { tenants: TenantRow[] }) {
               <div
                 key={tenant.id}
                 onClick={() => router.push(`/adminziffera/tenants/${tenant.id}`)}
-                className="grid cursor-pointer items-center border-b border-slate-100 px-4 py-3.5 transition-colors last:border-0 hover:bg-slate-50"
+                className={cn(
+                  'grid cursor-pointer items-center border-b border-slate-100 px-4 py-3.5 transition-colors last:border-0 hover:bg-slate-50',
+                  tenant.unread_ticket_count > 0 && 'border-l-4 border-l-amber-400 bg-amber-50/40'
+                )}
                 style={{ gridTemplateColumns: '2fr 100px 130px 1fr 1fr 40px' }}
               >
                 {/* Business */}
@@ -227,6 +233,12 @@ export default function TenantsClient({ tenants }: { tenants: TenantRow[] }) {
                       {tenant.is_new_subscriber && (
                         <span className="rounded-full border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">
                           NEW
+                        </span>
+                      )}
+                      {tenant.unread_ticket_count > 0 && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                          <MessageCircle className="h-3 w-3" />
+                          {tenant.unread_ticket_count} new
                         </span>
                       )}
                     </div>

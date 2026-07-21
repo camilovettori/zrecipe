@@ -8,6 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import SupportModal from '@/components/support/SupportModal'
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email'),
@@ -24,6 +25,7 @@ export default function LoginForm() {
   const searchParams = useSearchParams()
   const [serverError, setServerError] = useState<string | null>(null)
   const [showPwd, setShowPwd] = useState(false)
+  const [supportOpen, setSupportOpen] = useState(false)
 
   const redirectTo = searchParams.get('redirectTo')
   const destination =
@@ -146,6 +148,19 @@ export default function LoginForm() {
           Start your 14-day free trial →
         </Link>
       </p>
+
+      <p className="text-center text-sm text-[#6B6B6B]">
+        Need help?{' '}
+        <button
+          type="button"
+          onClick={() => setSupportOpen(true)}
+          className="font-semibold text-[#0E3B2E] transition hover:text-[#164d3c]"
+        >
+          Contact support
+        </button>
+      </p>
+
+      <SupportModal open={supportOpen} onOpenChange={setSupportOpen} mode="public" />
 
     </form>
   )

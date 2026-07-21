@@ -41,6 +41,22 @@ export default async function AdminTenants() {
     aiUsageRows = aiData ?? []
   } catch { /* table may not exist */ }
 
+  // Unread support tickets — matched by owner email, since email-channel
+  // tickets don't carry a tenant_id.
+  const { data: unreadTickets } = await admin
+    .from('support_tickets')
+    .select('requester_email')
+    .eq('admin_unread', true)
+    .eq('status', 'open')
+
+  const unreadByEmail = new Map<string, number>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const t of unreadTickets ?? ([] as any[])) {
+    const key = (t.requester_email ?? '').toLowerCase()
+    if (!key) continue
+    unreadByEmail.set(key, (unreadByEmail.get(key) ?? 0) + 1)
+  }
+
   const tenants: any[] = rawTenants ?? [] // eslint-disable-line @typescript-eslint/no-explicit-any
   const now = Date.now()
   const sevenDaysMs = 7 * 86_400_000
@@ -79,6 +95,7 @@ export default async function AdminTenants() {
       owner_email:            ownerUser?.email ?? null,
       is_new_subscriber:      isNewSubscriber,
       is_comped:              (t.is_comped ?? false) as boolean,
+      unread_ticket_count:    unreadByEmail.get((ownerUser?.email ?? '').toLowerCase()) ?? 0,
     }
   })
 

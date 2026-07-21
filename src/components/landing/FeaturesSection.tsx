@@ -182,7 +182,7 @@ export default function FeaturesSection() {
                       key={title}
                       className={`rounded-2xl p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg ${
                         highlight ? styles.cardHighlight : 'border border-slate-100 bg-white'
-                      } ${shouldSpan ? 'lg:col-span-2' : ''}`}
+                      } ${shouldSpan ? 'sm:col-span-2' : ''}`}
                     >
                       <div
                         className={`flex items-center justify-center rounded-xl ${

@@ -35,6 +35,7 @@
     "react-easy-crop": "^6.2.2",
     "react-hook-form": "^7.75.0",
     "recharts": "^3.8.1",
+    "resend": "^6.17.2",
     "sonner": "^2.0.7",
     "stripe": "^22.1.1",
     "tailwind-merge": "^3.5.0",

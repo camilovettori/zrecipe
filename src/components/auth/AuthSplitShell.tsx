@@ -7,7 +7,6 @@ import {
   FileText, BarChart3, ShieldCheck, Camera, Printer,
   ChefHat, Tag, ArrowRight, Globe,
 } from 'lucide-react'
-import LiveCostingCard from './LiveCostingCard'
 
 const FEATURES = {
   login: [
@@ -181,8 +180,23 @@ export default function AuthSplitShell({
               </ul>
 
               {variant !== 'recovery' && (
-                <div style={{ maxWidth: '460px', marginTop: '20px' }}>
-                  <LiveCostingCard />
+                <div
+                  className="overflow-hidden rounded-xl"
+                  style={{
+                    maxWidth: '460px',
+                    marginTop: '20px',
+                    border: '1px solid rgba(255,255,255,0.10)',
+                    boxShadow: '0 12px 32px rgba(0,0,0,0.35)',
+                  }}
+                >
+                  <Image
+                    src="/images/livecost.png"
+                    alt="ZRecipe recipe costing screen showing ingredient costs, margin, and VAT breakdown"
+                    width={1672}
+                    height={941}
+                    sizes="(min-width: 1024px) 460px, 100vw"
+                    className="block h-auto w-full"
+                  />
                 </div>
               )}
 
@@ -272,7 +286,7 @@ export default function AuthSplitShell({
 
       {/* ══ RIGHT — form panel ════════════════════════════════════════════════ */}
       <main
-        className="relative flex flex-1 items-start justify-center overflow-y-auto px-6 py-8 lg:items-center lg:px-10 lg:py-10"
+        className="relative flex flex-1 items-center justify-center overflow-y-auto px-6 py-8 lg:px-10 lg:py-10"
         style={{ background: '#f0f5f2' }}
       >
         {/* Left-edge gradient — blends wallpaper boundary into panel, no wallpaper content hidden */}
@@ -286,7 +300,7 @@ export default function AuthSplitShell({
         />
         <div
           id={formId}
-          className="w-full max-w-[400px] scroll-mt-4 rounded-2xl bg-white p-7 shadow-[0_8px_32px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)] lg:p-9"
+          className="my-auto w-full max-w-[400px] scroll-mt-4 rounded-2xl bg-white p-7 shadow-[0_8px_32px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)] lg:p-9"
         >
           <div className="mb-3 flex justify-center">
             <Image

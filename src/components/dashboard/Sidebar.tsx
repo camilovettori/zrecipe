@@ -21,11 +21,13 @@ import {
   User,
   X,
   Shield,
+  LifeBuoy,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { clearTenantCache } from '@/hooks/useTenant'
 import { useAppStore } from '@/stores/app'
 import { cn } from '@/lib/utils'
+import SupportModal from '@/components/support/SupportModal'
 
 const SUPER_ADMIN_EMAIL = 'camilovettori@gmail.com'
 
@@ -180,6 +182,8 @@ function SidebarContent({
   user: UserInfo | null
   userEmail?: string
 }) {
+  const [supportOpen, setSupportOpen] = useState(false)
+
   return (
     <div className="flex h-full flex-col">
       {/* Logo */}
@@ -238,10 +242,28 @@ function SidebarContent({
         </div>
       )}
 
+      {/* Support */}
+      <div className="px-3 pb-1">
+        <button
+          type="button"
+          onClick={() => setSupportOpen(true)}
+          title={collapsed ? 'Support' : undefined}
+          className={cn(
+            'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-300',
+            collapsed && 'justify-center'
+          )}
+        >
+          <LifeBuoy className="h-3.5 w-3.5 shrink-0" />
+          {!collapsed && <span>Support</span>}
+        </button>
+      </div>
+
       {/* Separator */}
       <div className="mx-3 border-t border-slate-700" />
 
       <UserSection collapsed={collapsed} user={user} />
+
+      <SupportModal open={supportOpen} onOpenChange={setSupportOpen} mode="internal" />
     </div>
   )
 }

@@ -9,6 +9,7 @@ import { z } from 'zod'
 import { Building2, Eye, EyeOff, Loader2, Mail, ShieldCheck, User } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { CustomSelect } from '@/components/ui/CustomSelect'
+import SupportModal from '@/components/support/SupportModal'
 
 const registerSchema = z.object({
   businessName: z.string().min(2, 'Business name must be at least 2 characters'),
@@ -57,6 +58,7 @@ export default function RegisterForm() {
   const [serverError, setServerError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [showPwd, setShowPwd] = useState(false)
+  const [supportOpen, setSupportOpen] = useState(false)
   const router = useRouter()
 
   const { register, handleSubmit, control, setValue, formState: { errors, isSubmitting } } =
@@ -284,6 +286,19 @@ export default function RegisterForm() {
           Sign in
         </Link>
       </p>
+
+      <p className="text-center text-sm text-[#6B6B6B]">
+        Need help?{' '}
+        <button
+          type="button"
+          onClick={() => setSupportOpen(true)}
+          className="font-bold text-[#0E3B2E] transition hover:text-[#164d3c]"
+        >
+          Contact support
+        </button>
+      </p>
+
+      <SupportModal open={supportOpen} onOpenChange={setSupportOpen} mode="public" />
 
     </form>
   )

@@ -1,0 +1,127 @@
+import { type NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { sendEmail, escapeHtml } from '@/lib/email/send'
+import { SUPER_ADMIN_EMAIL } from '@/lib/auth/admin'
+
+export const runtime = 'nodejs'
+
+const RATE_LIMIT_PER_HOUR = 3
+
+const schema = z.object({
+  name: z.string().min(2, 'Please enter your name').max(200),
+  email: z.string().email('Please enter a valid email'),
+  subject: z.string().min(3, 'Subject is too short').max(140, 'Subject is too long'),
+  message: z.string().min(10, 'Message is too short').max(5000, 'Message is too long'),
+  // Honeypot — real users never see or fill this field.
+  website: z.string().optional(),
+})
+
+export async function POST(request: NextRequest) {
+  let payload: z.infer<typeof schema>
+  try {
+    payload = schema.parse(await request.json())
+  } catch {
+    return NextResponse.json(
+      { error: 'Please check the form and try again.' },
+      { status: 400 }
+    )
+  }
+
+  // Bot filter — silently succeed without doing anything.
+  if (payload.website && payload.website.trim() !== '') {
+    return NextResponse.json({ success: true })
+  }
+
+  const name = payload.name.trim()
+  const email = payload.email.trim().toLowerCase()
+  const subject = payload.subject.trim()
+  const message = payload.message.trim()
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const admin = createAdminClient() as any
+
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+  const { count, error: countError } = await admin
+    .from('support_tickets')
+    .select('id', { count: 'exact', head: true })
+    .eq('requester_email', email)
+    .gte('created_at', oneHourAgo)
+
+  if (countError) {
+    console.error('[support/public] rate limit check failed:', countError.message)
+  } else if ((count ?? 0) >= RATE_LIMIT_PER_HOUR) {
+    return NextResponse.json(
+      { error: "You've sent several messages recently. Please wait a bit before sending another." },
+      { status: 429 }
+    )
+  }
+
+  const { data: ticket, error: ticketError } = await admin
+    .from('support_tickets')
+    .insert({
+      channel: 'email',
+      requester_name: name,
+      requester_email: email,
+      subject,
+      last_message_preview: message.slice(0, 200),
+      admin_unread: true,
+    })
+    .select('id')
+    .single()
+
+  if (ticketError || !ticket) {
+    console.error('[support/public] failed to create ticket:', ticketError?.message)
+    return NextResponse.json(
+      { error: 'Something went wrong. Please try again.' },
+      { status: 500 }
+    )
+  }
+
+  const { error: messageError } = await admin.from('support_messages').insert({
+    ticket_id: ticket.id,
+    author_role: 'user',
+    author_name: name,
+    author_email: email,
+    body: message,
+  })
+
+  if (messageError) {
+    console.error('[support/public] failed to record message:', messageError.message)
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://zrecipe.ie'
+
+  // Admin notification — reply-to is the requester so the admin can just hit
+  // "Reply" in Gmail and the conversation continues over email from there.
+  const adminResult = await sendEmail({
+    to: SUPER_ADMIN_EMAIL,
+    subject: `[ZRecipe Support] ${subject}`,
+    replyTo: email,
+    html: `
+      <p><strong>From:</strong> ${escapeHtml(name)} (${escapeHtml(email)})</p>
+      <p><strong>Subject:</strong> ${escapeHtml(subject)}</p>
+      <p><strong>Message:</strong></p>
+      <p>${escapeHtml(message).replace(/\n/g, '<br/>')}</p>
+      <p><a href="${appUrl}/adminziffera/inbox/${ticket.id}">View this ticket in the admin inbox</a></p>
+    `,
+  })
+  if (!adminResult.ok) {
+    console.error('[support/public] admin notification email failed:', adminResult.error)
+  }
+
+  const confirmResult = await sendEmail({
+    to: email,
+    subject: 'We received your message',
+    html: `
+      <p>Hi ${escapeHtml(name)},</p>
+      <p>Thanks for reaching out. We'll get back to you as soon as possible.</p>
+      <p>— The ZRecipe team</p>
+    `,
+  })
+  if (!confirmResult.ok) {
+    console.error('[support/public] confirmation email failed:', confirmResult.error)
+  }
+
+  return NextResponse.json({ success: true, ticketId: ticket.id as string })
+}
