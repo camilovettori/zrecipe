@@ -19,6 +19,8 @@ import { findIngredientImage } from '@/lib/utils/ingredient-image'
 import { compressImage } from '@/lib/utils/image-compress'
 import { PriceSimulatorModal } from '@/components/ingredients/PriceSimulatorModal'
 import { SubstituteIngredientModal, type SubstituteReplacement } from '@/components/recipes/SubstituteIngredientModal'
+import { resolveIngredientPrice } from '@/lib/ingredients/resolveIngredientPrice'
+import { setSelectedPrice } from '@/lib/ingredients/setSelectedPrice'
 import { cn } from '@/lib/utils'
 import {
   buildCostExamples,
@@ -231,6 +233,7 @@ export default function IngredientDetailPage() {
           price,
           unit,
           brand,
+          is_selected_price,
           recorded_at,
           invoice_id,
           invoice:invoices (
@@ -265,6 +268,26 @@ export default function IngredientDetailPage() {
       setLoading(false)
     })
   }, [id, isNew, router])
+
+  const handleSelectionChange = useCallback(async (historyId: string | null) => {
+    if (!ingredient) return
+    setPriceHistory((prev) => prev.map((p) => ({ ...p, is_selected_price: p.id === historyId })))
+    const result = await setSelectedPrice(ingredient.id, historyId)
+    if (!result.ok) {
+      toast.error('Failed to update selected price')
+      // Revert to server truth rather than leaving the optimistic update stuck wrong.
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('ingredient_price_history')
+        .select(`
+          id, ingredient_id, price, unit, brand, is_selected_price, recorded_at, invoice_id,
+          invoice:invoices ( id, invoice_number, supplier:suppliers ( name ) )
+        `)
+        .eq('ingredient_id', ingredient.id)
+        .order('recorded_at', { ascending: true })
+      setPriceHistory((data ?? []) as PricePoint[])
+    }
+  }, [ingredient])
 
   const refreshUsedRecipes = useCallback(async () => {
     if (isNew) return
@@ -393,10 +416,29 @@ export default function IngredientDetailPage() {
   const latestPrice = priceHistory[priceHistory.length - 1] ?? null
   const previousPrice = priceHistory[priceHistory.length - 2] ?? null
   const priceChangePct = getPriceChangePercent(previousPrice?.price ?? null, latestPrice?.price ?? null)
-  const currentPriceValue = ingredient?.current_price ?? latestPrice?.price ?? null
-  const currentPriceUnit = ingredient?.base_unit ?? latestPrice?.unit ?? ingredient?.package_unit ?? 'unit'
+  const resolvedPrice = resolveIngredientPrice(
+    priceHistory.map((p) => ({
+      id: p.id,
+      price: p.price,
+      unit: p.unit,
+      is_selected_price: p.is_selected_price ?? false,
+      recorded_at: p.recorded_at ?? null,
+    })),
+    ingredient?.current_price ?? null,
+    ingredient?.base_unit ?? null
+  )
+  const currentPriceValue = resolvedPrice.price ?? ingredient?.current_price ?? latestPrice?.price ?? null
+  const currentPriceUnit = resolvedPrice.unit ?? ingredient?.base_unit ?? latestPrice?.unit ?? ingredient?.package_unit ?? 'unit'
   const panelPriceValue = costPreview?.normalizedPrice ?? currentPriceValue
   const panelPriceUnit = costPreview?.normalizedUnit ?? currentPriceUnit
+  const priceSourceLabel =
+    resolvedPrice.source === 'selected'
+      ? 'Currently using: your selected price'
+      : resolvedPrice.source === 'latest'
+        ? 'Currently using: latest purchase'
+        : resolvedPrice.source === 'manual'
+          ? 'Currently using: manual price'
+          : null
   const unitExamples = buildCostExamples(panelPriceValue, panelPriceUnit)
   const suspiciousPriceWarning = getSuspiciousIngredientPriceWarning(costPreview)
   const previewWarnings = costPreview?.warnings ?? []
@@ -589,6 +631,9 @@ export default function IngredientDetailPage() {
                 <p className="mt-1.5 text-3xl font-black tracking-tight text-emerald-700 dark:text-emerald-300">
                   {formatIngredientUnitPrice(panelPriceValue, panelPriceUnit)}
                 </p>
+                {!isNew && priceSourceLabel && (
+                  <p className="mt-0.5 text-[11px] text-slate-400">{priceSourceLabel}</p>
+                )}
                 {hasEnteredPackage && costPreview ? (
                   <p className="mt-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
                     {formatIngredientMoney(costPreview.packagePrice)} for{' '}
@@ -806,6 +851,8 @@ export default function IngredientDetailPage() {
                       <PriceHistoryChart
                         priceHistory={priceHistory}
                         unit={panelPriceUnit}
+                        ingredientId={ingredient?.id}
+                        onSelectionChange={handleSelectionChange}
                       />
                     </div>
                   )}
@@ -895,6 +942,7 @@ export default function IngredientDetailPage() {
           onClose={() => setSimulatorOpen(false)}
           ingredient={ingredient}
           usedRecipeIds={usedRecipes.map((r) => r.id)}
+          resolvedPrice={resolvedPrice}
         />
       )}
 

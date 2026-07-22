@@ -9,6 +9,7 @@ import { calculateCostPerBaseUnit } from '@/lib/invoices'
 import { isConvertible } from '@/lib/utils/unit-converter'
 import { cn } from '@/lib/utils'
 import type { IngredientRow } from '@/hooks/useIngredients'
+import { resolveIngredientPrice, type PriceHistoryEntry, type ResolvedPrice } from '@/lib/ingredients/resolveIngredientPrice'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -70,6 +71,9 @@ interface Props {
   onClose: () => void
   ingredient: IngredientRow
   usedRecipeIds: string[]
+  /** Effective price for `ingredient` per resolveIngredientPrice — falls
+   *  back to ingredient.current_price/base_unit when not supplied. */
+  resolvedPrice?: ResolvedPrice
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -79,6 +83,7 @@ type RawRelation = {
   price_unit?: string | null
   sub_ingredient_cost_per_unit?: number | null
   sub_ingredient_unit?: string | null
+  price_history?: PriceHistoryEntry[] | null
 } | null
 
 function pickRelation(v: unknown): RawRelation {
@@ -90,6 +95,9 @@ function normalizeIngRow(row: Record<string, unknown>): NormIngRow {
   const ing = pickRelation(row.ingredient)
   const sr = pickRelation(row.sub_recipe)
   const hasIng = !!row.ingredient_id
+  const resolvedIng = hasIng
+    ? resolveIngredientPrice(ing?.price_history ?? [], ing?.current_price ?? null, ing?.price_unit ?? null)
+    : null
   return {
     id: row.id as string,
     ingredientId: (row.ingredient_id as string | null) ?? null,
@@ -98,8 +106,8 @@ function normalizeIngRow(row: Record<string, unknown>): NormIngRow {
     yieldPercent: (row.yield_percent as number | null) ?? null,
     // A sub-recipe is priced like any ingredient: its rate is the sub-recipe's
     // own cost-per-base-unit, already resolved on save — no reconstruction.
-    price: hasIng ? (ing?.current_price ?? null) : (sr?.sub_ingredient_cost_per_unit ?? null),
-    priceUnit: hasIng ? (ing?.price_unit ?? null) : (sr?.sub_ingredient_unit ?? null),
+    price: hasIng ? resolvedIng!.price : (sr?.sub_ingredient_cost_per_unit ?? null),
+    priceUnit: hasIng ? resolvedIng!.unit : (sr?.sub_ingredient_unit ?? null),
     subRecipeId: (row.sub_recipe_id as string | null) ?? null,
   }
 }
@@ -183,10 +191,13 @@ function computeSimRow(
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function PriceSimulatorModal({ open, onClose, ingredient, usedRecipeIds }: Props) {
+export function PriceSimulatorModal({ open, onClose, ingredient, usedRecipeIds, resolvedPrice }: Props) {
+  const baselinePrice = resolvedPrice?.price ?? ingredient.current_price ?? null
+  const baselineUnit = resolvedPrice?.unit ?? ingredient.base_unit ?? 'unit'
+
   const makeDefault = (): SimInputs => ({
-    newPrice: ingredient.current_price?.toString() ?? '',
-    unit: ingredient.base_unit || 'unit',
+    newPrice: baselinePrice?.toString() ?? '',
+    unit: baselineUnit || 'unit',
     packageSize: '',
     packageUnit: ingredient.package_unit ?? 'kg',
   })
@@ -218,7 +229,12 @@ export function PriceSimulatorModal({ open, onClose, ingredient, usedRecipeIds }
             waste_percent, selling_price,
             recipe_ingredients!recipe_ingredients_recipe_id_fkey (
               id, ingredient_id, sub_recipe_id, quantity, unit, yield_percent,
-              ingredient:ingredients (id, name, current_price, price_unit),
+              ingredient:ingredients (
+                id, name, current_price, price_unit,
+                price_history:ingredient_price_history (
+                  id, price, unit, is_selected_price, recorded_at
+                )
+              ),
               sub_recipe:recipes!recipe_ingredients_sub_recipe_id_fkey (id, name, sub_ingredient_cost_per_unit, sub_ingredient_unit)
             )
           `)
@@ -297,8 +313,8 @@ export function PriceSimulatorModal({ open, onClose, ingredient, usedRecipeIds }
   const selectCls = 'rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm outline-none transition focus:border-emerald-500'
 
   const isAtCurrent = simCost
-    && Math.abs(simCost.costPerUnit - (ingredient.current_price ?? 0)) < 0.0001
-    && simCost.unit === (ingredient.base_unit || 'unit')
+    && Math.abs(simCost.costPerUnit - (baselinePrice ?? 0)) < 0.0001
+    && simCost.unit === (baselineUnit || 'unit')
 
   return (
     <Dialog.Root open={open} onOpenChange={(v) => !v && onClose()}>

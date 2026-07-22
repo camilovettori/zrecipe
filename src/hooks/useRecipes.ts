@@ -7,6 +7,7 @@ import { calculateCost, calculateIngredientCost } from '@/lib/utils/cost-calcula
 import { type IngredientLookup } from '@/hooks/useInvoices'
 import { resolveTenantId } from '@/hooks/useTenant'
 import { type IngredientAllergen, type AllergenStatus } from '@/lib/allergens'
+import { resolveIngredientPrice, type PriceHistoryEntry } from '@/lib/ingredients/resolveIngredientPrice'
 
 export interface RecipeStepDraft {
   id: string
@@ -102,6 +103,7 @@ type DBIngredientRow = {
   current_price?: number | null
   price_unit?: string | null
   ingredient_allergens?: Array<{ allergen_id: number; status: string }> | null
+  price_history?: Array<PriceHistoryEntry & { brand?: string | null }> | null
 }
 
 type DBSubRecipeRef = {
@@ -193,15 +195,17 @@ function newId() {
 
 function normalizeIngredientRelation(ingredient: DBRecipeIngredientRow['ingredient']) {
   const row = Array.isArray(ingredient) ? ingredient[0] : ingredient
-      return row
-    ? {
-        id: row.id,
-        name: row.name,
-        brand: row.brand ?? null,
-        currentPrice: row.current_price ?? null,
-        priceUnit: row.price_unit ?? null,
-      } satisfies IngredientLookup
-    : null
+  if (!row) return null
+
+  const resolved = resolveIngredientPrice(row.price_history ?? [], row.current_price ?? null, row.price_unit ?? null)
+  const effectiveBrand = (row.price_history ?? []).find((h) => h.id === resolved.historyId)?.brand ?? row.brand ?? null
+  return {
+    id: row.id,
+    name: row.name,
+    brand: effectiveBrand,
+    currentPrice: resolved.price,
+    priceUnit: resolved.unit,
+  } satisfies IngredientLookup
 }
 
 function parseInstructions(raw: string | null | undefined): RecipeStepDraft[] {
@@ -589,7 +593,10 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
                 name,
                 brand,
                 current_price,
-                price_unit
+                price_unit,
+                price_history:ingredient_price_history (
+                  id, price, unit, brand, is_selected_price, recorded_at
+                )
               ),
               sub_recipe:recipes!sub_recipe_id (
                 id,
@@ -685,7 +692,10 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
               name,
               brand,
               current_price,
-              price_unit
+              price_unit,
+              price_history:ingredient_price_history (
+                id, price, unit, brand, is_selected_price, recorded_at
+              )
             ),
             sub_recipe:recipes!sub_recipe_id (
               id,

@@ -31,12 +31,11 @@ type ClaudeUsage = { inputTokens: number; outputTokens: number }
 type ExtractedRecipe = {
   usage: ClaudeUsage
   recipe_name: string
-  brand: string | null
   prep_time_minutes: number | null
   cook_time_minutes: number | null
   yield_quantity: number | null
   yield_unit: string | null
-  ingredients: Array<{ name: string; brand: string | null; quantity: number | null; unit: string | null }>
+  ingredients: Array<{ name: string; quantity: number | null; unit: string | null }>
 }
 
 const SYSTEM_PROMPT =
@@ -44,18 +43,18 @@ const SYSTEM_PROMPT =
 
 const TEXT_INSTRUCTION = `Extract from this recipe:
 - recipe_name (string)
-- brand (string | null) — the brand/producer if the recipe is clearly for a specific product; otherwise null
 - prep_time_minutes (number | null)
 - cook_time_minutes (number | null)
 - yield_quantity (number | null) — e.g. 12 for '12 cookies'
 - yield_unit (string | null) — e.g. 'cookies', 'portions', 'cake'
 - ingredients: array of {
     name: string,
-    brand: string | null,
     quantity: number | null,
     unit: string | null
   }
 
+Do NOT extract brand names. Ingredient identity is name only. If a brand name appears in
+the source (e.g. 'Kerrygold butter'), extract only the ingredient name ('butter').
 Normalize common unit abbreviations: grams→g, kilogram→kg, millilitre→ml, litre→L, tablespoon→tbsp, teaspoon→tsp.
 DO NOT extract prices, costs, or supplier info. This is a RECIPE, not an invoice. Only ingredients and their quantities.
 Handwritten source is welcome — do your best to read messy handwriting. If truly illegible, return name as your best guess with a trailing '?' character so the user knows to review.
@@ -63,13 +62,12 @@ Handwritten source is welcome — do your best to read messy handwriting. If tru
 Return ONLY valid JSON in this exact shape:
 {
   "recipe_name": "string",
-  "brand": null,
   "prep_time_minutes": null,
   "cook_time_minutes": null,
   "yield_quantity": null,
   "yield_unit": null,
   "ingredients": [
-    { "name": "string", "brand": null, "quantity": 1, "unit": "g" }
+    { "name": "string", "quantity": 1, "unit": "g" }
   ]
 }`
 
@@ -93,18 +91,16 @@ function normalizeUnit(unit: string | null | undefined) {
 function parseRecipe(rawText: string, usage: ClaudeUsage): ExtractedRecipe {
   const parsed = JSON.parse(cleanJson(rawText)) as {
     recipe_name?: string | null
-    brand?: string | null
     prep_time_minutes?: number | null
     cook_time_minutes?: number | null
     yield_quantity?: number | null
     yield_unit?: string | null
-    ingredients?: Array<{ name?: string | null; brand?: string | null; quantity?: number | null; unit?: string | null }>
+    ingredients?: Array<{ name?: string | null; quantity?: number | null; unit?: string | null }>
   }
 
   return {
     usage,
     recipe_name: parsed.recipe_name ?? '',
-    brand: parsed.brand ?? null,
     prep_time_minutes: parsed.prep_time_minutes ?? null,
     cook_time_minutes: parsed.cook_time_minutes ?? null,
     yield_quantity: parsed.yield_quantity ?? null,
@@ -112,7 +108,6 @@ function parseRecipe(rawText: string, usage: ClaudeUsage): ExtractedRecipe {
     ingredients: (parsed.ingredients ?? [])
       .map((item) => ({
         name: String(item.name ?? '').trim(),
-        brand: item.brand?.trim() || null,
         quantity: item.quantity == null ? null : Number(item.quantity),
         unit: normalizeUnit(item.unit),
       }))
@@ -179,7 +174,6 @@ function emptyRecipe(error?: string, extra?: Record<string, unknown>) {
     ...(error ? { error } : {}),
     ...extra,
     recipe_name: '',
-    brand: null,
     prep_time_minutes: null,
     cook_time_minutes: null,
     yield_quantity: null,

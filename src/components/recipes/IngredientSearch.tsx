@@ -7,6 +7,7 @@ import { COMMON_UNITS } from '@/lib/utils/unit-converter'
 import { cn } from '@/lib/utils'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 import type { IngredientLookup } from '@/hooks/useInvoices'
+import { resolveIngredientPrice } from '@/lib/ingredients/resolveIngredientPrice'
 
 export interface SubRecipeLookup {
   id: string
@@ -80,7 +81,12 @@ export default function IngredientSearch({
       const [ingredientResult, subRecipeResult] = await Promise.all([
         supabase
           .from('ingredients')
-          .select('id, name, brand, current_price, price_unit')
+          .select(`
+            id, name, brand, current_price, price_unit,
+            price_history:ingredient_price_history (
+              id, price, unit, brand, is_selected_price, recorded_at
+            )
+          `)
           .or(`name.ilike.%${debouncedQuery}%,brand.ilike.%${debouncedQuery}%`)
           .order('name')
           .limit(6),
@@ -98,13 +104,19 @@ export default function IngredientSearch({
       if (!active) return
 
       setResults(
-        (ingredientResult.data ?? []).map((item) => ({
-          id: item.id,
-          name: item.name,
-          brand: item.brand ?? null,
-          currentPrice: item.current_price ?? null,
-          priceUnit: item.price_unit ?? null,
-        }))
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (ingredientResult.data ?? []).map((item: any) => {
+          const resolved = resolveIngredientPrice(item.price_history ?? [], item.current_price ?? null, item.price_unit ?? null)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const effectiveBrand = (item.price_history ?? []).find((h: any) => h.id === resolved.historyId)?.brand ?? item.brand ?? null
+          return {
+            id: item.id,
+            name: item.name,
+            brand: effectiveBrand,
+            currentPrice: resolved.price,
+            priceUnit: resolved.unit,
+          }
+        })
       )
 
       setSubRecipes(

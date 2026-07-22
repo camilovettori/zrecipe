@@ -162,12 +162,16 @@ export default function IngredientListView({
                   <Thumbnail ingredient={ingredient} />
                 </td>
 
-                {/* Name + brand */}
+                {/* Name + effective brand */}
                 <td className="px-4 py-3">
-                  <p className="font-medium text-slate-900 dark:text-white">{ingredient.name}</p>
-                  {ingredient.brand && (
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{ingredient.brand}</p>
-                  )}
+                  <p className="font-medium text-slate-900 dark:text-white">
+                    {ingredient.name}
+                    {ingredient.effectiveBrand && (
+                      <span className="ml-1.5 font-normal text-slate-400 dark:text-slate-500">
+                        · {ingredient.effectiveBrand}
+                      </span>
+                    )}
+                  </p>
                 </td>
 
                 {/* Category */}

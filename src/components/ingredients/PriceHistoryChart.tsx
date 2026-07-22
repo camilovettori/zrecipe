@@ -28,6 +28,7 @@ export interface PricePoint {
   price: number
   unit: string
   brand?: string | null
+  is_selected_price?: boolean
   recorded_at?: string | null
   effective_date?: string | null
   invoice_id: string | null
@@ -112,9 +113,11 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: Toolti
 interface PriceHistoryChartProps {
   priceHistory: PricePoint[]
   unit: string
+  ingredientId?: string
+  onSelectionChange?: (historyId: string | null) => void | Promise<void>
 }
 
-export default function PriceHistoryChart({ priceHistory, unit }: PriceHistoryChartProps) {
+export default function PriceHistoryChart({ priceHistory, unit, ingredientId, onSelectionChange }: PriceHistoryChartProps) {
   const router = useRouter()
   const [showAll, setShowAll] = useState(false)
   const ordered = useMemo(
@@ -163,6 +166,9 @@ export default function PriceHistoryChart({ priceHistory, unit }: PriceHistoryCh
   const allEntriesReversed = [...data].reverse()
   const recentEntries = showAll ? allEntriesReversed : allEntriesReversed.slice(0, 3)
   const hasMore = allEntriesReversed.length > 3
+  const selectionEnabled = Boolean(ingredientId && onSelectionChange)
+  const selectedId = data.find((p) => p.is_selected_price)?.id ?? null
+  const latestId = latest?.id ?? null
 
   return (
     <div className="space-y-4">
@@ -207,16 +213,32 @@ export default function PriceHistoryChart({ priceHistory, unit }: PriceHistoryCh
           const supplierName = resolveSupplierName(point)
           const invoiceLabel = resolveInvoiceLabel(point)
 
+          const isSelected = point.id === selectedId
+          const isLatestFallback = selectedId === null && point.id === latestId
+
           return (
-            <button
+            <div
               key={point.id}
-              type="button"
-              disabled={!point.invoice_id}
-              onClick={() => {
-                if (point.invoice_id) router.push(`/invoices/${point.invoice_id}`)
-              }}
-              className="flex w-full items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-left text-sm transition-colors enabled:cursor-pointer enabled:hover:bg-slate-100 disabled:cursor-default dark:bg-slate-800/60 dark:enabled:hover:bg-slate-700/60"
+              className="flex w-full items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/60"
             >
+              {selectionEnabled && (
+                <input
+                  type="radio"
+                  name={`price-select-${ingredientId}`}
+                  checked={isSelected}
+                  onChange={() => onSelectionChange!(point.id)}
+                  className="h-3.5 w-3.5 shrink-0 accent-emerald-600"
+                  aria-label={`Use ${date} purchase as the selected price`}
+                />
+              )}
+              <button
+                type="button"
+                disabled={!point.invoice_id}
+                onClick={() => {
+                  if (point.invoice_id) router.push(`/invoices/${point.invoice_id}`)
+                }}
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-lg text-left transition-colors enabled:cursor-pointer enabled:hover:bg-slate-100 disabled:cursor-default dark:enabled:hover:bg-slate-700/60"
+              >
               <span
                 title={fromInvoice ? 'From invoice' : 'Manual edit'}
                 className="shrink-0 text-slate-400 dark:text-slate-500"
@@ -243,7 +265,18 @@ export default function PriceHistoryChart({ priceHistory, unit }: PriceHistoryCh
               <span className="shrink-0 font-semibold text-slate-900 dark:text-white">
                 {'\u20ac'}{point.displayPrice.toFixed(2)} / {point.displayUnit}
               </span>
-            </button>
+              </button>
+              {isSelected && (
+                <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400">
+                  Selected
+                </span>
+              )}
+              {isLatestFallback && (
+                <span className="shrink-0 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                  Latest
+                </span>
+              )}
+            </div>
           )
         })}
       </div>
@@ -256,6 +289,23 @@ export default function PriceHistoryChart({ priceHistory, unit }: PriceHistoryCh
         >
           {showAll ? 'Show less' : `Show all ${allEntriesReversed.length} entries`}
         </button>
+      )}
+
+      {selectionEnabled && (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-slate-400">
+            Recipes use the selected price. If none is selected, we use the most recent purchase.
+          </p>
+          {selectedId && (
+            <button
+              type="button"
+              onClick={() => onSelectionChange!(null)}
+              className="shrink-0 text-xs font-medium text-slate-400 underline-offset-2 hover:text-slate-600 hover:underline dark:hover:text-slate-300"
+            >
+              Clear selection
+            </button>
+          )}
+        </div>
       )}
     </div>
   )

@@ -656,6 +656,10 @@ export default function IngredientForm({
                 }}
               />
             )}
+            <p className="mt-1 text-xs text-slate-400">
+              Brand is now tracked per purchase in your invoice history. This field is legacy —
+              leave it blank unless you always buy this ingredient from the same brand.
+            </p>
           </div>
 
           {/* Supplier */}

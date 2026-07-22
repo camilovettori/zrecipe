@@ -111,12 +111,12 @@ export default function IngredientCard({ ingredient, onDeleteRequest }: Ingredie
           {ingredient.category ?? 'Other'}
         </span>
 
-        {/* Name + brand */}
+        {/* Name + effective brand */}
         <h3 className="mt-3 line-clamp-1 text-base font-semibold text-slate-900 dark:text-white">
           {ingredient.name}
         </h3>
-        {ingredient.brand && (
-          <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{ingredient.brand}</p>
+        {ingredient.effectiveBrand && (
+          <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{ingredient.effectiveBrand}</p>
         )}
 
         {/* Price */}

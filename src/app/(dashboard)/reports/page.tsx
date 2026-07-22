@@ -12,6 +12,7 @@ import {
 } from 'recharts'
 import { createClient } from '@/lib/supabase/client'
 import { calculateCost, type CostResult } from '@/lib/utils/cost-calculator'
+import { resolveIngredientPrice, type PriceHistoryEntry } from '@/lib/ingredients/resolveIngredientPrice'
 import { cn } from '@/lib/utils'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -37,7 +38,11 @@ type RecipeRow = {
     quantity: number
     unit: string
     yield_percent: number | null
-    ingredient: { current_price: number | null; price_unit: string | null } | null
+    ingredient: {
+      current_price: number | null
+      price_unit: string | null
+      price_history: PriceHistoryEntry[] | null
+    } | null
   }>
 }
 
@@ -59,6 +64,8 @@ type PriceHistoryRow = {
   ingredient: { id: string; name: string } | null
 }
 
+type IngredientPriceHistoryRow = PriceHistoryEntry & { brand?: string | null }
+
 type IngredientRow = {
   id: string
   name: string
@@ -67,6 +74,7 @@ type IngredientRow = {
   current_price: number | null
   price_unit: string | null
   updated_at: string | null
+  price_history: IngredientPriceHistoryRow[] | null
 }
 
 type PriceMover = {
@@ -139,7 +147,12 @@ export default function ReportsPage() {
           waste_percent, selling_price,
           recipe_ingredients!recipe_ingredients_recipe_id_fkey (
             quantity, unit, yield_percent,
-            ingredient:ingredients (current_price, price_unit)
+            ingredient:ingredients (
+              current_price, price_unit,
+              price_history:ingredient_price_history (
+                id, price, unit, is_selected_price, recorded_at
+              )
+            )
           )
         `).eq('tenant_id', tid).eq('is_active', true),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -153,7 +166,12 @@ export default function ReportsPage() {
           .order('recorded_at', { ascending: false }),
         supabase
           .from('ingredients')
-          .select('id, name, category, brand, current_price, price_unit, updated_at')
+          .select(`
+            id, name, category, brand, current_price, price_unit, updated_at,
+            price_history:ingredient_price_history (
+              id, price, unit, brand, is_selected_price, recorded_at
+            )
+          `)
           .eq('tenant_id', tid)
           .order('name'),
       ])
@@ -165,13 +183,20 @@ export default function ReportsPage() {
       const withCosts: RecipeWithCost[] = rawRecipes.map((r) => ({
         ...r,
         cost: calculateCost({
-          ingredients: (r.recipe_ingredients ?? []).map((ri) => ({
-            quantity: ri.quantity,
-            unit: ri.unit,
-            yield_percent: ri.yield_percent ?? 100,
-            current_price: ri.ingredient?.current_price,
-            price_unit: ri.ingredient?.price_unit,
-          })),
+          ingredients: (r.recipe_ingredients ?? []).map((ri) => {
+            const resolved = resolveIngredientPrice(
+              ri.ingredient?.price_history ?? [],
+              ri.ingredient?.current_price ?? null,
+              ri.ingredient?.price_unit ?? null
+            )
+            return {
+              quantity: ri.quantity,
+              unit: ri.unit,
+              yield_percent: ri.yield_percent ?? 100,
+              current_price: resolved.price,
+              price_unit: resolved.unit,
+            }
+          }),
           laborEnabled: r.labor_enabled,
           laborMode: r.labor_mode as 'fixed' | 'time',
           laborCostFixed: r.labor_cost,
@@ -345,14 +370,18 @@ export default function ReportsPage() {
 
   const printIngredientList = () => {
     const today = new Date().toLocaleDateString('en-IE', { day: 'numeric', month: 'long', year: 'numeric' })
-    const rows = ingredients.map((ing) => `<tr>
+    const rows = ingredients.map((ing) => {
+      const resolved = resolveIngredientPrice(ing.price_history ?? [], ing.current_price, ing.price_unit)
+      const effectiveBrand = ing.price_history?.find((h) => h.id === resolved.historyId)
+      return `<tr>
       <td>${ing.name}</td>
       <td>${ing.category ?? '—'}</td>
-      <td>${ing.brand ?? '—'}</td>
-      <td>${ing.current_price != null ? '€' + ing.current_price.toFixed(2) : '—'}</td>
-      <td>${ing.price_unit ?? '—'}</td>
+      <td>${effectiveBrand?.brand ?? ing.brand ?? '—'}</td>
+      <td>${resolved.price != null ? '€' + resolved.price.toFixed(2) : '—'}</td>
+      <td>${resolved.unit ?? '—'}</td>
       <td>${ing.updated_at ? new Date(ing.updated_at).toLocaleDateString('en-IE') : '—'}</td>
-    </tr>`).join('')
+    </tr>`
+    }).join('')
     const win = window.open('', '_blank')
     if (!win) return
     win.document.write(`<!DOCTYPE html><html><head><title>Ingredient Price List</title><style>
