@@ -5,7 +5,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { X, Loader2, CheckCircle2, LifeBuoy } from 'lucide-react'
+import { X, Loader2, CheckCircle2, LifeBuoy, MailCheck } from 'lucide-react'
 
 const labelClass = 'mb-1.5 block text-xs font-semibold text-slate-600'
 const inputClass =
@@ -62,26 +62,41 @@ export default function SupportModal({ open, onOpenChange, mode, onTicketCreated
             </div>
             <div>
               <Dialog.Title className="text-base font-semibold text-slate-900">
-                Contact support
+                {mode === 'public' && source === 'contact' ? 'Get in touch' : 'Contact support'}
               </Dialog.Title>
               <Dialog.Description className="text-xs text-slate-500">
                 {mode === 'public'
-                  ? "We'll reply to your email as soon as possible."
+                  ? source === 'contact'
+                    ? "Send us a message and we'll reply as soon as we can."
+                    : "We'll reply to your email as soon as possible."
                   : "You'll get a reply inside the app and by email."}
               </Dialog.Description>
             </div>
           </div>
 
           {sent ? (
-            <div className="flex flex-col items-center gap-2 py-6 text-center">
-              <CheckCircle2 className="h-9 w-9 text-emerald-500" />
-              <p className="text-sm font-medium text-slate-800">Message sent</p>
-              <p className="text-sm text-slate-500">
-                {mode === 'public'
-                  ? "Thanks for reaching out — check your inbox for a confirmation."
-                  : "We'll notify you here and by email when we reply."}
-              </p>
-            </div>
+            mode === 'public' && source === 'contact' ? (
+              <div className="flex flex-col items-center gap-2 py-6 text-center">
+                <MailCheck className="h-9 w-9 text-emerald-500" />
+                <p className="text-sm font-medium text-slate-800">Thanks for reaching out!</p>
+                <p className="text-sm text-slate-500">We&apos;ll get back to you as soon as possible.</p>
+                <p className="text-xs text-slate-400">
+                  Thanks for reaching out — check your inbox for a confirmation.
+                </p>
+              </div>
+            ) : mode === 'public' ? (
+              <div className="flex flex-col items-center gap-2 py-6 text-center">
+                <LifeBuoy className="h-9 w-9 text-emerald-500" />
+                <p className="text-sm font-medium text-slate-800">Contact support</p>
+                <p className="text-sm text-slate-500">We&apos;ll reply to your email as soon as possible.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-2 py-6 text-center">
+                <CheckCircle2 className="h-9 w-9 text-emerald-500" />
+                <p className="text-sm font-medium text-slate-800">Message sent</p>
+                <p className="text-sm text-slate-500">We&apos;ll notify you here and by email when we reply.</p>
+              </div>
+            )
           ) : mode === 'public' ? (
             <PublicSupportForm source={source} onSent={() => setSent(true)} />
           ) : (

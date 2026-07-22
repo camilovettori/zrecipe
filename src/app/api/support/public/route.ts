@@ -106,10 +106,14 @@ export async function POST(request: NextRequest) {
 
   // Admin notification — reply-to is the requester so the admin can just hit
   // "Reply" in Gmail and the conversation continues over email from there.
+  const adminSubject = isContact
+    ? `[ZRecipe Contact] ${subject}`
+    : `[ZRecipe Support ${ticketNumber}] ${subject}`
+
   const adminResult = await sendEmail({
     from: senderFrom,
     to: adminInbox,
-    subject: `[ZRecipe Support ${ticketNumber}] ${subject}`,
+    subject: adminSubject,
     replyTo: email,
     html: renderEmail({
       preheader: `${name}: ${subject}`,
@@ -128,18 +132,32 @@ export async function POST(request: NextRequest) {
     console.error('[support/public] admin notification email failed:', adminResult.error)
   }
 
-  const confirmResult = await sendEmail({
-    from: senderFrom,
-    to: email,
-    subject: `Ticket ${ticketNumber} received — we'll be in touch`,
-    html: renderEmail({
-      preheader: 'We received your message and will reply soon.',
-      heading: 'Thanks — we received your message',
-      bodyHtml: paragraphs(
+  const confirmSubject = isContact
+    ? 'Thanks — we received your message'
+    : `Ticket ${ticketNumber} received — we'll be in touch`
+  const confirmHeading = isContact
+    ? 'Thanks — we received your message'
+    : `Ticket ${ticketNumber} received`
+  const confirmBodyHtml = isContact
+    ? paragraphs(
+        `Hi ${name},`,
+        "Thanks for reaching out to ZRecipe. We've received your message and will get back to you as soon as possible, usually within one business day.",
+        '— The ZRecipe team'
+      )
+    : paragraphs(
         `Hi ${name},`,
         `Thanks for reaching out to ZRecipe. We've received your message (ticket ${ticketNumber}) and will get back to you as soon as possible, usually within one business day.`,
         '— The ZRecipe team'
-      ),
+      )
+
+  const confirmResult = await sendEmail({
+    from: senderFrom,
+    to: email,
+    subject: confirmSubject,
+    html: renderEmail({
+      preheader: 'We received your message and will reply soon.',
+      heading: confirmHeading,
+      bodyHtml: confirmBodyHtml,
     }),
   })
   if (!confirmResult.ok) {

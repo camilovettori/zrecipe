@@ -114,5 +114,31 @@ export async function POST(request: NextRequest) {
     console.error('[support/internal] admin notification email failed:', adminResult.error)
   }
 
+  const resolvedFirstName = requesterName.trim().split(/\s+/)[0] || 'there'
+
+  const confirmResult = await sendEmail({
+    from: SUPPORT_FROM,
+    to: requesterEmail,
+    subject: `Ticket ${ticketNumber} received — we'll be in touch`,
+    html: renderEmail({
+      preheader: "We've received your message and will reply soon.",
+      eyebrow: 'Support ticket received',
+      heading: `Ticket ${ticketNumber} received`,
+      bodyHtml: paragraphs(
+        `Hi ${resolvedFirstName},`,
+        "Thanks for reaching out. We've received your message and will get back to you as soon as possible, usually within one business day.",
+        'You can also view this ticket and reply directly inside the app.',
+        '— The ZRecipe team'
+      ),
+      button: {
+        label: 'Open ticket in ZRecipe',
+        href: `${appUrl}/support/${ticket.id}`,
+      },
+    }),
+  })
+  if (!confirmResult.ok) {
+    console.error('[support/internal] confirmation email failed:', confirmResult.error)
+  }
+
   return NextResponse.json({ success: true, ticketId: ticket.id as string, ticketNumber })
 }
