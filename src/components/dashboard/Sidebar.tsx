@@ -22,10 +22,12 @@ import {
   X,
   Shield,
   LifeBuoy,
+  Megaphone,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { clearTenantCache } from '@/hooks/useTenant'
 import { useAppStore } from '@/stores/app'
+import { useUserUnread } from '@/hooks/useUserUnread'
 import { cn } from '@/lib/utils'
 
 const SUPER_ADMIN_EMAIL = 'camilovettori@gmail.com'
@@ -174,12 +176,14 @@ function SidebarContent({
   onToggle,
   user,
   userEmail,
+  announcementCount = 0,
 }: {
   collapsed: boolean
   onNavClick?: () => void
   onToggle?: () => void
   user: UserInfo | null
   userEmail?: string
+  announcementCount?: number
 }) {
   return (
     <div className="flex h-full flex-col">
@@ -255,6 +259,36 @@ function SidebarContent({
         </Link>
       </div>
 
+      {/* Announcements */}
+      <div className="px-3 pb-1">
+        <Link
+          href="/announcements"
+          onClick={onNavClick}
+          title={collapsed ? 'Announcements' : undefined}
+          className={cn(
+            'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-300',
+            collapsed && 'justify-center'
+          )}
+        >
+          <span className="relative shrink-0">
+            <Megaphone className="h-3.5 w-3.5" />
+            {announcementCount > 0 && (
+              <span className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-red-500" />
+            )}
+          </span>
+          {!collapsed && (
+            <span className="flex flex-1 items-center justify-between">
+              Announcements
+              {announcementCount > 0 && (
+                <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">
+                  {announcementCount > 9 ? '9+' : announcementCount}
+                </span>
+              )}
+            </span>
+          )}
+        </Link>
+      </div>
+
       {/* Separator */}
       <div className="mx-3 border-t border-slate-700" />
 
@@ -267,6 +301,7 @@ export default function Sidebar() {
   const { sidebarCollapsed, toggleSidebar, mobileSidebarOpen, setMobileSidebarOpen } =
     useAppStore()
   const [user, setUser] = useState<UserInfo | null>(null)
+  const { announcementCount } = useUserUnread()
 
   useEffect(() => {
     const supabase = createClient()
@@ -295,6 +330,7 @@ export default function Sidebar() {
           onToggle={toggleSidebar}
           user={user}
           userEmail={user?.email}
+          announcementCount={announcementCount}
         />
       </motion.aside>
 
@@ -331,6 +367,7 @@ export default function Sidebar() {
                 user={user}
                 userEmail={user?.email}
                 onNavClick={() => setMobileSidebarOpen(false)}
+                announcementCount={announcementCount}
               />
             </motion.aside>
           </>

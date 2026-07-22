@@ -20,6 +20,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     .eq('admin_unread', true)
   const hasUnreadTickets = (unreadCount ?? 0) > 0
 
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+  const { count: recentAnnouncementCount } = await admin
+    .from('announcements')
+    .select('id', { count: 'exact', head: true })
+    .gte('sent_at', thirtyDaysAgo)
+  const hasRecentAnnouncement = (recentAnnouncementCount ?? 0) > 0
+
   return (
     <div className="flex min-h-screen">
       {/* Sidebar — dark */}
@@ -33,7 +40,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </div>
 
         <div className="flex-1">
-          <AdminNav hasUnreadTickets={hasUnreadTickets} />
+          <AdminNav hasUnreadTickets={hasUnreadTickets} hasRecentAnnouncement={hasRecentAnnouncement} />
         </div>
 
         <div className="border-t border-slate-800 pt-3">

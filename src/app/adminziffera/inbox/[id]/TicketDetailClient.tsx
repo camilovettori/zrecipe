@@ -14,6 +14,7 @@ import { replyToTicket, setTicketStatus } from '../actions'
 interface Ticket {
   id: string
   number: number
+  created_at: string
   channel: 'email' | 'internal'
   channel_source?: string | null
   status: 'open' | 'closed'
@@ -69,7 +70,7 @@ export default function TicketDetailClient({
         Back to Inbox
       </Link>
 
-      <div className="mb-6 flex items-start justify-between">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
             <span
@@ -84,20 +85,34 @@ export default function TicketDetailClient({
             <h1 className="text-lg font-semibold text-slate-900">{ticket.subject}</h1>
           </div>
           <p className="mt-1 text-sm text-slate-500">
-            Ticket {formatTicketNumber(ticket.number)} · {badge.label}
-          </p>
-          <p className="mt-0.5 text-sm text-slate-500">
             {ticket.requester_name} · {ticket.requester_email}
           </p>
         </div>
 
-        <button
-          onClick={handleToggleStatus}
-          disabled={statusPending}
-          className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
-        >
-          {statusPending ? '…' : ticket.status === 'open' ? 'Mark as closed' : 'Reopen'}
-        </button>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-slate-500">
+              {formatTicketNumber(ticket.number, ticket.created_at)}
+            </span>
+            <span
+              className={cn(
+                'w-fit rounded-full px-2.5 py-1 text-[10px] font-semibold',
+                ticket.status === 'open'
+                  ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
+                  : 'border border-slate-200 bg-slate-100 text-slate-500'
+              )}
+            >
+              {ticket.status === 'open' ? 'Open' : 'Closed'}
+            </span>
+          </div>
+          <button
+            onClick={handleToggleStatus}
+            disabled={statusPending}
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
+          >
+            {statusPending ? '…' : ticket.status === 'open' ? 'Mark as closed' : 'Reopen'}
+          </button>
+        </div>
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">

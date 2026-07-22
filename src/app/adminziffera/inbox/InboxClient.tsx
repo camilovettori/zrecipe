@@ -11,6 +11,7 @@ import { formatTicketNumber } from '@/lib/support/formatTicketNumber'
 export interface InboxTicket {
   id: string
   number: number
+  created_at: string
   channel: 'email' | 'internal'
   channel_source?: string | null
   status: 'open' | 'closed'
@@ -117,7 +118,7 @@ export default function InboxClient({ tickets }: { tickets: InboxTicket[] }) {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <p className={cn('truncate text-sm', t.admin_unread ? 'font-semibold text-slate-900' : 'font-medium text-slate-700')}>
-                      <span className="text-slate-400">{formatTicketNumber(t.number)} · </span>
+                      <span className="text-slate-400">{formatTicketNumber(t.number, t.created_at)} · </span>
                       {t.subject}
                     </p>
                     {t.status === 'closed' && (

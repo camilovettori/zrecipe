@@ -27,6 +27,22 @@ function useEntityName(pathname: string): string | null {
     const supabase = createClient()
     let cancelled = false
 
+    // Support tickets format their "name" as the ticket number rather than
+    // a plain `name` column — handled separately from the generic lookup.
+    if (parent === 'support') {
+      supabase
+        .from('support_tickets')
+        .select('number, created_at')
+        .eq('id', last)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (!cancelled && data) {
+            setName(formatTicketNumber(data.number as number, data.created_at as string))
+          }
+        })
+      return () => { cancelled = true }
+    }
+
     const table = parent === 'recipes' ? 'recipes' : parent === 'ingredients' ? 'ingredients' : null
     if (!table) return
 
@@ -63,9 +79,10 @@ function useBreadcrumbs(pathname: string, entityName: string | null) {
 }
 
 function NotificationBell() {
-  const { count, tickets } = useUserUnread()
+  const { count, announcementCount, items } = useUserUnread()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const totalCount = count + announcementCount
 
   useEffect(() => {
     if (!open) return
@@ -84,35 +101,54 @@ function NotificationBell() {
         aria-label="Notifications"
       >
         <Bell className="h-5 w-5" />
-        {count > 0 && (
+        {totalCount > 0 && (
           <span className="absolute right-0.5 top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">
-            {count > 9 ? '9+' : count}
+            {totalCount > 9 ? '9+' : totalCount}
           </span>
         )}
       </button>
 
       {open && (
         <div className="absolute right-0 top-full z-50 mt-2 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-800">
-          {tickets.length === 0 ? (
+          {items.length === 0 ? (
             <p className="px-3 py-6 text-center text-sm text-slate-400">You&apos;re all caught up ✨</p>
           ) : (
             <div className="flex flex-col">
-              {tickets.map((t) => (
-                <Link
-                  key={t.id}
-                  href={`/support/${t.id}`}
-                  onClick={() => setOpen(false)}
-                  className="rounded-lg px-3 py-2 text-sm transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
-                >
-                  <p className="truncate font-medium text-slate-800 dark:text-white">
-                    <span className="text-slate-400">{formatTicketNumber(t.number)} · </span>
-                    {t.subject}
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {formatDistanceToNow(new Date(t.last_message_at), { addSuffix: true })}
-                  </p>
-                </Link>
-              ))}
+              {items.map((item) =>
+                item.kind === 'ticket' ? (
+                  <Link
+                    key={`ticket-${item.id}`}
+                    href={`/support/${item.id}`}
+                    onClick={() => setOpen(false)}
+                    className="rounded-lg px-3 py-2 text-sm transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
+                  >
+                    <p className="truncate font-medium text-slate-800 dark:text-white">
+                      <span className="text-slate-400">{formatTicketNumber(item.number, item.created_at)} · </span>
+                      {item.subject}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      {formatDistanceToNow(new Date(item.last_message_at), { addSuffix: true })}
+                    </p>
+                  </Link>
+                ) : (
+                  <Link
+                    key={`announcement-${item.id}`}
+                    href={`/announcements/${item.id}`}
+                    onClick={() => setOpen(false)}
+                    className="rounded-lg px-3 py-2 text-sm transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
+                  >
+                    <p className="truncate font-medium text-slate-800 dark:text-white">
+                      <span className="text-slate-400">
+                        {formatTicketNumber(item.number, item.created_at, 'announcement')} ·{' '}
+                      </span>
+                      {item.title}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      {formatDistanceToNow(new Date(item.sent_at), { addSuffix: true })}
+                    </p>
+                  </Link>
+                )
+              )}
             </div>
           )}
         </div>

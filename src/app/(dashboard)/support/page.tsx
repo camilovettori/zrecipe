@@ -13,6 +13,7 @@ import { formatTicketNumber } from '@/lib/support/formatTicketNumber'
 interface Ticket {
   id: string
   number: number
+  created_at: string
   subject: string
   status: 'open' | 'closed'
   last_message_preview: string | null
@@ -43,7 +44,7 @@ export default function SupportPage() {
 
     const { data } = await supabase
       .from('support_tickets')
-      .select('id, number, subject, status, last_message_preview, last_message_at, user_unread')
+      .select('id, number, created_at, subject, status, last_message_preview, last_message_at, user_unread')
       .eq('user_id', user.id)
       .order('last_message_at', { ascending: false })
 
@@ -149,7 +150,7 @@ export default function SupportPage() {
 
                 <div className="min-w-0 flex-1">
                   <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                    {formatTicketNumber(ticket.number)}
+                    {formatTicketNumber(ticket.number, ticket.created_at)}
                   </p>
                   <p className={cn(
                     'truncate text-sm',

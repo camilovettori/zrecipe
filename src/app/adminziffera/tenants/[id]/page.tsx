@@ -29,6 +29,7 @@ interface AiFeatureRow {
 interface SupportTicketRow {
   id: string
   number: number
+  created_at: string
   channel: 'email' | 'internal'
   status: 'open' | 'closed'
   subject: string
@@ -146,7 +147,7 @@ export default async function TenantDetail({ params }: { params: { id: string } 
     const [{ data: ticketRows }, { count: ticketCount }] = await Promise.all([
       admin
         .from('support_tickets')
-        .select('id, number, channel, status, subject, last_message_at')
+        .select('id, number, created_at, channel, status, subject, last_message_at')
         .eq('requester_email', owner.email)
         .order('last_message_at', { ascending: false })
         .limit(10),
@@ -387,7 +388,7 @@ export default async function TenantDetail({ params }: { params: { id: string } 
                     {t.channel === 'email' ? 'Email' : 'Internal'}
                   </span>
                   <span className="truncate text-sm text-slate-700">
-                    <span className="text-slate-400">{formatTicketNumber(t.number)} · </span>
+                    <span className="text-slate-400">{formatTicketNumber(t.number, t.created_at)} · </span>
                     {t.subject}
                   </span>
                   {t.status === 'closed' && (

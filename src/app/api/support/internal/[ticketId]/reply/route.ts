@@ -33,7 +33,7 @@ export async function POST(
 
   const { data: ticket } = await supabase
     .from('support_tickets')
-    .select('id, user_id, subject, number')
+    .select('id, user_id, subject, number, created_at')
     .eq('id', params.ticketId)
     .maybeSingle()
 
@@ -73,7 +73,7 @@ export async function POST(
     .eq('id', ticket.id)
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://zrecipe.ie'
-  const ticketNumber = formatTicketNumber(ticket.number as number)
+  const ticketNumber = formatTicketNumber(ticket.number as number, ticket.created_at as string)
 
   const adminResult = await sendEmail({
     from: SUPPORT_FROM,

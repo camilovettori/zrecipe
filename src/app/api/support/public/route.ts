@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
       last_message_preview: message.slice(0, 200),
       admin_unread: true,
     })
-    .select('id, number')
+    .select('id, number, created_at')
     .single()
 
   if (ticketError || !ticket) {
@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://zrecipe.ie'
-  const ticketNumber = formatTicketNumber(ticket.number as number)
+  const ticketNumber = formatTicketNumber(ticket.number as number, ticket.created_at as string)
 
   // Admin notification — reply-to is the requester so the admin can just hit
   // "Reply" in Gmail and the conversation continues over email from there.

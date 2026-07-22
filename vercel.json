@@ -5,6 +5,9 @@
     },
     "src/app/api/invoices/extract/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/adminziffera/announcements/page.tsx": {
+      "maxDuration": 60
     }
   }
 }

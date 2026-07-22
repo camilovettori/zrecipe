@@ -15,6 +15,7 @@ import { formatTicketNumber } from '@/lib/support/formatTicketNumber'
 interface Ticket {
   id: string
   number: number
+  created_at: string
   channel: 'email' | 'internal'
   channel_source?: string | null
   subject: string
@@ -48,7 +49,7 @@ export default function SupportTicketPage({ params }: { params: { ticketId: stri
 
       const { data: ticketRow } = await supabase
         .from('support_tickets')
-        .select('id, number, channel, channel_source, subject, status')
+        .select('id, number, created_at, channel, channel_source, subject, status')
         .eq('id', ticketId)
         .maybeSingle()
 
@@ -134,7 +135,6 @@ export default function SupportTicketPage({ params }: { params: { ticketId: stri
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{ticket.subject}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-slate-500">{formatTicketNumber(ticket.number)}</span>
             <span
               className={cn(
                 'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium',
@@ -146,16 +146,21 @@ export default function SupportTicketPage({ params }: { params: { ticketId: stri
             </span>
           </div>
         </div>
-        <span
-          className={cn(
-            'w-fit rounded-full px-2.5 py-1 text-[10px] font-semibold',
-            ticket.status === 'open'
-              ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
-              : 'border border-slate-200 bg-slate-100 text-slate-500'
-          )}
-        >
-          {ticket.status === 'open' ? 'Open' : 'Closed'}
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-sm font-medium text-slate-500">
+            {formatTicketNumber(ticket.number, ticket.created_at)}
+          </span>
+          <span
+            className={cn(
+              'w-fit rounded-full px-2.5 py-1 text-[10px] font-semibold',
+              ticket.status === 'open'
+                ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border border-slate-200 bg-slate-100 text-slate-500'
+            )}
+          >
+            {ticket.status === 'open' ? 'Open' : 'Closed'}
+          </span>
+        </div>
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
