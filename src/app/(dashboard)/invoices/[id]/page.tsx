@@ -217,7 +217,7 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
             .order('name', { ascending: true }),
           supabase
             .from('ingredients')
-            .select('id, name, current_price, price_unit, package_size, package_unit')
+            .select('id, name, brand, current_price, price_unit, package_size, package_unit')
             .eq('tenant_id', tenantId)
             .order('name', { ascending: true }),
         ])
@@ -237,6 +237,7 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
           (ingredientResult.data ?? []).map((item) => ({
             id: item.id,
             name: item.name,
+            brand: item.brand ?? null,
             currentPrice: item.current_price ?? null,
             priceUnit: item.price_unit ?? null,
             packageSize: item.package_size ?? null,

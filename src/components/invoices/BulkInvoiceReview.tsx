@@ -97,7 +97,7 @@ function buildInitialGroups(
         draftId: draft.id,
         fileName: draft.fileName,
         invoiceDate: draft.meta.invoiceDate,
-        brand: '',
+        brand: item.brand?.trim() || '',
         price: item.unitPrice,
         quantity: item.quantity,
         unit: item.unit,

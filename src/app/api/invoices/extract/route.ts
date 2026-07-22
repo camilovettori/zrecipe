@@ -50,6 +50,7 @@ Return ONLY valid JSON, no markdown, no backticks, no explanation. The JSON must
   "items": [
     {
       "description": "string",
+      "brand": "string or null",
       "quantity": number,
       "unit": "string",
       "package_size": number or null,
@@ -64,9 +65,13 @@ FIELD RULES:
 
 description:
 - Clean product name in Title Case
-- Remove supplier brand prefixes (e.g., "COSUN", "CALLEBA", "KTC", "MC DOUGALLS", "NEWFORGE", "LAKELAND", "GEM")
+- Remove the product brand from the description and return it separately in brand
 - Remove size/weight info that belongs in package_size (e.g., "10KG", "500ML", "250G")
 - Keep the actual product identity (e.g., "Butter Salted", "Coconut Oil Pure", "Muffin Case Standard")
+
+brand:
+- Product manufacturer or brand shown on the line (e.g., "KTC", "Callebaut", "Newforge", "Lakeland")
+- Return null when no product brand is visible; do not use the invoice supplier as the brand
 
 quantity:
 - The number of PURCHASE UNITS ordered (cases, bags, packs, boxes, etc.)
@@ -160,6 +165,7 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage) {
     total?: number | null
     items?: Array<{
       description?: string
+      brand?: string | null
       quantity?: number
       unit?: string
       package_size?: number | null
@@ -207,6 +213,7 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage) {
     total_amount:    parsed.total ?? null,
     items: (parsed.items ?? []).map((item) => ({
       description:  item.description ?? '',
+      brand:        item.brand?.trim() || null,
       quantity:     Number(item.quantity ?? 1) || 1,
       unit:         item.unit ?? 'unit',
       package_size: item.package_size ?? null,

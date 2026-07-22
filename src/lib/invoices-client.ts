@@ -67,6 +67,7 @@ export async function extractPdfText(file: File) {
 
 export type ExtractedInvoiceItem = {
   description: string
+  brand?: string | null
   quantity: number
   unit: string
   packageSize?: number | null
@@ -80,6 +81,7 @@ export function normalizeExtractedItems(
     | ExtractedInvoiceItem
     | {
         description?: string
+        brand?: string | null
         quantity?: number
         unit?: string
         unit_price?: number
@@ -90,6 +92,7 @@ export function normalizeExtractedItems(
 ): ExtractedInvoiceItem[] {
   return items.map((item) => ({
       description: (item as { description?: string }).description ?? '',
+      brand: (item as { brand?: string | null }).brand?.trim() || null,
       quantity: Number((item as { quantity?: number }).quantity ?? 1) || 1,
       unit: (item as { unit?: string }).unit ?? 'unit',
       packageSize:

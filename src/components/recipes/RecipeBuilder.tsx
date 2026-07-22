@@ -26,6 +26,7 @@ import {
   Printer,
   RefreshCw,
   Save,
+  Sparkles,
   StickyNote,
   Tag,
   Trash2,
@@ -64,6 +65,7 @@ import LaborConfigModal from './LaborConfigModal'
 import NewIngredientModal, { type NewIngredientFormData } from './NewIngredientModal'
 import { IngredientNoteModal } from './IngredientNoteModal'
 import { SubstituteIngredientModal, type SubstituteReplacement } from './SubstituteIngredientModal'
+import AiImportRecipeModal, { type ImportedRecipePayload } from './AiImportRecipeModal'
 
 const PhotoCropModal = dynamic(() => import('./PhotoCropModal'), { ssr: false })
 
@@ -75,6 +77,8 @@ const INGREDIENT_ROW_UNITS = [
   { value: 'unit', label: 'unit' },
   { value: 'tsp',  label: 'tsp' },
   { value: 'tbsp', label: 'tbsp' },
+  { value: 'cup',  label: 'cup' },
+  { value: 'dozen', label: 'dozen' },
 ]
 
 function allergensToEntries(allergens: RecipeAllergenSummary): IngredientAllergen[] {
@@ -100,6 +104,7 @@ function createIngredientLine(partial?: Partial<RecipeIngredientDraft>): RecipeI
     ingredientId: partial?.ingredientId ?? null,
     subRecipeId: partial?.subRecipeId ?? null,
     ingredientName: partial?.ingredientName ?? '',
+    ingredientBrand: partial?.ingredientBrand ?? null,
     quantity: partial?.quantity ?? 1,
     unit: partial?.unit ?? 'unit',
     currentPrice: partial?.currentPrice ?? null,
@@ -293,14 +298,30 @@ function IngredientRow({
               </button>
             </div>
           ) : item.ingredientId ? (
-            <Link
-              href={`/ingredients/${item.ingredientId}`}
-              target="_blank"
-              title="View ingredient details"
-              className="min-w-0 whitespace-normal break-words text-left text-sm leading-tight text-slate-800 transition hover:text-emerald-600 hover:underline"
-            >
-              {item.ingredientName}
-            </Link>
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <Link
+                href={`/ingredients/${item.ingredientId}`}
+                target="_blank"
+                title="View ingredient details"
+                className="min-w-0 whitespace-normal break-words text-left text-sm leading-tight text-slate-800 transition hover:text-emerald-600 hover:underline"
+              >
+                <span className="block">{item.ingredientName}</span>
+                {item.ingredientBrand && (
+                  <span className="mt-0.5 block text-[11px] font-normal text-slate-400">{item.ingredientBrand}</span>
+                )}
+              </Link>
+              {item.currentPrice == null && (
+                <Link
+                  href={`/ingredients/${item.ingredientId}`}
+                  target="_blank"
+                  title="Add a price to calculate this line cost"
+                  className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 transition hover:border-amber-300 hover:bg-amber-100"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  New - add price
+                </Link>
+              )}
+            </div>
           ) : (
             <span className="min-w-0 whitespace-normal break-words text-left text-sm leading-tight text-slate-800">
               {item.ingredientName}
@@ -479,7 +500,9 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const [isMobile, setIsMobile] = useState(false)
   const [categoryMode, setCategoryMode] = useState<'select' | 'custom'>('select')
   const [customCategoryInput, setCustomCategoryInput] = useState('')
+  const [aiImportOpen, setAiImportOpen] = useState(false)
   const [yieldModalOpen, setYieldModalOpen] = useState(false)
+  const [yieldFactorsEnabled, setYieldFactorsEnabled] = useState(false)
   const [laborConfigModalOpen, setLaborConfigModalOpen] = useState(false)
   const [showYfTooltip, setShowYfTooltip] = useState(false)
   const [newIngredientName, setNewIngredientName] = useState('')
@@ -525,8 +548,13 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
             ...parsed,
             imageUrls: aiImageUrls,
             instructions: (parsed.instructions?.length ?? 0) > 0 ? parsed.instructions! : [createStep()],
-            ingredients: parsed.ingredients?.map((item) => createIngredientLine(item)) ?? [],
+            ingredients: parsed.ingredients?.map((item) => createIngredientLine({
+              ...item,
+              yield_percent: 100,
+              yield_override: false,
+            })) ?? [],
           })
+          setYieldFactorsEnabled(false)
         } catch {
           sessionStorage.removeItem('prefill-recipe')
         }
@@ -550,6 +578,9 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
             instructions: parsed.instructions?.length > 0 ? parsed.instructions : [createStep()],
             ingredients: parsed.ingredients?.map((item) => createIngredientLine(item)) ?? [],
           })
+          setYieldFactorsEnabled(parsed.ingredients?.some(
+            (item) => (item.yield_percent ?? 100) < 100 && !item.yield_override
+          ) ?? false)
         } catch {
           setRecipe(blankRecipe())
         }
@@ -572,6 +603,9 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
         } as RecipeRecord
         setLoadedRecipe(hydratedRecipe)
         setRecipe(mapRecipeToState(hydratedRecipe))
+        setYieldFactorsEnabled(hydratedIngredients.some(
+          (item) => (item.yield_percent ?? 100) < 100 && !item.yield_override
+        ))
         setRecipeAllergens(
           computeRecipeAllergens(
             Object.fromEntries(
@@ -813,11 +847,12 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   }
 
   const addIngredient = (ingredient: IngredientLookup, quantity: number, unit: string) => {
-    const yf = findYieldFactor(ingredient.name)
+    const yf = yieldFactorsEnabled ? findYieldFactor(ingredient.name) : null
     const yieldPercent = yf?.yieldPercent ?? 100
     const nextLine = createIngredientLine({
       ingredientId: ingredient.id,
       ingredientName: ingredient.name,
+      ingredientBrand: ingredient.brand ?? null,
       quantity,
       unit,
       currentPrice: ingredient.currentPrice ?? null,
@@ -846,6 +881,73 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
         }
       })
       .catch(() => {})
+  }
+
+  const handleAiRecipeImported = (payload: ImportedRecipePayload) => {
+    const importedLines = payload.ingredients.map((ingredient) => {
+      const yf = yieldFactorsEnabled ? findYieldFactor(ingredient.ingredientName) : null
+      return createIngredientLine({
+        id: ingredient.id,
+        ingredientId: ingredient.ingredientId,
+        ingredientName: ingredient.ingredientName,
+        ingredientBrand: ingredient.ingredientBrand,
+        quantity: ingredient.quantity,
+        unit: ingredient.unit,
+        currentPrice: ingredient.currentPrice,
+        priceUnit: ingredient.priceUnit ?? ingredient.unit,
+        allergens: [],
+        yield_percent: yf?.yieldPercent ?? 100,
+        yield_override: false,
+      })
+    })
+
+    setRecipe((current) => ({
+      ...current,
+      name: payload.name || current.name,
+      prepTimeMinutes: payload.prepTimeMinutes,
+      cookTimeMinutes: payload.cookTimeMinutes,
+      yieldQuantity: payload.yieldQuantity,
+      yieldUnit: payload.yieldUnit || current.yieldUnit,
+      ingredients: importedLines,
+    }))
+
+    void hydrateIngredientAllergens(importedLines).then((hydrated) => {
+      setRecipe((current) => ({
+        ...current,
+        ingredients: current.ingredients.map((item) => hydrated.find((next) => next.id === item.id) ?? item),
+      }))
+    })
+  }
+
+  const handleYieldFactorsToggle = () => {
+    if (!hasFullAccess) {
+      toast('Yield factor calculator is a Pro feature', {
+        description: 'Upgrade to Pro from Settings -> Billing to unlock this.',
+      })
+      return
+    }
+
+    const nextEnabled = !yieldFactorsEnabled
+    setYieldFactorsEnabled(nextEnabled)
+    setRecipe((current) => ({
+      ...current,
+      ingredients: current.ingredients.map((item) => {
+        const suggestion = nextEnabled && !item.subRecipeId
+          ? findYieldFactor(item.ingredientName)
+          : null
+        return createIngredientLine({
+          ...item,
+          yield_percent: suggestion?.yieldPercent ?? 100,
+          yield_override: false,
+        })
+      }),
+    }))
+
+    toast(nextEnabled ? 'Yield factors enabled' : 'Yield factors disabled', {
+      description: nextEnabled
+        ? 'Reference yields were applied to matching ingredients in this recipe.'
+        : 'All ingredients were reset to 100% yield.',
+    })
   }
 
   const addSubRecipe = (subRecipe: SubRecipeLookup, quantity: number, unit: string) => {
@@ -1915,7 +2017,47 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                 {computedIngredients.length}
               </span>
             )}
-            <div className="relative ml-auto">
+            <div className="ml-auto flex items-center gap-2">
+              {recipe.ingredients.length === 0 && (
+                <button
+                  type="button"
+                  onClick={() => setAiImportOpen(true)}
+                  title="Upload a recipe photo, PDF, or file - AI will extract the ingredients for you."
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  AI import
+                </button>
+              )}
+              <div
+                className={cn(
+                  'inline-flex items-center gap-2 rounded-lg border px-2.5 py-0.5 text-xs font-semibold transition-colors',
+                  yieldFactorsEnabled
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    : 'border-slate-200 bg-white text-slate-500'
+                )}
+              >
+                <span>Auto YF</span>
+                <button
+                  type="button"
+                  onClick={handleYieldFactorsToggle}
+                  aria-pressed={yieldFactorsEnabled}
+                  aria-label={yieldFactorsEnabled ? 'Disable automatic yield factors' : 'Enable automatic yield factors'}
+                  title={yieldFactorsEnabled ? 'Disable yield factors for this recipe' : 'Apply reference yield factors to this recipe'}
+                  className={cn(
+                    'relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors',
+                    yieldFactorsEnabled ? 'bg-emerald-500' : 'bg-gray-200'
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform',
+                      yieldFactorsEnabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
+                    )}
+                  />
+                </button>
+              </div>
+              <div className="relative">
               <button
                 type="button"
                 onClick={() => {
@@ -1938,11 +2080,12 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                 <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-xl border border-gray-200 bg-white p-3 shadow-lg pointer-events-none">
                   <p className="mb-1 text-sm font-semibold text-gray-800">Yield Factor Reference</p>
                   <p className="mb-2 text-xs leading-relaxed text-gray-500">
-                    Yield factor accounts for trim loss during prep — peeling, boning, coring. Example: a banana is 66% usable after peeling.
+                    Yield factor accounts for trim loss during prep. Use Auto YF to apply the reference values to this recipe.
                   </p>
                   <p className="text-xs font-medium text-emerald-600">Click to view full reference table →</p>
                 </div>
               )}
+              </div>
             </div>
           </div>
 
@@ -2297,6 +2440,12 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
         allergenDisplay={recipeAllergens.contains.map((a) => `${a.icon} ${a.shortName}`).join(', ')}
         ingredientNames={computedIngredients.map((ri) => ri.ingredientName)}
         onPrint={(data) => handlePrintLabel(data)}
+      />
+
+      <AiImportRecipeModal
+        open={aiImportOpen}
+        onOpenChange={setAiImportOpen}
+        onImported={handleAiRecipeImported}
       />
     </div>
   )

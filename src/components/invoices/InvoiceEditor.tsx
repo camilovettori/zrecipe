@@ -205,8 +205,14 @@ export function DescriptionCombobox({
     const q = item.description.trim().toLowerCase()
     if (!q) return []
     return ingredients
-      .map((ing) => ({ ing, score: scoreIngredientMatch(q, ing.name) }))
-      .filter(({ ing, score }) => score > 0 || ing.name.toLowerCase().includes(q))
+      .map((ing) => ({
+        ing,
+        score: Math.max(
+          scoreIngredientMatch(q, ing.name),
+          ing.brand ? scoreIngredientMatch(q, ing.brand) : 0
+        ),
+      }))
+      .filter(({ ing, score }) => score > 0 || ing.name.toLowerCase().includes(q) || ing.brand?.toLowerCase().includes(q))
       .sort((a, b) => b.score - a.score)
       .slice(0, 6)
       .map(({ ing }) => ing)
@@ -263,6 +269,7 @@ export function DescriptionCombobox({
       ingredientMatch:  { type: 'existing', id: ing.id, name: ing.name },
       createIngredient: false,
       newIngredientName: '',
+      newIngredientBrand: item.newIngredientBrand || ing.brand || '',
     }
     // Auto-fill price from ingredient's current price
     if (ing.currentPrice != null && ing.currentPrice > 0) {
@@ -390,6 +397,7 @@ export function DescriptionCombobox({
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium text-slate-900 dark:text-white">{ing.name}</p>
+                  {ing.brand && <p className="truncate text-xs text-emerald-600">{ing.brand}</p>}
                   {ing.currentPrice != null && (
                     <p className="text-xs text-slate-500 dark:text-slate-400">
                       €{ing.currentPrice.toFixed(2)} / {ing.priceUnit ?? 'unit'}
@@ -866,4 +874,3 @@ export default function InvoiceEditor({
     </div>
   )
 }
-

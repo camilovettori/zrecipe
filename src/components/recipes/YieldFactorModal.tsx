@@ -30,7 +30,7 @@ export function YieldFactorModal({ open, onClose }: Props) {
                 Yield Factor Reference
               </Dialog.Title>
               <p className="mt-0.5 text-xs text-slate-500">
-                Standard values compiled from USDA culinary data. Applied automatically when adding ingredients — always overridable per line.
+                Standard values compiled from USDA culinary data. Enable Auto YF in the recipe to apply them; every line remains editable.
               </p>
             </div>
             <button

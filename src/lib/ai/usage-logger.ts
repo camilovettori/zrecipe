@@ -5,7 +5,7 @@
  *   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
  *   tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
  *   user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
- *   feature TEXT NOT NULL CHECK (feature IN ('invoice_extract', 'recipe_ideas', 'recipe_suggestions', 'other')),
+ *   feature TEXT NOT NULL CHECK (feature IN ('invoice_extract', 'recipe_extract', 'recipe_ideas', 'recipe_suggestions', 'other')),
  *   model TEXT DEFAULT 'claude-sonnet-4-6',
  *   input_tokens INT DEFAULT 0,
  *   output_tokens INT DEFAULT 0,
@@ -41,7 +41,7 @@ export async function logAIUsage({
 }: {
   tenantId: string
   userId: string
-  feature: 'invoice_extract' | 'recipe_ideas' | 'recipe_suggestions' | 'other'
+  feature: 'invoice_extract' | 'recipe_extract' | 'recipe_ideas' | 'recipe_suggestions' | 'other'
   inputTokens: number
   outputTokens: number
   model?: string

@@ -78,6 +78,7 @@ function buildDraftFromItems(
   fileUrl: string | null,
   items: Array<{
     description: string
+    brand?: string | null
     quantity: number
     unit: string
     packageSize?: number | null
@@ -95,6 +96,7 @@ function buildDraftFromItems(
     ? items.map((item) => ({
         id: crypto.randomUUID(),
         description: item.description,
+        newIngredientBrand: item.brand?.trim() || '',
         quantity: item.quantity,
         unit: item.unit,
         packageSize: item.packageSize ?? null,
@@ -153,6 +155,7 @@ function matchDraftItems(
       ingredientId: best.id,
       ingredientQuery: best.name,
       ingredientMatch: { type: 'existing', id: best.id, name: best.name },
+      newIngredientBrand: item.newIngredientBrand || best.brand || '',
     }
   })
 }
@@ -224,7 +227,7 @@ export default function ImportInvoicesPage() {
             .order('name', { ascending: true }),
           supabase
             .from('ingredients')
-            .select('id, name, current_price, price_unit')
+            .select('id, name, brand, current_price, price_unit')
             .eq('tenant_id', currentTenantId)
             .order('name', { ascending: true }),
         ])
@@ -242,6 +245,7 @@ export default function ImportInvoicesPage() {
           (ingredientResult.data ?? []).map((item) => ({
             id: item.id,
             name: item.name,
+            brand: item.brand ?? null,
             currentPrice: item.current_price ?? null,
             priceUnit: item.price_unit ?? null,
           }))
@@ -372,6 +376,7 @@ export default function ImportInvoicesPage() {
           vat_rate?: number | null
           items?: Array<{
             description: string
+            brand?: string | null
             quantity: number
             unit: string
             unit_price?: number
@@ -454,6 +459,7 @@ export default function ImportInvoicesPage() {
           vat_rate?: number | null
             items?: Array<{
               description: string
+              brand?: string | null
               quantity: number
               unit: string
               package_size?: number | null
@@ -541,6 +547,7 @@ export default function ImportInvoicesPage() {
           vat_rate?: number | null
           items?: Array<{
             description: string
+            brand?: string | null
             quantity: number
             unit: string
             package_size?: number | null

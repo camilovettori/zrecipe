@@ -18,6 +18,7 @@ export interface RecipeIngredientDraft {
   ingredientId?: string | null
   subRecipeId?: string | null
   ingredientName: string
+  ingredientBrand?: string | null
   quantity: number
   unit: string
   currentPrice?: number | null
@@ -97,6 +98,7 @@ export interface RecipeRecord extends RecipeEditorData {
 type DBIngredientRow = {
   id: string
   name: string
+  brand?: string | null
   current_price?: number | null
   price_unit?: string | null
   ingredient_allergens?: Array<{ allergen_id: number; status: string }> | null
@@ -195,6 +197,7 @@ function normalizeIngredientRelation(ingredient: DBRecipeIngredientRow['ingredie
     ? {
         id: row.id,
         name: row.name,
+        brand: row.brand ?? null,
         currentPrice: row.current_price ?? null,
         priceUnit: row.price_unit ?? null,
       } satisfies IngredientLookup
@@ -415,6 +418,7 @@ function mapRecipeRow(row: DBRecipeRow, tenantLaborHourlyRate = 15): RecipeRecor
         ingredientId: item.ingredient_id ?? ingredient?.id ?? null,
         subRecipeId: item.sub_recipe_id ?? null,
         ingredientName,
+        ingredientBrand: ingredient?.brand ?? null,
         quantity: Number(item.quantity),
         unit: item.unit,
         currentPrice,
@@ -580,9 +584,10 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
               sort_order,
               yield_percent,
               yield_override,
-      ingredient:ingredients (
+              ingredient:ingredients (
                 id,
                 name,
+                brand,
                 current_price,
                 price_unit
               ),
@@ -678,6 +683,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
             ingredient:ingredients (
               id,
               name,
+              brand,
               current_price,
               price_unit
             ),

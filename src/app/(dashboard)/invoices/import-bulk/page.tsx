@@ -143,7 +143,7 @@ export default function BulkImportInvoicesPage() {
             .order('name', { ascending: true }),
           supabase
             .from('ingredients')
-            .select('id, name, current_price, price_unit')
+            .select('id, name, brand, current_price, price_unit')
             .eq('tenant_id', currentTenantId)
             .order('name', { ascending: true }),
         ])
@@ -161,6 +161,7 @@ export default function BulkImportInvoicesPage() {
           (ingredientResult.data ?? []).map((item) => ({
             id: item.id,
             name: item.name,
+            brand: item.brand ?? null,
             currentPrice: item.current_price ?? null,
             priceUnit: item.price_unit ?? null,
           }))
