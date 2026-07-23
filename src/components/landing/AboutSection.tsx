@@ -1,14 +1,15 @@
+import Image from 'next/image'
 import Reveal from './Reveal'
 
 const FOUNDERS = [
   {
-    initials: 'IV',
+    photo: '/images/irianavettori.png',
     name: 'Iriana Rosa Vettori',
     role: 'Founder',
     bio: 'A culinary graduate since 2012, Iriana has worked across Relais & Château kitchens worldwide, managed cafés and bakeries, and developed and standardised recipes and fiches techniques for professional kitchens. She shapes how ZRecipe thinks about real kitchen workflows — not just spreadsheets.',
   },
   {
-    initials: 'CV',
+    photo: '/images/camilovettori.png',
     name: 'Camilo Vettori',
     role: 'Co-Founder',
     bio: 'Over 20 years in hospitality, across restaurant operations, management, and technology. Camilo built ZRecipe to bring real financial visibility to kitchens that have always run on instinct and spreadsheets.',
@@ -53,8 +54,14 @@ export default function AboutSection() {
                 key={founder.name}
                 className="flex-1 rounded-2xl border border-slate-100 bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
               >
-                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-emerald-100">
-                  <span className="text-xl font-semibold text-emerald-700">{founder.initials}</span>
+                <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-full bg-emerald-50 ring-2 ring-emerald-100">
+                  <Image
+                    src={founder.photo}
+                    alt={founder.name}
+                    fill
+                    sizes="64px"
+                    className="object-cover"
+                  />
                 </div>
                 <h3 className="mt-4 font-sans text-base font-semibold text-slate-900">
                   {founder.name}
