@@ -24,6 +24,7 @@ type SaveItem = {
     | { type: 'existing'; id: string; name: string }
     | { type: 'create'; name: string }
     | null
+  extractedDescriptionOriginal?: string | null
 }
 
 type SupplierMatch =
@@ -470,6 +471,47 @@ export async function POST(request: NextRequest) {
             { status: 500 }
           )
         }
+      }
+    }
+
+    // Supplier-aware ingredient name memory: remember what the user chose
+    // for each extracted description so the next invoice from this same
+    // supplier can auto-apply the match. Best-effort only — a failure here
+    // must never fail the invoice save, which has already succeeded above.
+    if (supplierId) {
+      try {
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i]
+          const createdItem = createdItems[i]
+          const original = item.extractedDescriptionOriginal?.trim()
+          const finalIngredientId = createdItem?.ingredient_id ?? null
+          if (!original || !finalIngredientId) continue
+
+          const key = original.toLowerCase()
+          const { error: memoryError } = await admin
+            .from('invoice_item_memory')
+            .upsert(
+              {
+                tenant_id: tenantId,
+                supplier_id: supplierId,
+                extracted_description_key: key,
+                extracted_description_display: original,
+                ingredient_id: finalIngredientId,
+                confirmation_count: 1,
+                last_confirmed_at: new Date().toISOString(),
+              },
+              {
+                onConflict: 'tenant_id,supplier_id,extracted_description_key',
+                ignoreDuplicates: false,
+              }
+            )
+
+          if (memoryError) {
+            console.error('[/api/invoices/save] memory upsert failed:', memoryError)
+          }
+        }
+      } catch (memoryErr) {
+        console.error('[/api/invoices/save] memory write failed:', memoryErr)
       }
     }
 

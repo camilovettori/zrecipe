@@ -12,12 +12,19 @@ type ToastItem = {
   title: string
   description?: string
   variant: ToastVariant
+  duration: number
 }
 
 type ToastOptions = {
   description?: string
   variant?: ToastVariant
+  /** Milliseconds before auto-dismiss. Defaults to 4000 — pass a longer
+   *  value for messages the user needs more time to read (e.g. an
+   *  explanation of why an action was blocked). */
+  duration?: number
 }
+
+const DEFAULT_TOAST_DURATION = 4000
 
 const listeners = new Set<(items: ToastItem[]) => void>()
 let toasts: ToastItem[] = []
@@ -37,6 +44,7 @@ function pushToast(title: string, options: ToastOptions = {}) {
     title,
     description: options.description,
     variant: options.variant ?? 'info',
+    duration: options.duration ?? DEFAULT_TOAST_DURATION,
   }
 
   emit([...toasts, item])
@@ -104,7 +112,7 @@ function ToastStack() {
           <Toast.Root
             key={item.id}
             defaultOpen
-            duration={4000}
+            duration={item.duration}
             onOpenChange={(open) => {
               if (!open) {
                 toast.dismiss(item.id)

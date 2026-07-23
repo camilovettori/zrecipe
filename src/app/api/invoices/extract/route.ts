@@ -453,6 +453,66 @@ async function extractInvoiceWithVision(imageBase64: string, mimeType: string) {
   return parseAndValidateExtraction(content.text, usage)
 }
 
+// ── Supplier-aware ingredient name memory ───────────────────────────────────
+// Looks up (tenant, supplier, extracted description) memories recorded by
+// previous saves (see /api/invoices/save) and attaches a suggested match to
+// each item. Applied silently — the client pre-selects the match and shows
+// the remembered ingredient name instead of the raw extraction. Best-effort:
+// any failure here just returns the extraction unchanged, never blocks it.
+async function applyItemMemory<T extends { supplier_name: string; items: Array<{ description: string }> }>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  admin: any,
+  tenantId: string,
+  result: T
+): Promise<T> {
+  try {
+    const supplierName = result.supplier_name?.trim()
+    if (!supplierName || supplierName === 'Unknown Supplier') return result
+
+    const { data: supplierRow } = await admin
+      .from('suppliers')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .ilike('name', supplierName)
+      .maybeSingle()
+
+    const supplierId = supplierRow?.id as string | undefined
+    if (!supplierId) return result
+
+    const { data: memories } = await admin
+      .from('invoice_item_memory')
+      .select('extracted_description_key, ingredient_id, ingredients(id, name)')
+      .eq('tenant_id', tenantId)
+      .eq('supplier_id', supplierId)
+
+    if (!memories || memories.length === 0) return result
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const memoryMap = new Map<string, any>(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      memories.map((m: any) => [m.extracted_description_key, m])
+    )
+
+    const itemsWithMemory = result.items.map((item) => {
+      const key = (item.description ?? '').toLowerCase().trim()
+      const match = memoryMap.get(key)
+      if (!match) return item
+
+      const ing = Array.isArray(match.ingredients) ? match.ingredients[0] : match.ingredients
+      return {
+        ...item,
+        memory_ingredient_id: match.ingredient_id ?? null,
+        memory_ingredient_name: ing?.name ?? null,
+      }
+    })
+
+    return { ...result, items: itemsWithMemory }
+  } catch (err) {
+    console.error('[extract] memory lookup failed:', err)
+    return result
+  }
+}
+
 // ── Shared empty-form response (manual entry fallback) ─────────────────────
 
 function emptyForm(error?: string, extra?: Record<string, unknown>) {
@@ -599,8 +659,9 @@ export async function POST(request: NextRequest) {
           outputTokens: result.usage.outputTokens,
           model: 'claude-sonnet-4-6',
         })
+        const enrichedResult = await applyItemMemory(admin, tenantId, result)
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { usage: _u, ...responseData } = result
+        const { usage: _u, ...responseData } = enrichedResult
         return NextResponse.json(responseData)
       } catch (claudeErr) {
         const message = claudeErr instanceof Error ? claudeErr.message : 'AI extraction failed'

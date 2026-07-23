@@ -22,6 +22,7 @@ import { SubstituteIngredientModal, type SubstituteReplacement } from '@/compone
 import MergeIngredientModal from '@/components/ingredients/MergeIngredientModal'
 import { resolveIngredientPrice } from '@/lib/ingredients/resolveIngredientPrice'
 import { setSelectedPrice } from '@/lib/ingredients/setSelectedPrice'
+import { deleteIngredientById } from '@/lib/ingredients/deleteIngredient'
 import { cn } from '@/lib/utils'
 import {
   buildCostExamples,
@@ -346,14 +347,31 @@ export default function IngredientDetailPage() {
     if (!ingredient) return
     setDeleting(true)
     const supabase = createClient()
-    const { error } = await supabase.from('ingredients').delete().eq('id', ingredient.id)
-    if (error) {
-      toast.error(error.message)
-      setDeleting(false)
-    } else {
+    const result = await deleteIngredientById(supabase, ingredient.id)
+
+    if (result.ok) {
       toast.success(`"${ingredient.name}" deleted`)
       router.push('/ingredients')
+      return
     }
+
+    if (result.reason === 'in_use') {
+      const name = result.ingredientName ?? 'This ingredient'
+      if (result.recipeCount > 0) {
+        toast.error(
+          `${name} is used in ${result.recipeCount} recipe${result.recipeCount === 1 ? '' : 's'}. Remove it from those recipes first, or use Merge to combine it with another ingredient.`,
+          { duration: 8000 }
+        )
+      } else {
+        toast.error(
+          `${name} still has references in the system (price history, allergens, or other data). It cannot be deleted right now.`,
+          { duration: 8000 }
+        )
+      }
+    } else {
+      toast.error(`Failed to delete ingredient: ${result.message}`)
+    }
+    setDeleting(false)
   }
 
   const handleIngredientSaved = async (updated: IngredientRow) => {

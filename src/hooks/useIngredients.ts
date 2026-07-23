@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { resolveIngredientPrice, type PriceHistoryEntry } from '@/lib/ingredients/resolveIngredientPrice'
+import { deleteIngredientById, type DeleteIngredientResult } from '@/lib/ingredients/deleteIngredient'
 
 export interface IngredientRow {
   id: string
@@ -168,11 +169,11 @@ export function useIngredients() {
     return normalizeIngredientRow(row as IngredientDbRow)
   }
 
-  const deleteIngredient = async (id: string) => {
+  const deleteIngredient = async (id: string): Promise<DeleteIngredientResult> => {
     const supabase = createClient()
-    const { error } = await supabase.from('ingredients').delete().eq('id', id)
-    if (error) throw error
-    await fetch()
+    const result = await deleteIngredientById(supabase, id)
+    if (result.ok) await fetch()
+    return result
   }
 
   return {

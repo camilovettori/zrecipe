@@ -138,9 +138,26 @@ export default function IngredientsPage() {
     if (!deleteTarget) return
     setDeleting(true)
     try {
-      await deleteIngredient(deleteTarget.id)
-      toast.success(`"${deleteTarget.name}" deleted`)
-      setDeleteTarget(null)
+      const result = await deleteIngredient(deleteTarget.id)
+      if (result.ok) {
+        toast.success(`"${deleteTarget.name}" deleted`)
+        setDeleteTarget(null)
+      } else if (result.reason === 'in_use') {
+        const name = result.ingredientName ?? 'This ingredient'
+        if (result.recipeCount > 0) {
+          toast.error(
+            `${name} is used in ${result.recipeCount} recipe${result.recipeCount === 1 ? '' : 's'}. Remove it from those recipes first, or use Merge to combine it with another ingredient.`,
+            { duration: 8000 }
+          )
+        } else {
+          toast.error(
+            `${name} still has references in the system (price history, allergens, or other data). It cannot be deleted right now.`,
+            { duration: 8000 }
+          )
+        }
+      } else {
+        toast.error(`Failed to delete ingredient: ${result.message}`)
+      }
     } catch {
       toast.error('Failed to delete ingredient')
     } finally {

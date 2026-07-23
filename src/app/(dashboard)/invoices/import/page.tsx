@@ -97,6 +97,14 @@ function buildDraftFromItems(
     packageUnit?: string | null
     unitPrice: number
     total: number
+    // Supplier-aware ingredient name memory (see /api/invoices/extract and
+    // /api/invoices/save) — memoryIngredientId/Name are only set when a
+    // previous invoice from this supplier remembered a match for this exact
+    // extracted description. extractedDescriptionOriginal is the raw
+    // extraction text, always captured regardless of a memory hit.
+    extractedDescriptionOriginal?: string
+    memoryIngredientId?: string | null
+    memoryIngredientName?: string | null
   }>,
   meta?: {
     subtotalAmount?: number | null
@@ -105,24 +113,31 @@ function buildDraftFromItems(
   }
 ): InvoiceFormState {
   const draftItems: InvoiceLineItem[] = items.length
-    ? items.map((item) => ({
-        id: crypto.randomUUID(),
-        description: item.description,
-        newIngredientBrand: item.brand?.trim() || '',
-        quantity: item.quantity,
-        unit: item.unit,
-        packageSize: item.packageSize ?? null,
-        packageUnit: item.packageUnit ?? 'kg',
-        unitPrice: item.unitPrice,
-        total: item.total,
-        ingredientId: null,
-        ingredientMatch: null,
-        ingredientQuery: item.description,
-        createIngredient: false,
-        newIngredientName: '',
-        newIngredientCategory: 'Other',
-        newIngredientUnit: item.unit,
-      }))
+    ? items.map((item) => {
+        const hasMemory = Boolean(item.memoryIngredientId && item.memoryIngredientName)
+        const description = hasMemory ? item.memoryIngredientName! : item.description
+        return {
+          id: crypto.randomUUID(),
+          description,
+          extractedDescriptionOriginal: item.extractedDescriptionOriginal ?? item.description,
+          newIngredientBrand: item.brand?.trim() || '',
+          quantity: item.quantity,
+          unit: item.unit,
+          packageSize: item.packageSize ?? null,
+          packageUnit: item.packageUnit ?? 'kg',
+          unitPrice: item.unitPrice,
+          total: item.total,
+          ingredientId: hasMemory ? item.memoryIngredientId! : null,
+          ingredientMatch: hasMemory
+            ? { type: 'existing' as const, id: item.memoryIngredientId!, name: item.memoryIngredientName! }
+            : null,
+          ingredientQuery: description,
+          createIngredient: false,
+          newIngredientName: '',
+          newIngredientCategory: 'Other',
+          newIngredientUnit: item.unit,
+        }
+      })
     : [createEmptyInvoiceItem()]
 
   const subtotal = recalculateInvoiceTotals(draftItems).subtotal
@@ -149,6 +164,10 @@ function matchDraftItems(
   ingredients: IngredientLookup[]
 ): InvoiceLineItem[] {
   return items.map((item) => {
+    // Already resolved by supplier-aware memory — leave it alone rather
+    // than letting a fuzzy re-match potentially pick a different ingredient.
+    if (item.ingredientId) return item
+
     const matches = ingredients
       .map((ingredient) => ({
         ingredient,
@@ -483,6 +502,8 @@ export default function ImportInvoicesPage() {
               unit_price?: number | null
               unitPrice?: number | null
               total?: number | null
+              memory_ingredient_id?: string | null
+              memory_ingredient_name?: string | null
             }>
         }
 
@@ -490,15 +511,21 @@ export default function ImportInvoicesPage() {
           throw new Error(payload.error ?? 'Unable to extract PDF data')
         }
 
+        const rawItems = payload.items ?? []
         const extractedItems = normalizeExtractedItems(
-          (payload.items ?? []).map((item) => ({
+          rawItems.map((item) => ({
             ...item,
             description: stripVerifySuffix(item.description),
             unit_price: item.unit_price ?? undefined,
             unitPrice: item.unitPrice ?? undefined,
             total: item.total ?? undefined,
           }))
-        )
+        ).map((normalized, i) => ({
+          ...normalized,
+          extractedDescriptionOriginal: normalized.description,
+          memoryIngredientId: rawItems[i]?.memory_ingredient_id ?? null,
+          memoryIngredientName: rawItems[i]?.memory_ingredient_name ?? null,
+        }))
         setDraft(
           buildMatchedDraft(
             payload.supplier_name ?? '',
@@ -579,6 +606,8 @@ export default function ImportInvoicesPage() {
             unit_price?: number | null
             unitPrice?: number | null
             total?: number | null
+            memory_ingredient_id?: string | null
+            memory_ingredient_name?: string | null
           }>
         }
 
@@ -586,15 +615,21 @@ export default function ImportInvoicesPage() {
           throw new Error(payload.error ?? 'Unable to extract image data')
         }
 
+        const rawItems = payload.items ?? []
         const extractedItems = normalizeExtractedItems(
-          (payload.items ?? []).map((item) => ({
+          rawItems.map((item) => ({
             ...item,
             description: stripVerifySuffix(item.description),
             unit_price: item.unit_price ?? undefined,
             unitPrice: item.unitPrice ?? undefined,
             total: item.total ?? undefined,
           }))
-        )
+        ).map((normalized, i) => ({
+          ...normalized,
+          extractedDescriptionOriginal: normalized.description,
+          memoryIngredientId: rawItems[i]?.memory_ingredient_id ?? null,
+          memoryIngredientName: rawItems[i]?.memory_ingredient_name ?? null,
+        }))
         setDraft(
           buildMatchedDraft(
             payload.supplier_name ?? '',
