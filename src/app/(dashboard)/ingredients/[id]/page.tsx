@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { AlertTriangle, ArrowDownRight, ArrowLeft, ArrowUpRight, Calculator, Camera, Check, ChefHat, Loader2, Minus, Repeat, Save, Trash2, X, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, ArrowDownRight, ArrowLeft, ArrowUpRight, Calculator, Camera, Check, ChefHat, Loader2, Merge, Minus, Repeat, Save, Trash2, X, type LucideIcon } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
 import IngredientForm, {
@@ -19,6 +19,7 @@ import { findIngredientImage } from '@/lib/utils/ingredient-image'
 import { compressImage } from '@/lib/utils/image-compress'
 import { PriceSimulatorModal } from '@/components/ingredients/PriceSimulatorModal'
 import { SubstituteIngredientModal, type SubstituteReplacement } from '@/components/recipes/SubstituteIngredientModal'
+import MergeIngredientModal from '@/components/ingredients/MergeIngredientModal'
 import { resolveIngredientPrice } from '@/lib/ingredients/resolveIngredientPrice'
 import { setSelectedPrice } from '@/lib/ingredients/setSelectedPrice'
 import { cn } from '@/lib/utils'
@@ -201,6 +202,7 @@ export default function IngredientDetailPage() {
   const [simulatorOpen, setSimulatorOpen] = useState(false)
   const [substituteModalOpen, setSubstituteModalOpen] = useState(false)
   const [substituting, setSubstituting] = useState(false)
+  const [mergeModalOpen, setMergeModalOpen] = useState(false)
   const [formCanSave, setFormCanSave] = useState(false)
   const [costPreview, setCostPreview] = useState<IngredientCostPreview | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -215,11 +217,11 @@ export default function IngredientDetailPage() {
   }, [autoSaveStatus])
 
   // Load ingredient + price history + allergens
-  useEffect(() => {
+  const loadIngredientData = useCallback(() => {
     if (isNew) return
 
     const supabase = createClient()
-    Promise.all([
+    return Promise.all([
       supabase
         .from('ingredients')
         .select('*, supplier:suppliers!last_supplier_id(name)')
@@ -268,6 +270,11 @@ export default function IngredientDetailPage() {
       setLoading(false)
     })
   }, [id, isNew, router])
+
+  useEffect(() => {
+    loadIngredientData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, isNew])
 
   const handleSelectionChange = useCallback(async (historyId: string | null) => {
     if (!ingredient) return
@@ -318,6 +325,13 @@ export default function IngredientDetailPage() {
       cancelled = true
     }
   }, [refreshUsedRecipes])
+
+  // After a merge, this ingredient may have picked up a new photo/category,
+  // more price history, and more recipe usages from the merged-in ingredient.
+  const handleMerged = useCallback(() => {
+    loadIngredientData()
+    refreshUsedRecipes()
+  }, [loadIngredientData, refreshUsedRecipes])
 
   // Resolve manifest image whenever ingredient name changes (client-side, no DB write)
   useEffect(() => {
@@ -872,14 +886,21 @@ export default function IngredientDetailPage() {
                     {usedRecipes.length}
                   </span>
                 )}
-                {!isNew && usedRecipes.length > 0 && (
-                  <div className="ml-auto">
+                {!isNew && (
+                  <div className="ml-auto flex items-center gap-1.5">
+                    {usedRecipes.length > 0 && (
+                      <IconButtonWithTooltip
+                        icon={substituting ? Loader2 : Repeat}
+                        iconClassName={substituting ? 'animate-spin' : undefined}
+                        tooltip="Substitute in all recipes"
+                        onClick={() => setSubstituteModalOpen(true)}
+                        disabled={substituting}
+                      />
+                    )}
                     <IconButtonWithTooltip
-                      icon={substituting ? Loader2 : Repeat}
-                      iconClassName={substituting ? 'animate-spin' : undefined}
-                      tooltip="Substitute in all recipes"
-                      onClick={() => setSubstituteModalOpen(true)}
-                      disabled={substituting}
+                      icon={Merge}
+                      tooltip="Merge another ingredient into this one"
+                      onClick={() => setMergeModalOpen(true)}
                     />
                   </div>
                 )}
@@ -984,6 +1005,21 @@ export default function IngredientDetailPage() {
         }}
         onClose={() => setSubstituteModalOpen(false)}
       />
+
+      {ingredient && (
+        <MergeIngredientModal
+          open={mergeModalOpen}
+          keeper={{
+            id: ingredient.id,
+            name: ingredient.name,
+            image_url: ingredient.image_url ?? null,
+            category: ingredient.category ?? null,
+            allergen_ids: Object.keys(allergenMap).map(Number),
+          }}
+          onMerged={handleMerged}
+          onClose={() => setMergeModalOpen(false)}
+        />
+      )}
     </div>
   )
 }

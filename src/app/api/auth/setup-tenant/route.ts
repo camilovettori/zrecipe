@@ -88,6 +88,13 @@ export async function POST(request: NextRequest) {
       business_type: businessType.toLowerCase(),
       plan: 'pro',
       subscription_status: 'trialing',
+      // Consent is enforced client-side (required checkbox, disabled submit)
+      // before this route is ever reached — this just records it for the
+      // audit trail. Bump terms_version whenever Terms/Privacy is materially
+      // updated, so we know which version each tenant accepted.
+      terms_accepted_at: new Date().toISOString(),
+      terms_accepted_ip: request.ip ?? request.headers.get('x-forwarded-for') ?? null,
+      terms_version: 'v1',
     })
     .select('id')
     .single()

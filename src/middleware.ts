@@ -16,6 +16,9 @@ const EXEMPT_PREFIXES = [
   '/workspace/setup',
   '/suspended',     // shown to suspended tenants — must be exempt to avoid redirect loop
   '/models',
+  '/privacy',
+  '/terms',
+  '/gdpr',
   '/_next',
   '/favicon',
 ]
