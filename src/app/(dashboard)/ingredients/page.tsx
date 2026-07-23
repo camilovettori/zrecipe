@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { LayoutGrid, List, Lock, Plus, Search, SlidersHorizontal, Apple } from 'lucide-react'
+import { AlertTriangle, LayoutGrid, List, Lock, Plus, Search, SlidersHorizontal, Apple } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useIngredients, type SortKey } from '@/hooks/useIngredients'
 import { useSubscription } from '@/hooks/useSubscription'
@@ -66,6 +66,9 @@ export default function IngredientsPage() {
     filterByCategory,
     sortBy,
     setSortBy,
+    needsVerificationOnly,
+    setNeedsVerificationOnly,
+    needsVerificationCount,
   } = useIngredients()
   const { limits, hasFullAccess } = useSubscription()
 
@@ -241,6 +244,23 @@ export default function IngredientsPage() {
             options={SORT_OPTIONS.map((o) => ({ value: o.value, label: `Sort: ${o.label}` }))}
           />
         </div>
+
+        {/* Needs verification toggle — hidden entirely when there's nothing to show */}
+        {needsVerificationCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setNeedsVerificationOnly((v) => !v)}
+            className={cn(
+              'flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+              needsVerificationOnly
+                ? 'border-amber-300 bg-amber-100 text-amber-800'
+                : 'border-slate-200 bg-white text-slate-600 hover:border-amber-300 hover:bg-amber-50 hover:text-amber-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
+            )}
+          >
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Needs verification ({needsVerificationCount})
+          </button>
+        )}
 
         {/* View mode toggle */}
         <div className="flex items-center rounded-lg border border-slate-200 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-800">

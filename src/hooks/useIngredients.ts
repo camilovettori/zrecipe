@@ -26,6 +26,10 @@ export interface IngredientRow {
   supplier: { name: string } | null
   created_at: string
   updated_at: string
+  /** True when AI extraction flagged this ingredient as uncertain (see
+   *  UNCERTAINTY RULES in the invoice extraction prompt). Clears
+   *  automatically once a real price is confirmed — never a manual toggle. */
+  needs_verification: boolean
 }
 
 export type SortKey = 'name' | 'price' | 'updated'
@@ -47,6 +51,7 @@ type IngredientDbRow = {
   supplier: { name: string } | { name: string }[] | null
   created_at: string
   updated_at: string
+  needs_verification?: boolean | null
   price_history?: Array<PriceHistoryEntry & { brand?: string | null }> | null
 }
 
@@ -72,6 +77,7 @@ function normalizeIngredientRow(row: IngredientDbRow): IngredientRow {
     supplier: supplier ? { name: supplier.name } : null,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    needs_verification: row.needs_verification ?? false,
   }
 }
 
@@ -95,6 +101,7 @@ export function useIngredients() {
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('all')
   const [sortBy, setSortBy] = useState<SortKey>('name')
+  const [needsVerificationOnly, setNeedsVerificationOnly] = useState(false)
 
   const fetch = useCallback(async () => {
     setLoading(true)
@@ -103,7 +110,7 @@ export function useIngredients() {
     const { data, error } = await supabase
       .from('ingredients')
       .select(
-        `id, name, brand, category, current_price, price_unit, package_size, package_unit, last_purchase_date, last_supplier_id, notes, image_url, supplier_id, supplier:suppliers!last_supplier_id(name), created_at, updated_at,
+        `id, name, brand, category, current_price, price_unit, package_size, package_unit, last_purchase_date, last_supplier_id, notes, image_url, supplier_id, supplier:suppliers!last_supplier_id(name), created_at, updated_at, needs_verification,
          price_history:ingredient_price_history ( id, price, unit, brand, is_selected_price, recorded_at )`
       )
       .order('name')
@@ -125,13 +132,18 @@ export function useIngredients() {
         (i.brand?.toLowerCase().includes(search.toLowerCase()) ?? false)
       const matchCat =
         category === 'all' || i.category?.toLowerCase() === category.toLowerCase()
-      return matchSearch && matchCat
+      const matchVerification = !needsVerificationOnly || i.needs_verification
+      return matchSearch && matchCat && matchVerification
     }),
     sortBy
   )
   const categories = Array.from(
     new Set(all.map((i) => i.category).filter((cat): cat is string => Boolean(cat)))
   ).sort()
+  // Global count, independent of search/category filters, so the "Needs
+  // verification" chip stays a stable indicator rather than shifting with
+  // unrelated filters.
+  const needsVerificationCount = all.filter((i) => i.needs_verification).length
 
   const createIngredient = async (
     data: Omit<IngredientRow, 'id' | 'supplier' | 'created_at' | 'updated_at' | 'effectiveBrand'>
@@ -193,5 +205,8 @@ export function useIngredients() {
     setSortBy,
     searchIngredients: (q: string) => setSearch(q),
     filterByCategory: (cat: string) => setCategory(cat),
+    needsVerificationOnly,
+    setNeedsVerificationOnly,
+    needsVerificationCount,
   }
 }

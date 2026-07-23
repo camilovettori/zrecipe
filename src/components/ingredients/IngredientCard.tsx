@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { Pencil, Trash2 } from 'lucide-react'
+import { AlertTriangle, Pencil, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
 import type { IngredientRow } from '@/hooks/useIngredients'
@@ -68,7 +68,12 @@ export default function IngredientCard({ ingredient, onDeleteRequest }: Ingredie
       onHoverStart={() => setHovered(true)}
       onHoverEnd={() => setHovered(false)}
       onClick={() => router.push(`/ingredients/${ingredient.id}`)}
-      className="relative cursor-pointer overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600"
+      className={cn(
+        'relative cursor-pointer overflow-hidden rounded-xl border shadow-sm transition-shadow hover:shadow-md',
+        ingredient.needs_verification
+          ? 'border-amber-300 bg-amber-50 ring-1 ring-amber-200 hover:border-amber-400 dark:border-amber-800 dark:bg-amber-950/10'
+          : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600'
+      )}
     >
       {/* Photo — shown only when a match exists */}
       {cardImage && (
@@ -117,6 +122,12 @@ export default function IngredientCard({ ingredient, onDeleteRequest }: Ingredie
         </h3>
         {ingredient.effectiveBrand && (
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{ingredient.effectiveBrand}</p>
+        )}
+        {ingredient.needs_verification && (
+          <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+            <AlertTriangle className="h-3 w-3" />
+            Add price
+          </span>
         )}
 
         {/* Price */}

@@ -305,6 +305,13 @@ function detectMultiPackNotation(description: string): { count: number, size: nu
   }
 }
 
+// ── "(verify)" suffix → needs_verification flag ─────────────────────────────
+// The prompt's UNCERTAINTY RULES instruct Claude to append " (verify)" to a
+// description when it's uncertain. That text must never reach the database —
+// convert it to a boolean here and strip it from the description before
+// anything downstream (client draft, saved ingredient name) ever sees it.
+const VERIFY_SUFFIX = /\s*\(verify\)\s*$/i
+
 function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage, sourceText = '') {
   const cleaned = rawText
     .replace(/^```(?:json)?\n?/i, '')
@@ -328,6 +335,7 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage, sourceT
       package_unit?: string | null
       unit_price?: number | null
       total?: number | null
+      needs_verification?: boolean
     }>
   }
 
@@ -337,6 +345,16 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage, sourceT
   // here would silently reintroduce the very fabrication we're avoiding.
   if (Array.isArray(parsed.items)) {
     for (const item of parsed.items) {
+      // Convert the "(verify)" text signal into a real flag, independent of
+      // the price-validation block below (an item can be flagged with or
+      // without a usable price).
+      if (item.description && VERIFY_SUFFIX.test(item.description)) {
+        item.needs_verification = true
+        item.description = item.description.replace(VERIFY_SUFFIX, '').trim()
+      } else {
+        item.needs_verification = false
+      }
+
       if (item.unit_price == null || item.total == null) continue
 
       const qty   = Number(item.quantity ?? 1) || 1
@@ -400,6 +418,7 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage, sourceT
       package_unit: item.package_unit ?? null,
       unit_price:   item.unit_price == null ? null : (Number(item.unit_price) || 0),
       total:        item.total == null ? null : (Number(item.total) || 0),
+      needs_verification: item.needs_verification ?? false,
     })),
   }
 }

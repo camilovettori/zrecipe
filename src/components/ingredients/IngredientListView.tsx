@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
-import { ArrowDown, ArrowRight, ArrowUp, ChevronDown, Minus, Pencil, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowRight, ArrowUp, ChevronDown, Minus, Pencil, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { IngredientRow } from '@/hooks/useIngredients'
 import type { SortKey } from '@/hooks/useIngredients'
@@ -155,7 +155,10 @@ export default function IngredientListView({
               <tr
                 key={ingredient.id}
                 onClick={() => router.push(`/ingredients/${ingredient.id}`)}
-                className="cursor-pointer transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/40"
+                className={cn(
+                  'cursor-pointer transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/40',
+                  ingredient.needs_verification && 'border-l-4 border-l-amber-400 bg-amber-50 hover:bg-amber-100/70 dark:bg-amber-950/10'
+                )}
               >
                 {/* Thumbnail */}
                 <td className="px-4 py-3">
@@ -164,11 +167,17 @@ export default function IngredientListView({
 
                 {/* Name + effective brand */}
                 <td className="px-4 py-3">
-                  <p className="font-medium text-slate-900 dark:text-white">
+                  <p className="flex flex-wrap items-center gap-1.5 font-medium text-slate-900 dark:text-white">
                     {ingredient.name}
                     {ingredient.effectiveBrand && (
-                      <span className="ml-1.5 font-normal text-slate-400 dark:text-slate-500">
+                      <span className="font-normal text-slate-400 dark:text-slate-500">
                         · {ingredient.effectiveBrand}
+                      </span>
+                    )}
+                    {ingredient.needs_verification && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                        <AlertTriangle className="h-3 w-3" />
+                        Add price
                       </span>
                     )}
                   </p>

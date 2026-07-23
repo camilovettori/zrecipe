@@ -25,6 +25,11 @@ export type InvoiceLineItem = {
    *  for supplier-aware ingredient name memory — never touched by later
    *  edits to `description`. */
   extractedDescriptionOriginal?: string
+  /** True when AI extraction flagged this line as uncertain (the "(verify)"
+   *  signal, converted server-side into a real flag — see
+   *  /api/invoices/extract). Drives the amber review-row treatment and, on
+   *  save, becomes ingredients.needs_verification for newly-created rows. */
+  needs_verification?: boolean
 }
 
 export type InvoiceFormState = {

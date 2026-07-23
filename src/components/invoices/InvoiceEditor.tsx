@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Check, CircleAlert, Plus, Search, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Check, CircleAlert, Plus, Search, Trash2, X } from 'lucide-react'
 import {
   INVOICE_UNITS,
   PACKAGE_UNIT_OPTIONS,
@@ -343,6 +343,12 @@ export function DescriptionCombobox({
               </span>
             ) : (
               <Check className="h-4 w-4 text-emerald-600" />
+            )}
+            {isNew && item.needs_verification && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                <AlertTriangle className="h-3 w-3" />
+                Add price
+              </span>
             )}
             <button
               type="button"
@@ -735,10 +741,14 @@ export default function InvoiceEditor({
               </tr>
             </thead>
             <tbody className="bg-white">
-              {draft.items.map((item) => (
-                <tr key={item.id} className="h-14 align-middle">
+              {draft.items.map((item) => {
+                // Amber accent for AI-flagged new-ingredient rows — same
+                // visual language as the ingredient list's "Add price" pill.
+                const flaggedNew = Boolean(item.needs_verification && item.ingredientMatch?.type === 'create')
+                return (
+                <tr key={item.id} className={cn('h-14 align-middle', flaggedNew && 'bg-amber-50/40')}>
                   {/* Description — now a combobox with ingredient autocomplete */}
-                  <td className="border-b border-slate-100 px-3 py-2">
+                  <td className={cn('border-b border-slate-100 px-3 py-2', flaggedNew && 'border-l-4 border-l-amber-400')}>
                     <DescriptionCombobox
                       item={item}
                       ingredients={ingredients}
@@ -821,7 +831,8 @@ export default function InvoiceEditor({
                     </button>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>

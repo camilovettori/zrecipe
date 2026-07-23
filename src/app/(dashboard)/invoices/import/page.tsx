@@ -105,6 +105,9 @@ function buildDraftFromItems(
     extractedDescriptionOriginal?: string
     memoryIngredientId?: string | null
     memoryIngredientName?: string | null
+    // "(verify)" signal from AI extraction, already converted to a boolean
+    // and stripped from description server-side — see /api/invoices/extract.
+    needs_verification?: boolean
   }>,
   meta?: {
     subtotalAmount?: number | null
@@ -120,6 +123,7 @@ function buildDraftFromItems(
           id: crypto.randomUUID(),
           description,
           extractedDescriptionOriginal: item.extractedDescriptionOriginal ?? item.description,
+          needs_verification: item.needs_verification ?? false,
           newIngredientBrand: item.brand?.trim() || '',
           quantity: item.quantity,
           unit: item.unit,
@@ -504,6 +508,7 @@ export default function ImportInvoicesPage() {
               total?: number | null
               memory_ingredient_id?: string | null
               memory_ingredient_name?: string | null
+              needs_verification?: boolean
             }>
         }
 
@@ -525,6 +530,7 @@ export default function ImportInvoicesPage() {
           extractedDescriptionOriginal: normalized.description,
           memoryIngredientId: rawItems[i]?.memory_ingredient_id ?? null,
           memoryIngredientName: rawItems[i]?.memory_ingredient_name ?? null,
+          needs_verification: rawItems[i]?.needs_verification ?? false,
         }))
         setDraft(
           buildMatchedDraft(
@@ -608,6 +614,7 @@ export default function ImportInvoicesPage() {
             total?: number | null
             memory_ingredient_id?: string | null
             memory_ingredient_name?: string | null
+            needs_verification?: boolean
           }>
         }
 
@@ -629,6 +636,7 @@ export default function ImportInvoicesPage() {
           extractedDescriptionOriginal: normalized.description,
           memoryIngredientId: rawItems[i]?.memory_ingredient_id ?? null,
           memoryIngredientName: rawItems[i]?.memory_ingredient_name ?? null,
+          needs_verification: rawItems[i]?.needs_verification ?? false,
         }))
         setDraft(
           buildMatchedDraft(

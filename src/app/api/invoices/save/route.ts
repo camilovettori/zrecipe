@@ -25,6 +25,7 @@ type SaveItem = {
     | { type: 'create'; name: string }
     | null
   extractedDescriptionOriginal?: string | null
+  needs_verification?: boolean
 }
 
 type SupplierMatch =
@@ -356,6 +357,7 @@ export async function POST(request: NextRequest) {
             price_unit: pricing.priceUnit,
             package_size: pricing.packageSize,
             package_unit: pricing.packageUnit,
+            needs_verification: item.needs_verification ?? false,
           }
 
           const { data: createdIngredientData, error: createIngredientError } = await admin
@@ -470,6 +472,23 @@ export async function POST(request: NextRequest) {
             { error: historyError.message ?? 'Unable to update price history' },
             { status: 500 }
           )
+        }
+
+        // A confirmed real price on this line — whether the ingredient was
+        // just created above or already existed — is exactly the signal
+        // that clears needs_verification. Only touches rows still flagged,
+        // so this is a no-op write for the common case. Best-effort: a
+        // failure here must never fail the (already-succeeded) invoice save.
+        if (Number(item.unitPrice) > 0) {
+          try {
+            await admin
+              .from('ingredients')
+              .update({ needs_verification: false })
+              .eq('id', ingredientId)
+              .eq('needs_verification', true)
+          } catch (flagErr) {
+            console.error('[/api/invoices/save] needs_verification clear failed:', flagErr)
+          }
         }
       }
     }

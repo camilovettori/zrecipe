@@ -86,6 +86,7 @@ type IngredientDbRow = {
   supplier: { name: string } | null
   created_at: string
   updated_at: string
+  needs_verification?: boolean | null
 }
 
 function serialize(d: Partial<FormData>): string {
@@ -398,9 +399,16 @@ export default function IngredientForm({
         if (ingredient) {
           const priceChanged = hasMeaningfulPriceChange(ingredient.current_price, payload.current_price)
 
+          // Manual verification is implicit: saving a valid price (already
+          // guaranteed > 0 by the check above) on a flagged ingredient is
+          // the verification action — no separate "mark as verified" toggle.
+          const updatePayload = ingredient.needs_verification
+            ? { ...payload, needs_verification: false }
+            : payload
+
           const { data: row, error } = await supabase
             .from('ingredients')
-            .update(payload)
+            .update(updatePayload)
             .eq('id', ingredient.id)
             .select()
             .single()
