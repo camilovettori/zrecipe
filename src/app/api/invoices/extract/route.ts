@@ -63,6 +63,35 @@ Return ONLY valid JSON, no markdown, no backticks, no explanation. The JSON must
 
 FIELD RULES:
 
+SUPPLIER NAME FALLBACK RULES:
+If the supplier name is not obvious from a header line, look for it in:
+  1. Email addresses in the invoice (e.g. "accounts@henderson.ie" →
+     supplier is "Henderson")
+  2. Website URLs in the footer (e.g. "www.hendersonwholesale.ie")
+  3. VAT number registered name (if repeated near the address)
+  4. Bank details ("Please make payment to: HENDERSON FOODSERVICE
+     LTD")
+  5. Return address at the top or bottom
+  6. Footer copyright ("© Henderson Wholesale 2026")
+
+Common Irish/EU foodservice suppliers to recognize by any hint:
+  - Henderson Wholesale / Henderson Foodservice
+  - Musgrave / Musgrave Cash & Carry
+  - BWG Foods
+  - Elliotts Cash & Carry
+  - Sysco Ireland
+  - Pallas Foods
+  - La Rousse Foods
+  - Keelings Farm Fresh
+  - Total Produce
+  - Kerry Foodservice
+  - Brakes Ireland
+
+DO NOT return "Unknown Supplier" unless you have exhausted ALL of
+the above. If you still cannot determine a name, use the most
+prominent proper noun on the invoice (usually the company at the
+top of the page).
+
 description:
 - Clean product name in Title Case
 - Remove the product brand from the description and return it separately in brand
@@ -99,6 +128,8 @@ unit_price:
 - If invoice shows: "Muffin Case 480s, Qty: 4, Price: 15.00, Value: 60.00" → unit_price = 15.00 (price per pack), NOT 0.03125 (price per individual muffin case)
 - If invoice shows: "Butter 250G, Pack: 40, Qty: 2, Price: 63.33, Value: 126.66" → unit_price = 63.33 (price per case of 40), NOT 1.58 (price per butter block)
 - VERIFY: quantity × unit_price should approximately equal total (allowing for rounding)
+- If the math doesn't work out and you're unsure which number is
+  the price, return unit_price: null. Never guess.
 
 total:
 - Total cost for this line item
@@ -141,6 +172,89 @@ ANOTHER EXAMPLE:
 COCONUT OIL PURE KTC 500ML | Pack: 12 | Ordered: 2 | Price: 39.67 | Value: 79.34
 CORRECT: quantity=2, unit="case", package_size=6000, package_unit="ml", unit_price=39.67, total=79.34
 
+CASE + UNIT SPLIT COLUMNS (Henderson-style invoices):
+
+Some invoices split the quantity across TWO columns: "Case" and
+"Unit". The actual quantity purchased is Case × items_per_case + Unit
+— but for costing purposes, the PURCHASE UNIT is different depending
+on which was ordered.
+
+Rule:
+- If Case > 0 AND Unit = 0: this is a full-case purchase.
+  → quantity = Case
+  → unit = "case"
+  → package_size = items per case × individual pack size
+- If Case = 0 AND Unit > 0: this is a loose/individual purchase.
+  → quantity = Unit
+  → unit = the individual purchase unit (bottle, bag, etc.)
+  → package_size = individual pack size only
+- If both Case > 0 AND Unit > 0: multi-part purchase, uncommon.
+  Treat as two logical line items OR sum as quantity = (Case ×
+  items_per_case) + Unit with unit = individual unit.
+
+MULTI-PACK DESCRIPTION NOTATION:
+
+Product descriptions often include a "count × size" notation
+describing the pack contents, NOT the quantity being ordered:
+
+  "Water 6x2L" — means the pack contains 6 bottles of 2L each.
+                 Total pack size = 12L. This is package_size, NOT
+                 quantity.
+  "Cola 24x330ml" — pack of 24 cans of 330ml each. package_size =
+                    7920ml or 7.92L.
+  "Yogurt 12x125g" — pack of 12 tubs of 125g each. package_size =
+                     1500g or 1.5kg.
+  "Butter Salted 40x250g" — pack of 40 blocks of 250g each.
+                            package_size = 10 (kg).
+
+NEVER treat the first number in a "NxM" pattern as the quantity
+being ordered. That number describes the pack contents. The
+quantity comes from the Ordered / Case / Unit columns.
+
+EXAMPLE — Henderson-style invoice line:
+  Case: 0 | Unit: 1 | Description: "Water Still 6x2L" | Price: 8.00 | Total: 8.00
+CORRECT extraction:
+  - description: "Water Still"
+  - quantity: 1        (from Unit column)
+  - unit: "pack"       (a single 6-bottle pack)
+  - package_size: 12   (6 bottles × 2L = 12L total)
+  - package_unit: "L"
+  - unit_price: 8.00
+  - total: 8.00
+WRONG extraction (this is the bug we're fixing):
+  - quantity: 6        ← NO, that's the number of bottles in the pack, not the order quantity
+  - This would make quantity × unit_price = 6 × 8 = 48, but total is 8 — the validation should catch this
+
+UNCERTAINTY RULES (very important — reliability over completeness):
+
+For every field, prefer NULL / empty over a guess. Do NOT invent
+values. Specifically:
+
+- unit_price: If you cannot clearly read or derive the price from
+  the invoice (e.g. the Price column is smudged, the value is
+  inconsistent with the totals, or there's ambiguity between two
+  numbers), set unit_price to null. Do NOT compute it from
+  total/quantity as a guess — that hides the uncertainty.
+
+- total: Same rule. If you're not confident, return null. The user
+  will fix it in the review step.
+
+- package_size / package_unit: If the invoice doesn't clearly show
+  the pack size (e.g. no "500ml" or "10kg" printed on the line),
+  return null for both. Do NOT infer from the description text
+  unless you're absolutely certain (i.e. multi-pack notation like
+  "6x2L" is fine; something vague like "large" is not).
+
+- When a field is uncertain, append " (verify)" to the description
+  field so the user sees a visual signal in the review step. E.g.
+  description: "Butter Salted (verify)" — this makes it obvious
+  which rows need attention.
+
+This is a shift from previous behavior. Do NOT try to fill every
+field. Empty/null values in the review UI are FINE — the user can
+edit them. What is NOT fine is a wrong value that looks correct.
+When in doubt, leave it null.
+
 FINAL VALIDATION RULE:
 After extracting all items, verify: SUM of all item totals should approximately equal the invoice subtotal/total goods. If it doesn't, one or more items have wrong values — recheck them.
 
@@ -149,7 +263,49 @@ Invoice text:
 
 type ClaudeUsage = { inputTokens: number; outputTokens: number }
 
-function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage) {
+// ── Supplier name salvage ────────────────────────────────────────────────
+// Runs against the ORIGINAL invoice text (not Claude's output) when the AI
+// still returns "Unknown Supplier" — catches letterhead-as-logo invoices
+// (e.g. Henderson) where the supplier name never appears as prominent text.
+function inferSupplierFromRaw(rawText: string): string | null {
+  if (!rawText) return null
+  const t = rawText.toLowerCase()
+  // Ordered by specificity — most specific patterns first
+  if (t.includes('henderson wholesale') || t.includes('henderson foodservice')) return 'Henderson Wholesale'
+  if (t.includes('musgrave')) return 'Musgrave'
+  if (t.includes('bwg foods')) return 'BWG Foods'
+  if (t.includes('elliotts cash')) return 'Elliotts Cash & Carry'
+  if (t.includes('sysco')) return 'Sysco Ireland'
+  if (t.includes('pallas foods')) return 'Pallas Foods'
+  if (t.includes('la rousse')) return 'La Rousse Foods'
+  if (t.includes('keelings')) return 'Keelings'
+  if (t.includes('total produce')) return 'Total Produce'
+  if (t.includes('kerry foodservice')) return 'Kerry Foodservice'
+  if (t.includes('brakes ireland')) return 'Brakes Ireland'
+  // Domain fallback: try to catch xxx@somesupplier.ie or www.somesupplier.ie
+  const emailMatch = rawText.match(/@([a-z][a-z0-9-]{2,})\.(ie|eu|com)/i)
+  if (emailMatch) {
+    const domain = emailMatch[1]
+    // Capitalize first letter
+    return domain.charAt(0).toUpperCase() + domain.slice(1)
+  }
+  return null
+}
+
+// ── Multi-pack notation detection ────────────────────────────────────────
+// Catches descriptions like "Water 6x2L" or "12 x 500ml" where the AI may
+// have mistaken the pack-contents count for the order quantity.
+function detectMultiPackNotation(description: string): { count: number, size: number, unit: string } | null {
+  const match = description.match(/(\d+)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*(l|ml|g|kg)\b/i)
+  if (!match) return null
+  return {
+    count: Number(match[1]),
+    size: Number(match[2]),
+    unit: match[3].toLowerCase(),
+  }
+}
+
+function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage, sourceText = '') {
   const cleaned = rawText
     .replace(/^```(?:json)?\n?/i, '')
     .replace(/\n?```$/i, '')
@@ -170,14 +326,19 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage) {
       unit?: string
       package_size?: number | null
       package_unit?: string | null
-      unit_price?: number
-      total?: number
+      unit_price?: number | null
+      total?: number | null
     }>
   }
 
-  // Validate and auto-correct item prices before returning
+  // Validate and auto-correct item prices before returning.
+  // Skip entirely when the AI explicitly signaled uncertainty (null
+  // unit_price/total, per UNCERTAINTY RULES) — forcing a computed value
+  // here would silently reintroduce the very fabrication we're avoiding.
   if (Array.isArray(parsed.items)) {
     for (const item of parsed.items) {
+      if (item.unit_price == null || item.total == null) continue
+
       const qty   = Number(item.quantity ?? 1) || 1
       const price = Number(item.unit_price ?? 0)
       const total = Number(item.total ?? 0)
@@ -199,12 +360,31 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage) {
         )
         item.unit_price = corrected
       }
+
+      // Detect multi-pack notation ("6x2L") misread as order quantity
+      const pack = detectMultiPackNotation(item.description ?? '')
+      if (pack && Math.abs(qty - pack.count) < 0.01 && reportedTotal > 0 && Math.abs(calculatedTotal - reportedTotal) / reportedTotal > 0.1) {
+        console.warn(`[extract] Suspected multi-pack misparse for "${item.description}": qty=${qty} matches pack count. Correcting to qty=1.`)
+        item.quantity = 1
+        item.package_size = pack.count * pack.size
+        item.package_unit = pack.unit
+        item.unit_price = Number((reportedTotal / 1).toFixed(4))
+      }
+    }
+
+    // Sum-of-items sanity check — observability only, never throws
+    const sum = parsed.items.reduce((acc, item) => acc + Number(item.total ?? 0), 0)
+    const invoiceTotal = parsed.subtotal ?? parsed.total ?? null
+    if (invoiceTotal != null && invoiceTotal > 0 && Math.abs(sum - invoiceTotal) / invoiceTotal > 0.15) {
+      console.warn(`[extract] Item totals sum (${sum}) diverges from invoice subtotal (${invoiceTotal}). Extraction may need manual review.`)
     }
   }
 
   return {
     usage,
-    supplier_name:   parsed.supplier_name ?? 'Unknown Supplier',
+    supplier_name:   parsed.supplier_name && parsed.supplier_name !== 'Unknown Supplier'
+      ? parsed.supplier_name
+      : (inferSupplierFromRaw(sourceText) ?? 'Unknown Supplier'),
     invoice_number:  parsed.invoice_number ?? null,
     invoice_date:    normaliseDateForInput(parsed.invoice_date),
     vat_rate:        parsed.vat_rate ?? null,
@@ -218,8 +398,8 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage) {
       unit:         item.unit ?? 'unit',
       package_size: item.package_size ?? null,
       package_unit: item.package_unit ?? null,
-      unit_price:   Number(item.unit_price ?? 0) || 0,
-      total:        Number(item.total ?? 0) || 0,
+      unit_price:   item.unit_price == null ? null : (Number(item.unit_price) || 0),
+      total:        item.total == null ? null : (Number(item.total) || 0),
     })),
   }
 }
@@ -238,11 +418,11 @@ async function extractWithClaude(text: string) {
   const content = response.content[0]
   if (content.type !== 'text') throw new Error('Claude returned no text content')
 
-  return parseAndValidateExtraction(content.text, usage)
+  return parseAndValidateExtraction(content.text, usage, text)
 }
 
 const VISION_INSTRUCTION =
-  'Read the attached invoice image and extract the data as specified above. Return ONLY the JSON.'
+  'Read the attached invoice image carefully. Some invoices have logos where the supplier name is not readable as text — in that case, use the fallback rules above (email domain, website, VAT registered name, footer). For handwritten or low-quality scans, extract your best interpretation and flag uncertain fields with a "?" suffix in the description. Do not skip line items. Return ONLY the JSON.'
 
 async function extractInvoiceWithVision(imageBase64: string, mimeType: string) {
   const anthropic = getAnthropic()

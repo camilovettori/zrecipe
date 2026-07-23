@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import Image from 'next/image'
 import { useDropzone } from 'react-dropzone'
 import Papa from 'papaparse'
 import { useRouter } from 'next/navigation'
@@ -9,11 +8,16 @@ import {
   AlertCircle,
   ArrowLeft,
   ChevronDown,
+  ExternalLink,
   FileSpreadsheet,
   FileText,
   Image as ImageIcon,
   Loader2,
   Lock,
+  Maximize,
+  Minus,
+  Plus,
+  Sparkles,
   UploadCloud,
 } from 'lucide-react'
 import InvoiceEditor from '@/components/invoices/InvoiceEditor'
@@ -48,6 +52,14 @@ type Step = 'upload' | 'review' | 'confirm'
 type CsvData = {
   headers: string[]
   rows: Record<string, string>[]
+}
+
+// The AI extraction prompt appends " (verify)" to a description when it's
+// uncertain about a field on that row (see UNCERTAINTY RULES in the extract
+// route's prompt). Strip it before it reaches the editable draft — the
+// amber accent on uncertain rows is the intended signal, not raw text.
+function stripVerifySuffix(description: string | null | undefined): string {
+  return (description ?? '').replace(/\s*\(verify\)\s*$/i, '').trim()
 }
 
 function createInitialDraft(): InvoiceFormState {
@@ -211,6 +223,7 @@ export default function ImportInvoicesPage() {
   const [csvData, setCsvData] = useState<CsvData | null>(null)
   const [csvColumnMap, setCsvColumnMap] = useState<Record<string, string>>({})
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [zoom, setZoom] = useState(1)
 
   useEffect(() => {
     const loadLookups = async () => {
@@ -286,6 +299,7 @@ export default function ImportInvoicesPage() {
     setFileKind(fileTypeFromName(nextFile))
     setInvoiceId(crypto.randomUUID())
     setStep('upload')
+    setZoom(1)
 
     try {
       const preview = URL.createObjectURL(nextFile)
@@ -466,9 +480,9 @@ export default function ImportInvoicesPage() {
               package_unit?: string | null
               packageSize?: number | null
               packageUnit?: string | null
-              unit_price?: number
-              unitPrice?: number
-              total: number
+              unit_price?: number | null
+              unitPrice?: number | null
+              total?: number | null
             }>
         }
 
@@ -476,7 +490,15 @@ export default function ImportInvoicesPage() {
           throw new Error(payload.error ?? 'Unable to extract PDF data')
         }
 
-        const extractedItems = normalizeExtractedItems(payload.items ?? [])
+        const extractedItems = normalizeExtractedItems(
+          (payload.items ?? []).map((item) => ({
+            ...item,
+            description: stripVerifySuffix(item.description),
+            unit_price: item.unit_price ?? undefined,
+            unitPrice: item.unitPrice ?? undefined,
+            total: item.total ?? undefined,
+          }))
+        )
         setDraft(
           buildMatchedDraft(
             payload.supplier_name ?? '',
@@ -554,9 +576,9 @@ export default function ImportInvoicesPage() {
             package_unit?: string | null
             packageSize?: number | null
             packageUnit?: string | null
-            unit_price?: number
-            unitPrice?: number
-            total: number
+            unit_price?: number | null
+            unitPrice?: number | null
+            total?: number | null
           }>
         }
 
@@ -564,7 +586,15 @@ export default function ImportInvoicesPage() {
           throw new Error(payload.error ?? 'Unable to extract image data')
         }
 
-        const extractedItems = normalizeExtractedItems(payload.items ?? [])
+        const extractedItems = normalizeExtractedItems(
+          (payload.items ?? []).map((item) => ({
+            ...item,
+            description: stripVerifySuffix(item.description),
+            unit_price: item.unit_price ?? undefined,
+            unitPrice: item.unitPrice ?? undefined,
+            total: item.total ?? undefined,
+          }))
+        )
         setDraft(
           buildMatchedDraft(
             payload.supplier_name ?? '',
@@ -811,9 +841,9 @@ export default function ImportInvoicesPage() {
                   type="button"
                   onClick={handleExtract}
                     disabled={processing}
-                    className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                     Next: Extract Data
                   </button>
                 </div>
@@ -838,45 +868,97 @@ export default function ImportInvoicesPage() {
       )}
 
       {step === 'review' && (
-        <div className="space-y-5">
+        <div className="grid gap-6 lg:grid-cols-12 lg:items-start">
 
-          {/* ── Collapsible PDF/image preview ─────────────────────────────── */}
-          <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-            <button
-              type="button"
-              onClick={() => setPreviewOpen((o) => !o)}
-              className="flex w-full items-center justify-between gap-3 px-6 py-4 text-left"
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <FileText className="h-4 w-4 shrink-0 text-slate-400" />
-                <span className="truncate text-sm font-medium text-slate-700">{file?.name}</span>
-                {fileBadge}
-              </div>
-              <ChevronDown
-                className={cn(
-                  'h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200',
-                  previewOpen && 'rotate-180'
-                )}
-              />
-            </button>
+          {/* ── Source preview — sticky on desktop, collapsible on mobile ──── */}
+          <div className="lg:col-span-5 lg:sticky lg:top-6 lg:self-start">
+            <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+              <button
+                type="button"
+                onClick={() => setPreviewOpen((o) => !o)}
+                className="flex w-full items-center justify-between gap-3 px-6 py-4 text-left"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <FileText className="h-4 w-4 shrink-0 text-slate-400" />
+                  <span className="truncate text-sm font-medium text-slate-700">{file?.name}</span>
+                  {fileBadge}
+                </div>
+                <ChevronDown
+                  className={cn(
+                    'h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200 lg:hidden',
+                    previewOpen && 'rotate-180'
+                  )}
+                />
+              </button>
 
-            {previewOpen && (
-              <div className="border-t border-slate-200 p-4">
-                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+              <div className={cn(previewOpen ? 'block' : 'hidden', 'lg:block border-t border-slate-200')}>
+                {/* Toolbar */}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-2.5">
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setZoom((z) => Math.max(0.5, Number((z - 0.15).toFixed(2))))}
+                      title="Zoom out"
+                      className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                    >
+                      <Minus className="h-4 w-4" />
+                    </button>
+                    <span className="w-12 text-center text-xs font-medium text-slate-500">
+                      {Math.round(zoom * 100)}%
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setZoom((z) => Math.min(3, Number((z + 0.15).toFixed(2))))}
+                      title="Zoom in"
+                      className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setZoom(1)}
+                      title="Fit width"
+                      className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                    >
+                      <Maximize className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => filePreview && window.open(filePreview, '_blank')}
+                    disabled={!filePreview}
+                    className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Open in new tab
+                  </button>
+                </div>
+
+                {/* Body */}
+                <div className="h-[calc(100vh-16rem)] min-h-[36rem] w-full overflow-auto rounded-b-3xl bg-slate-100">
                   {fileKind === 'pdf' && filePreview ? (
-                    <iframe src={filePreview} className="h-[42rem] w-full" title="PDF preview" />
-                  ) : fileKind === 'image' && filePreview ? (
-                    <div className="relative h-[42rem] w-full">
-                      <Image
-                        src={filePreview}
-                        alt="Invoice preview"
-                        fill
-                        unoptimized
-                        className="object-contain"
-                      />
+                    <div
+                      style={{
+                        transform: `scale(${zoom})`,
+                        transformOrigin: 'top left',
+                        width: `${100 / zoom}%`,
+                        height: `${100 / zoom}%`,
+                      }}
+                    >
+                      <iframe src={filePreview} className="h-full w-full" title="PDF preview" />
                     </div>
+                  ) : fileKind === 'image' && filePreview ? (
+                    // Blob preview of a locally-selected file — next/image optimisation
+                    // doesn't apply, and a plain img lets us pan a zoomed-in scan.
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={filePreview}
+                      alt="Invoice preview"
+                      style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}
+                      className="max-w-none"
+                    />
                   ) : (
-                    <div className="flex h-48 items-center justify-center">
+                    <div className="flex h-full items-center justify-center">
                       <div className="text-center">
                         <FileText className="mx-auto h-10 w-10 text-slate-300" />
                         <p className="mt-2 text-sm text-slate-400">No preview available</p>
@@ -885,8 +967,11 @@ export default function ImportInvoicesPage() {
                   )}
                 </div>
               </div>
-            )}
+            </div>
           </div>
+
+          {/* ── Review form ───────────────────────────────────────────────── */}
+          <div className="space-y-5 lg:col-span-7">
 
           {/* ── CSV column mapping (only for CSV uploads) ────────────────── */}
           {csvData && (
@@ -991,6 +1076,7 @@ export default function ImportInvoicesPage() {
             allowEditing
             showSummary
           />
+          </div>
         </div>
       )}
 
