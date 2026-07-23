@@ -271,10 +271,6 @@ export function DescriptionCombobox({
       newIngredientName: '',
       newIngredientBrand: item.newIngredientBrand || ing.brand || '',
     }
-    // Auto-fill price from ingredient's current price
-    if (ing.currentPrice != null && ing.currentPrice > 0) {
-      patch.unitPrice = ing.currentPrice
-    }
     onUpdate(patch)
     setOpen(false)
   }
