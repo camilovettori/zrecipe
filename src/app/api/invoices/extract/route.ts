@@ -93,10 +93,21 @@ prominent proper noun on the invoice (usually the company at the
 top of the page).
 
 description:
-- Clean product name in Title Case
-- Remove the product brand from the description and return it separately in brand
-- Remove size/weight info that belongs in package_size (e.g., "10KG", "500ML", "250G")
-- Keep the actual product identity (e.g., "Butter Salted", "Coconut Oil Pure", "Muffin Case Standard")
+- CRITICAL: Extract the description LITERALLY from the invoice. Do NOT interpret, translate, "clean up", or "improve" it. Copy the exact words in the exact order they appear.
+- Preserve casing exactly as printed. Do NOT convert to Title Case. If the invoice says "MC DOUGALLS STD MUFFIN CASE 480S 90G", return exactly that. If the invoice says "Bottles of Egg White 1ltr (Ireland)", return exactly that.
+- Do NOT remove brand names. Do NOT remove weights or volumes. Do NOT remove pack sizes. All of it stays in the description. (Weights and volumes ALSO go into package_size — that's a separate field.)
+- Do NOT substitute words. "Egg White" is NOT "White Egg" and is NOT "White Milk". "Butter" is NOT "Margarine". "Flour" is NOT "Bread". If you're tempted to change any word, DO NOT — return the exact source text.
+- Do NOT combine or split lines. Each invoice line becomes exactly one items[] entry with the description as it appears.
+- If the source text is genuinely unclear (poor scan, handwriting, partially obscured), append " (verify)" to the description AS-IS without guessing at the missing letters. Never "reconstruct" a name from context.
+- The user will rename these in the review step. The system remembers the user's chosen names per supplier via the invoice_item_memory table, so this is a one-time job per unique line.
+
+When to append " (verify)" to the description:
+- The text on the invoice is illegible or partially obscured
+- You cannot tell where one item's description ends and another begins (multi-line descriptions, wrapped text)
+- The line has an obvious data quality issue (numbers where letters should be, etc)
+
+When NOT to append " (verify)":
+- You can read the description clearly, even if it looks unusual or long. "Bottles of Egg White 1ltr (Ireland)" is a valid description; do NOT flag it just because it isn't a "clean" product name.
 
 brand:
 - Product manufacturer or brand shown on the line (e.g., "KTC", "Callebaut", "Newforge", "Lakeland")
@@ -155,7 +166,7 @@ Example from a real Elliotts invoice:
 MC DOUGALLS STD MUFFIN CASE 480S 90G | Pack: 480 | Ordered: 4 | Price: 15.00 | Value: 60.00
 
 CORRECT extraction:
-- description: "Muffin Case Standard"
+- description: "MC DOUGALLS STD MUFFIN CASE 480S 90G" (literal — do not clean up or rename)
 - quantity: 4 (from Ordered column)
 - unit: "pack"
 - package_size: 480 (from Pack column)
@@ -170,7 +181,7 @@ WRONG extraction:
 
 ANOTHER EXAMPLE:
 COCONUT OIL PURE KTC 500ML | Pack: 12 | Ordered: 2 | Price: 39.67 | Value: 79.34
-CORRECT: quantity=2, unit="case", package_size=6000, package_unit="ml", unit_price=39.67, total=79.34
+CORRECT: description="COCONUT OIL PURE KTC 500ML" (literal), quantity=2, unit="case", package_size=6000, package_unit="ml", unit_price=39.67, total=79.34
 
 CASE + UNIT SPLIT COLUMNS (Henderson-style invoices):
 
@@ -214,7 +225,7 @@ quantity comes from the Ordered / Case / Unit columns.
 EXAMPLE — Henderson-style invoice line:
   Case: 0 | Unit: 1 | Description: "Water Still 6x2L" | Price: 8.00 | Total: 8.00
 CORRECT extraction:
-  - description: "Water Still"
+  - description: "Water Still 6x2L" (literal — do not strip the pack notation)
   - quantity: 1        (from Unit column)
   - unit: "pack"       (a single 6-bottle pack)
   - package_size: 12   (6 bottles × 2L = 12L total)
@@ -441,7 +452,7 @@ async function extractWithClaude(text: string) {
 }
 
 const VISION_INSTRUCTION =
-  'Read the attached invoice image carefully. Some invoices have logos where the supplier name is not readable as text — in that case, use the fallback rules above (email domain, website, VAT registered name, footer). For handwritten or low-quality scans, extract your best interpretation and flag uncertain fields with a "?" suffix in the description. Do not skip line items. Return ONLY the JSON.'
+  'Read the attached invoice image carefully. Some invoices have logos where the supplier name is not readable as text — in that case, use the fallback rules above (email domain, website, VAT registered name, footer). For handwritten or low-quality scans, extract your best interpretation and flag uncertain fields with a "?" suffix in the description. Do not skip line items. Return ONLY the JSON. CRITICAL: For each line item, extract the description text LITERALLY as you see it on the image. Do not clean, rename, or interpret product names. Copy exactly. If handwriting is unclear, append \' (verify)\' rather than guessing a full name.'
 
 async function extractInvoiceWithVision(imageBase64: string, mimeType: string) {
   const anthropic = getAnthropic()
@@ -529,6 +540,89 @@ async function applyItemMemory<T extends { supplier_name: string; items: Array<{
   } catch (err) {
     console.error('[extract] memory lookup failed:', err)
     return result
+  }
+}
+
+// ── Supplier thousands-quantity convention correction ──────────────────────
+// Some packaging suppliers (Atlas, Kingfisher, McKays, ...) express invoice
+// quantity as thousands (0.250 = 250 units) and unit price per thousand
+// (375.000 = €0.375/unit). Opt-in per supplier via
+// suppliers.quantity_in_thousands — never inferred, never applied to CSV
+// imports (callers only invoke this on the PDF/image AI-extraction path).
+// Best-effort: any failure here just returns the extraction unchanged.
+async function applyThousandsConvention<
+  T extends {
+    supplier_name: string
+    items: Array<{
+      description: string
+      quantity: number
+      unit_price: number | null
+      total: number | null
+    }>
+  }
+>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  admin: any,
+  tenantId: string,
+  result: T
+): Promise<T & { thousands_correction_applied: boolean }> {
+  try {
+    const supplierName = result.supplier_name?.trim()
+    if (!supplierName || supplierName === 'Unknown Supplier') {
+      return { ...result, thousands_correction_applied: false }
+    }
+
+    const { data: supplier } = await admin
+      .from('suppliers')
+      .select('id, quantity_in_thousands')
+      .eq('tenant_id', tenantId)
+      .ilike('name', supplierName)
+      .maybeSingle()
+
+    if (!supplier?.quantity_in_thousands) {
+      return { ...result, thousands_correction_applied: false }
+    }
+
+    const THOUSANDS = 1000
+    let applied = false
+
+    const correctedItems = result.items.map((item) => {
+      const q = Number(item.quantity ?? 0)
+      const p = Number(item.unit_price ?? 0)
+      const t = Number(item.total ?? 0)
+
+      if (q > 0 && q < 100 && p > 0) {
+        const correctedQty = q * THOUSANDS
+        const correctedUnitPrice = p / THOUSANDS
+        const expectedTotal = correctedQty * correctedUnitPrice
+        const totalOk = t === 0 || Math.abs(expectedTotal - t) / Math.max(t, 0.01) < 0.05
+
+        if (totalOk) {
+          applied = true
+          console.info(
+            `[extract] Applied thousands correction for "${item.description}": ` +
+            `qty ${q} → ${correctedQty}, unit_price ${p} → ${correctedUnitPrice.toFixed(4)}`
+          )
+          return {
+            ...item,
+            quantity: correctedQty,
+            unit_price: Number(correctedUnitPrice.toFixed(6)),
+          }
+        }
+
+        console.warn(
+          `[extract] Skipped thousands correction for "${item.description}": ` +
+          `expected total ${expectedTotal.toFixed(2)} doesn't match extracted ${t}`
+        )
+      }
+
+      return item
+    })
+
+    return { ...result, items: correctedItems, thousands_correction_applied: applied }
+  } catch (err) {
+    console.error('[extract] thousands correction failed:', err)
+    return { ...result, thousands_correction_applied: false }
   }
 }
 
@@ -679,8 +773,9 @@ export async function POST(request: NextRequest) {
           model: 'claude-sonnet-4-6',
         })
         const enrichedResult = await applyItemMemory(admin, tenantId, result)
+        const correctedResult = await applyThousandsConvention(admin, tenantId, enrichedResult)
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { usage: _u, ...responseData } = enrichedResult
+        const { usage: _u, ...responseData } = correctedResult
         return NextResponse.json(responseData)
       } catch (claudeErr) {
         const message = claudeErr instanceof Error ? claudeErr.message : 'AI extraction failed'

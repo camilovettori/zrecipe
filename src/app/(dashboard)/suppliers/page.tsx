@@ -47,6 +47,7 @@ export default function SuppliersPage() {
     phone: string
     address: string
     notes: string
+    quantityInThousands: boolean
   }) => {
     try {
       setSaving(true)
@@ -57,6 +58,7 @@ export default function SuppliersPage() {
           phone: values.phone || null,
           address: values.address || null,
           notes: values.notes || null,
+          quantityInThousands: values.quantityInThousands,
         })
         toast.success('Supplier updated')
       } else {
@@ -66,6 +68,7 @@ export default function SuppliersPage() {
           phone: values.phone || null,
           address: values.address || null,
           notes: values.notes || null,
+          quantityInThousands: values.quantityInThousands,
         })
         toast.success('Supplier created')
       }

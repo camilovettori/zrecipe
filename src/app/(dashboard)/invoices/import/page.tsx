@@ -12,6 +12,7 @@ import {
   FileSpreadsheet,
   FileText,
   Image as ImageIcon,
+  Info,
   Loader2,
   Lock,
   Maximize,
@@ -240,6 +241,7 @@ export default function ImportInvoicesPage() {
   const [tenantId, setTenantId] = useState<string | null>(null)
   const [invoiceId, setInvoiceId] = useState<string>(() => crypto.randomUUID())
   const [draft, setDraft] = useState<InvoiceFormState>(createInitialDraft)
+  const [thousandsCorrectionApplied, setThousandsCorrectionApplied] = useState(false)
   const [suppliers, setSuppliers] = useState<SupplierLookup[]>([])
   const [ingredients, setIngredients] = useState<IngredientLookup[]>([])
   const [loadingLookups, setLoadingLookups] = useState(true)
@@ -383,6 +385,7 @@ export default function ImportInvoicesPage() {
     try {
       setProcessing(true)
       setFileError(null)
+      setThousandsCorrectionApplied(false)
 
       if (fileKind === 'csv') {
         const csvText = await file.text()
@@ -510,11 +513,14 @@ export default function ImportInvoicesPage() {
               memory_ingredient_name?: string | null
               needs_verification?: boolean
             }>
+          thousands_correction_applied?: boolean
         }
 
         if (!response.ok) {
           throw new Error(payload.error ?? 'Unable to extract PDF data')
         }
+
+        setThousandsCorrectionApplied(payload.thousands_correction_applied ?? false)
 
         const rawItems = payload.items ?? []
         const extractedItems = normalizeExtractedItems(
@@ -616,11 +622,14 @@ export default function ImportInvoicesPage() {
             memory_ingredient_name?: string | null
             needs_verification?: boolean
           }>
+          thousands_correction_applied?: boolean
         }
 
         if (!response.ok) {
           throw new Error(payload.error ?? 'Unable to extract image data')
         }
+
+        setThousandsCorrectionApplied(payload.thousands_correction_applied ?? false)
 
         const rawItems = payload.items ?? []
         const extractedItems = normalizeExtractedItems(
@@ -1101,6 +1110,23 @@ export default function ImportInvoicesPage() {
               >
                 Apply mapping
               </button>
+            </div>
+          )}
+
+          {/* ── Thousands-convention correction banner ───────────────────── */}
+          {thousandsCorrectionApplied && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              <div className="flex items-start gap-2">
+                <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <div className="font-medium">Thousands convention applied</div>
+                  <div className="mt-0.5 text-emerald-700">
+                    {draft.supplierName || 'This supplier'} uses quantity in thousands. We&apos;ve
+                    multiplied quantities by 1000 and adjusted unit prices accordingly. Verify
+                    the amounts against your invoice.
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 

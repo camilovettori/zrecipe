@@ -12,6 +12,7 @@ export interface SupplierRecord {
   phone?: string | null
   address?: string | null
   notes?: string | null
+  quantityInThousands: boolean
   invoiceCount: number
   lastInvoiceDate?: string | null
   createdAt: string
@@ -26,6 +27,7 @@ type SupplierRow = {
   contact_phone?: string | null
   address?: string | null
   notes?: string | null
+  quantity_in_thousands?: boolean | null
   created_at: string
   updated_at: string
 }
@@ -49,6 +51,7 @@ function mapSupplierRow(row: SupplierRow, invoices: InvoiceSupplierRow[]) {
     phone: row.contact_phone ?? null,
     address: row.address ?? null,
     notes: row.notes ?? null,
+    quantityInThousands: row.quantity_in_thousands ?? false,
     invoiceCount: supplierInvoices.length,
     lastInvoiceDate: lastInvoiceDate ?? null,
     createdAt: row.created_at,
@@ -74,7 +77,7 @@ export function useSuppliers(options?: { autoLoad?: boolean }) {
         await Promise.all([
           supabase
             .from('suppliers')
-            .select('id, tenant_id, name, contact_email, contact_phone, address, notes, created_at, updated_at')
+            .select('id, tenant_id, name, contact_email, contact_phone, address, notes, quantity_in_thousands, created_at, updated_at')
             .eq('tenant_id', tenantId)
             .order('name', { ascending: true }),
           supabase.from('invoices').select('supplier_id, invoice_date').eq('tenant_id', tenantId),
@@ -111,6 +114,7 @@ export function useSuppliers(options?: { autoLoad?: boolean }) {
       phone?: string | null
       address?: string | null
       notes?: string | null
+      quantityInThousands?: boolean
     }) => {
       const supabase = createClient()
       const tenantId = await resolveTenantId()
@@ -123,8 +127,9 @@ export function useSuppliers(options?: { autoLoad?: boolean }) {
           contact_phone: input.phone ?? null,
           address: input.address ?? null,
           notes: input.notes ?? null,
+          quantity_in_thousands: input.quantityInThousands ?? false,
         })
-        .select('id, tenant_id, name, contact_email, contact_phone, address, notes, created_at, updated_at')
+        .select('id, tenant_id, name, contact_email, contact_phone, address, notes, quantity_in_thousands, created_at, updated_at')
         .single()
 
       if (createError || !data) {
@@ -146,6 +151,7 @@ export function useSuppliers(options?: { autoLoad?: boolean }) {
         phone?: string | null
         address?: string | null
         notes?: string | null
+        quantityInThousands?: boolean
       }
     ) => {
       const supabase = createClient()
@@ -157,9 +163,10 @@ export function useSuppliers(options?: { autoLoad?: boolean }) {
           contact_phone: input.phone ?? null,
           address: input.address ?? null,
           notes: input.notes ?? null,
+          quantity_in_thousands: input.quantityInThousands ?? false,
         })
         .eq('id', supplierId)
-        .select('id, tenant_id, name, contact_email, contact_phone, address, notes, created_at, updated_at')
+        .select('id, tenant_id, name, contact_email, contact_phone, address, notes, quantity_in_thousands, created_at, updated_at')
         .single()
 
       if (updateError || !data) {
