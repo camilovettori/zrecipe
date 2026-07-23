@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { resolveIngredientPrice, type PriceHistoryEntry } from '@/lib/ingredients/resolveIngredientPrice'
+import { ingredientNeedsPrice } from '@/lib/ingredients/needsPrice'
 import { deleteIngredientById, type DeleteIngredientResult } from '@/lib/ingredients/deleteIngredient'
 
 export interface IngredientRow {
@@ -28,8 +29,14 @@ export interface IngredientRow {
   updated_at: string
   /** True when AI extraction flagged this ingredient as uncertain (see
    *  UNCERTAINTY RULES in the invoice extraction prompt). Clears
-   *  automatically once a real price is confirmed — never a manual toggle. */
+   *  automatically once a real price is confirmed — never a manual toggle.
+   *  Secondary signal only; UI is driven by `needsPrice` below. */
   needs_verification: boolean
+  /** Derived, not stored: true when resolveIngredientPrice() finds no
+   *  usable price (null or ≤ 0), regardless of how the ingredient was
+   *  created. This is the single source of truth for the "Add price" /
+   *  amber-row UI treatment. */
+  needsPrice: boolean
 }
 
 export type SortKey = 'name' | 'price' | 'updated'
@@ -78,6 +85,7 @@ function normalizeIngredientRow(row: IngredientDbRow): IngredientRow {
     created_at: row.created_at,
     updated_at: row.updated_at,
     needs_verification: row.needs_verification ?? false,
+    needsPrice: ingredientNeedsPrice(row.price_history, row.current_price, row.price_unit),
   }
 }
 
@@ -101,7 +109,7 @@ export function useIngredients() {
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('all')
   const [sortBy, setSortBy] = useState<SortKey>('name')
-  const [needsVerificationOnly, setNeedsVerificationOnly] = useState(false)
+  const [needsPriceOnly, setNeedsPriceOnly] = useState(false)
 
   const fetch = useCallback(async () => {
     setLoading(true)
@@ -132,8 +140,8 @@ export function useIngredients() {
         (i.brand?.toLowerCase().includes(search.toLowerCase()) ?? false)
       const matchCat =
         category === 'all' || i.category?.toLowerCase() === category.toLowerCase()
-      const matchVerification = !needsVerificationOnly || i.needs_verification
-      return matchSearch && matchCat && matchVerification
+      const matchNeedsPrice = !needsPriceOnly || i.needsPrice
+      return matchSearch && matchCat && matchNeedsPrice
     }),
     sortBy
   )
@@ -141,12 +149,12 @@ export function useIngredients() {
     new Set(all.map((i) => i.category).filter((cat): cat is string => Boolean(cat)))
   ).sort()
   // Global count, independent of search/category filters, so the "Needs
-  // verification" chip stays a stable indicator rather than shifting with
+  // price" chip stays a stable indicator rather than shifting with
   // unrelated filters.
-  const needsVerificationCount = all.filter((i) => i.needs_verification).length
+  const needsPriceCount = all.filter((i) => i.needsPrice).length
 
   const createIngredient = async (
-    data: Omit<IngredientRow, 'id' | 'supplier' | 'created_at' | 'updated_at' | 'effectiveBrand'>
+    data: Omit<IngredientRow, 'id' | 'supplier' | 'created_at' | 'updated_at' | 'effectiveBrand' | 'needsPrice'>
   ) => {
     const supabase = createClient()
     const { base_unit, ...rest } = data
@@ -166,7 +174,7 @@ export function useIngredients() {
   const updateIngredient = async (id: string, data: Partial<IngredientRow>) => {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { base_unit, effectiveBrand, ...rest } = data
+    const { base_unit, effectiveBrand, needsPrice, ...rest } = data
     const { data: row, error } = await supabase
       .from('ingredients')
       .update({
@@ -205,8 +213,8 @@ export function useIngredients() {
     setSortBy,
     searchIngredients: (q: string) => setSearch(q),
     filterByCategory: (cat: string) => setCategory(cat),
-    needsVerificationOnly,
-    setNeedsVerificationOnly,
-    needsVerificationCount,
+    needsPriceOnly,
+    setNeedsPriceOnly,
+    needsPriceCount,
   }
 }

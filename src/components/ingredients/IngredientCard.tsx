@@ -70,7 +70,7 @@ export default function IngredientCard({ ingredient, onDeleteRequest }: Ingredie
       onClick={() => router.push(`/ingredients/${ingredient.id}`)}
       className={cn(
         'relative cursor-pointer overflow-hidden rounded-xl border shadow-sm transition-shadow hover:shadow-md',
-        ingredient.needs_verification
+        ingredient.needsPrice
           ? 'border-amber-300 bg-amber-50 ring-1 ring-amber-200 hover:border-amber-400 dark:border-amber-800 dark:bg-amber-950/10'
           : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600'
       )}
@@ -123,7 +123,7 @@ export default function IngredientCard({ ingredient, onDeleteRequest }: Ingredie
         {ingredient.effectiveBrand && (
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{ingredient.effectiveBrand}</p>
         )}
-        {ingredient.needs_verification && (
+        {ingredient.needsPrice && (
           <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
             <AlertTriangle className="h-3 w-3" />
             Add price

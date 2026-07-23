@@ -157,7 +157,7 @@ export default function IngredientListView({
                 onClick={() => router.push(`/ingredients/${ingredient.id}`)}
                 className={cn(
                   'cursor-pointer transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/40',
-                  ingredient.needs_verification && 'border-l-4 border-l-amber-400 bg-amber-50 hover:bg-amber-100/70 dark:bg-amber-950/10'
+                  ingredient.needsPrice && 'border-l-4 border-l-amber-400 bg-amber-50 hover:bg-amber-100/70 dark:bg-amber-950/10'
                 )}
               >
                 {/* Thumbnail */}
@@ -174,7 +174,7 @@ export default function IngredientListView({
                         · {ingredient.effectiveBrand}
                       </span>
                     )}
-                    {ingredient.needs_verification && (
+                    {ingredient.needsPrice && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
                         <AlertTriangle className="h-3 w-3" />
                         Add price

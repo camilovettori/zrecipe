@@ -66,9 +66,9 @@ export default function IngredientsPage() {
     filterByCategory,
     sortBy,
     setSortBy,
-    needsVerificationOnly,
-    setNeedsVerificationOnly,
-    needsVerificationCount,
+    needsPriceOnly,
+    setNeedsPriceOnly,
+    needsPriceCount,
   } = useIngredients()
   const { limits, hasFullAccess } = useSubscription()
 
@@ -245,20 +245,20 @@ export default function IngredientsPage() {
           />
         </div>
 
-        {/* Needs verification toggle — hidden entirely when there's nothing to show */}
-        {needsVerificationCount > 0 && (
+        {/* Needs price toggle — hidden entirely when there's nothing to show */}
+        {needsPriceCount > 0 && (
           <button
             type="button"
-            onClick={() => setNeedsVerificationOnly((v) => !v)}
+            onClick={() => setNeedsPriceOnly((v) => !v)}
             className={cn(
               'flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
-              needsVerificationOnly
+              needsPriceOnly
                 ? 'border-amber-300 bg-amber-100 text-amber-800'
                 : 'border-slate-200 bg-white text-slate-600 hover:border-amber-300 hover:bg-amber-50 hover:text-amber-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
             )}
           >
             <AlertTriangle className="h-3.5 w-3.5" />
-            Needs verification ({needsVerificationCount})
+            Needs price ({needsPriceCount})
           </button>
         )}
 
