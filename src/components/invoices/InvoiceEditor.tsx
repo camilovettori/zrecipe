@@ -4,8 +4,9 @@ import { AlertTriangle, Check, CircleAlert, Plus, Search, Trash2, X } from 'luci
 import {
   INVOICE_UNITS,
   PACKAGE_UNIT_OPTIONS,
-  calculateCostPerBaseUnit,
   createEmptyInvoiceItem,
+  getDefaultIngredientPriceUnit,
+  resolveInvoiceIngredientPricing,
   type InvoiceFormState,
   type InvoiceLineItem,
   recalculateInvoiceTotals,
@@ -270,6 +271,12 @@ export function DescriptionCombobox({
       createIngredient: false,
       newIngredientName: '',
       newIngredientBrand: item.newIngredientBrand || ing.brand || '',
+      newIngredientUnit:
+        ing.priceUnit ??
+        getDefaultIngredientPriceUnit(
+          item.packageSize && item.packageUnit ? item.packageUnit : item.unit
+        ) ??
+        item.unit,
     }
     onUpdate(patch)
     setOpen(false)
@@ -285,7 +292,10 @@ export function DescriptionCombobox({
       newIngredientName:     name,
       newIngredientBrand:    extractBrandSuggestion(name),
       newIngredientCategory: item.newIngredientCategory ?? 'Other',
-      newIngredientUnit:     item.unit,
+      newIngredientUnit:
+        getDefaultIngredientPriceUnit(
+          item.packageSize && item.packageUnit ? item.packageUnit : item.unit
+        ) ?? item.unit,
     })
     setOpen(false)
   }
@@ -437,29 +447,45 @@ function PackageCostLabel({
   item: InvoiceLineItem
   ingredients: IngredientLookup[]
 }) {
-  const pricing = calculateCostPerBaseUnit(item.unitPrice, item.packageSize, item.packageUnit)
-  if (!pricing) return <span className="text-xs text-slate-300">-</span>
-
   const existingMatch = item.ingredientMatch?.type === 'existing' ? item.ingredientMatch : null
   const linked = item.ingredientId
     ? ingredients.find((i) => i.id === item.ingredientId)
     : existingMatch
       ? ingredients.find((i) => i.id === existingMatch.id)
       : null
+  const pricing = resolveInvoiceIngredientPricing({
+    unitPrice: item.unitPrice,
+    invoiceUnit: item.unit,
+    packageSize: item.packageSize,
+    packageUnit: item.packageUnit,
+    targetUnit: linked?.priceUnit ?? item.newIngredientUnit,
+  })
+
+  if (!pricing.valid || pricing.normalizedPrice == null || !pricing.normalizedUnit) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700"
+        title={pricing.warning ?? 'Needs review'}
+      >
+        <AlertTriangle className="h-3 w-3 shrink-0" />
+        Needs review
+      </span>
+    )
+  }
 
   const current = linked?.currentPrice ?? null
   const tone =
     current == null
       ? 'text-slate-500'
-      : pricing.costPerBaseUnit < current
+      : pricing.normalizedPrice < current
         ? 'text-emerald-700'
-        : pricing.costPerBaseUnit > current
+        : pricing.normalizedPrice > current
           ? 'text-rose-700'
           : 'text-slate-500'
 
   return (
     <span className={cn('text-xs font-medium', tone)}>
-      {formatCurrency(pricing.costPerBaseUnit)}/{pricing.baseUnit}
+      Ingredient: {formatCurrency(pricing.normalizedPrice)}/{pricing.normalizedUnit}
     </span>
   )
 }
@@ -731,8 +757,8 @@ export default function InvoiceEditor({
                 <th className="border-b border-slate-200 px-3 font-semibold">Qty</th>
                 <th className="border-b border-slate-200 px-3 font-semibold">Unit</th>
                 <th className="border-b border-slate-200 px-3 font-semibold">Pkg size</th>
-                <th className="border-b border-slate-200 px-3 font-semibold">Price</th>
-                <th className="border-b border-slate-200 px-3 font-semibold">Total</th>
+                <th className="border-b border-slate-200 px-3 font-semibold">Invoice price</th>
+                <th className="border-b border-slate-200 px-3 font-semibold">Line total</th>
                 <th className="border-b border-slate-200 px-2 font-semibold" aria-label="Actions" />
               </tr>
             </thead>
@@ -765,7 +791,15 @@ export default function InvoiceEditor({
                   <td className="border-b border-slate-100 px-3 py-2">
                     <CustomSelect
                       value={item.unit}
-                      onChange={(v) => updateItem(item.id, { unit: v })}
+                      onChange={(v) =>
+                        updateItem(item.id, {
+                          unit: v,
+                          newIngredientUnit:
+                            item.packageSize && item.packageUnit
+                              ? item.newIngredientUnit
+                              : getDefaultIngredientPriceUnit(v) ?? item.newIngredientUnit,
+                        })
+                      }
                       options={INVOICE_UNITS.map((u) => ({ value: u, label: u }))}
                       size="sm"
                     />
@@ -786,9 +820,18 @@ export default function InvoiceEditor({
                         placeholder="Size"
                       />
                       <CustomSelect
-                        value={item.packageUnit ?? 'kg'}
-                        onChange={(v) => updateItem(item.id, { packageUnit: v })}
-                        options={PACKAGE_UNIT_OPTIONS.map((u) => ({ value: u, label: u }))}
+                        value={item.packageUnit ?? ''}
+                        onChange={(v) =>
+                          updateItem(item.id, {
+                            packageUnit: v || null,
+                            newIngredientUnit:
+                              getDefaultIngredientPriceUnit(v) ?? item.newIngredientUnit,
+                          })
+                        }
+                        options={[
+                          { value: '', label: 'Unit?' },
+                          ...PACKAGE_UNIT_OPTIONS.map((u) => ({ value: u, label: u })),
+                        ]}
                         size="sm"
                         className="w-[80px]"
                       />

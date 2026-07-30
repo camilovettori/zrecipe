@@ -9,7 +9,7 @@ import BulkInvoiceReview, {
   type ConsolidatedGroup,
   type InvoiceFileKind,
 } from '@/components/invoices/BulkInvoiceReview'
-import type { InvoiceFormState } from '@/lib/invoices'
+import { getDefaultIngredientPriceUnit, type InvoiceFormState } from '@/lib/invoices'
 import { bytesToSize, extractPdfText, fileTypeFromName, normalizeExtractedItems } from '@/lib/invoices-client'
 import { compressImage } from '@/lib/utils/image-compress'
 import { createClient } from '@/lib/supabase/client'
@@ -307,12 +307,15 @@ export default function BulkImportInvoicesPage() {
               packageSize: g.packageSize,
               packageUnit: g.packageUnit,
               unitPrice: occ.price,
-              total: Number((occ.quantity * occ.price).toFixed(2)),
+              total: occ.total,
               ingredientId: g.ingredientMatch.type === 'existing' ? g.ingredientMatch.id : null,
               ingredientMatch: g.ingredientMatch,
               newIngredientBrand: occ.brand,
               newIngredientCategory: g.category,
-              newIngredientUnit: g.unit,
+              newIngredientUnit:
+                getDefaultIngredientPriceUnit(
+                  g.packageSize && g.packageUnit ? g.packageUnit : g.unit
+                ) ?? g.unit,
             }))
         )
 

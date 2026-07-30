@@ -9,7 +9,12 @@ import { resolveTenantId } from '@/hooks/useTenant'
 import InvoiceEditor from '@/components/invoices/InvoiceEditor'
 import { toast } from '@/lib/toast'
 import { useInvoices, type IngredientLookup, type InvoiceRecord, type SupplierLookup } from '@/hooks/useInvoices'
-import { createEmptyInvoiceItem, type InvoiceFormState, recalculateInvoiceTotals } from '@/lib/invoices'
+import {
+  createEmptyInvoiceItem,
+  getDefaultIngredientPriceUnit,
+  type InvoiceFormState,
+  recalculateInvoiceTotals,
+} from '@/lib/invoices'
 import { cn } from '@/lib/utils'
 
 function formatCurrency(value: number, currency = 'EUR') {
@@ -166,7 +171,7 @@ function createDraftFromInvoice(invoice: InvoiceRecord | null): InvoiceFormState
           quantity: item.quantity,
           unit: item.unit,
           packageSize: item.packageSize ?? null,
-          packageUnit: item.packageUnit ?? 'kg',
+          packageUnit: item.packageUnit ?? null,
           unitPrice: item.unitPrice,
           total: item.totalPrice,
           ingredientId: item.ingredientId ?? null,
@@ -181,7 +186,10 @@ function createDraftFromInvoice(invoice: InvoiceRecord | null): InvoiceFormState
           createIngredient: false,
           newIngredientName: '',
           newIngredientCategory: 'Other',
-          newIngredientUnit: item.unit,
+          newIngredientUnit:
+            getDefaultIngredientPriceUnit(
+              item.packageSize && item.packageUnit ? item.packageUnit : item.unit
+            ) ?? item.unit,
         }))
       : [createEmptyInvoiceItem()],
   }

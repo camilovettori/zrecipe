@@ -57,7 +57,7 @@ export const INVOICE_UNITS = [
   'box', 'bag', 'pack', 'block', 'carton', 'tray', 'tub', 'bottle', 'case',
 ]
 
-export const PACKAGE_UNIT_OPTIONS = ['kg', 'g', 'L', 'ml', 'unit'] as const
+export const PACKAGE_UNIT_OPTIONS = ['kg', 'g', 'L', 'ml', 'unit', 'dozen'] as const
 
 export function createEmptyInvoiceItem(): InvoiceLineItem {
   return {
@@ -66,7 +66,7 @@ export function createEmptyInvoiceItem(): InvoiceLineItem {
     quantity: 1,
     unit: 'unit',
     packageSize: null,
-    packageUnit: 'kg',
+    packageUnit: null,
     unitPrice: 0,
     total: 0,
     ingredientId: null,
@@ -87,7 +87,168 @@ export function normalizePackageUnit(unit: string | null | undefined) {
   if (n === 'l' || n === 'liter' || n === 'litre') return 'L'
   if (n === 'ml') return 'ml'
   if (n === 'unit' || n === 'units' || n === 'each') return 'unit'
+  if (n === 'dozen' || n === 'dozens' || n === 'dz') return 'dozen'
   return null
+}
+
+export type InvoiceUnitFamily = 'weight' | 'volume' | 'count'
+
+export function getInvoiceUnitFamily(
+  unit: string | null | undefined
+): InvoiceUnitFamily | null {
+  const normalized = normalizePackageUnit(unit)
+  if (normalized === 'kg' || normalized === 'g') return 'weight'
+  if (normalized === 'L' || normalized === 'ml') return 'volume'
+  if (normalized === 'unit' || normalized === 'dozen') return 'count'
+  return null
+}
+
+export function getDefaultIngredientPriceUnit(unit: string | null | undefined) {
+  const family = getInvoiceUnitFamily(unit)
+  if (family === 'weight') return 'kg'
+  if (family === 'volume') return 'L'
+  if (family === 'count') return 'unit'
+  return null
+}
+
+const UNIT_TO_FAMILY_BASE: Record<string, number> = {
+  kg: 1000,
+  g: 1,
+  L: 1000,
+  ml: 1,
+  unit: 1,
+  dozen: 12,
+}
+
+export type InvoiceIngredientPricing = {
+  valid: boolean
+  needsReview: boolean
+  normalizedPrice: number | null
+  normalizedUnit: string | null
+  packageSize: number | null
+  packageUnit: string | null
+  warning: string | null
+}
+
+/**
+ * Converts the price paid for one invoice purchase unit into the ingredient's
+ * recipe price. It never crosses weight, volume, and count families.
+ */
+export function resolveInvoiceIngredientPricing({
+  unitPrice,
+  invoiceUnit,
+  packageSize,
+  packageUnit,
+  targetUnit,
+}: {
+  unitPrice: number
+  invoiceUnit: string | null | undefined
+  packageSize?: number | null
+  packageUnit?: string | null
+  targetUnit?: string | null
+}): InvoiceIngredientPricing {
+  const price = Number(unitPrice)
+  const parsedPackageSize = Number(packageSize)
+  const hasPackageSize = Number.isFinite(parsedPackageSize) && parsedPackageSize > 0
+  const normalizedPackageUnit = normalizePackageUnit(packageUnit)
+
+  if (!Number.isFinite(price) || price < 0) {
+    return {
+      valid: false,
+      needsReview: true,
+      normalizedPrice: null,
+      normalizedUnit: null,
+      packageSize: hasPackageSize ? parsedPackageSize : null,
+      packageUnit: normalizedPackageUnit,
+      warning: 'Enter a valid invoice price before updating the ingredient.',
+    }
+  }
+
+  if (hasPackageSize && !normalizedPackageUnit) {
+    return {
+      valid: false,
+      needsReview: true,
+      normalizedPrice: null,
+      normalizedUnit: null,
+      packageSize: parsedPackageSize,
+      packageUnit: null,
+      warning: 'Select the package unit to calculate the ingredient price safely.',
+    }
+  }
+
+  const sourceUnit = hasPackageSize
+    ? normalizedPackageUnit
+    : normalizePackageUnit(invoiceUnit)
+  const sourceFamily = getInvoiceUnitFamily(sourceUnit)
+
+  if (!sourceUnit || !sourceFamily) {
+    return {
+      valid: false,
+      needsReview: true,
+      normalizedPrice: null,
+      normalizedUnit: null,
+      packageSize: hasPackageSize ? parsedPackageSize : null,
+      packageUnit: normalizedPackageUnit,
+      warning: 'This purchase unit cannot be normalized. Add a package size and unit.',
+    }
+  }
+
+  const requestedTarget = normalizePackageUnit(targetUnit)
+  const targetFamily = getInvoiceUnitFamily(requestedTarget)
+  if (requestedTarget && targetFamily && targetFamily !== sourceFamily) {
+    return {
+      valid: false,
+      needsReview: true,
+      normalizedPrice: null,
+      normalizedUnit: requestedTarget,
+      packageSize: hasPackageSize ? parsedPackageSize : null,
+      packageUnit: normalizedPackageUnit,
+      warning: `Cannot convert ${sourceFamily} (${sourceUnit}) to ${targetFamily} (${requestedTarget}) without an explicit conversion factor.`,
+    }
+  }
+
+  const normalizedUnit =
+    requestedTarget && targetFamily === sourceFamily
+      ? requestedTarget
+      : getDefaultIngredientPriceUnit(sourceUnit)
+  if (!normalizedUnit) {
+    return {
+      valid: false,
+      needsReview: true,
+      normalizedPrice: null,
+      normalizedUnit: null,
+      packageSize: hasPackageSize ? parsedPackageSize : null,
+      packageUnit: normalizedPackageUnit,
+      warning: 'Unable to determine a safe ingredient price unit.',
+    }
+  }
+
+  const sourceQuantity = hasPackageSize ? parsedPackageSize : 1
+  const quantityInTarget =
+    sourceQuantity *
+    (UNIT_TO_FAMILY_BASE[sourceUnit] / UNIT_TO_FAMILY_BASE[normalizedUnit])
+
+  if (!Number.isFinite(quantityInTarget) || quantityInTarget <= 0) {
+    return {
+      valid: false,
+      needsReview: true,
+      normalizedPrice: null,
+      normalizedUnit,
+      packageSize: hasPackageSize ? parsedPackageSize : null,
+      packageUnit: normalizedPackageUnit,
+      warning: 'Unable to calculate a safe normalized ingredient price.',
+    }
+  }
+
+  return {
+    valid: true,
+    needsReview: false,
+    normalizedPrice: Number((price / quantityInTarget).toFixed(6)),
+    normalizedUnit,
+    packageSize: hasPackageSize ? parsedPackageSize : null,
+    packageUnit: normalizedPackageUnit,
+    warning: null,
+  }
 }
 
 export function getPackagePricingBasis(
@@ -102,6 +263,7 @@ export function getPackagePricingBasis(
   if (unit === 'g')  return { baseUnit: 'kg' as const, baseQuantity: size / 1000 }
   if (unit === 'L')  return { baseUnit: 'L' as const,  baseQuantity: size }
   if (unit === 'ml') return { baseUnit: 'L' as const,  baseQuantity: size / 1000 }
+  if (unit === 'dozen') return { baseUnit: 'unit' as const, baseQuantity: size * 12 }
   return { baseUnit: 'unit' as const, baseQuantity: size }
 }
 
@@ -110,11 +272,16 @@ export function calculateCostPerBaseUnit(
   packageSize: number | null | undefined,
   packageUnit: string | null | undefined
 ) {
-  const basis = getPackagePricingBasis(packageSize, packageUnit)
-  if (!basis || !Number.isFinite(unitPrice) || basis.baseQuantity <= 0) return null
+  const pricing = resolveInvoiceIngredientPricing({
+    unitPrice,
+    invoiceUnit: packageUnit,
+    packageSize,
+    packageUnit,
+  })
+  if (!pricing.valid || pricing.normalizedPrice == null || !pricing.normalizedUnit) return null
   return {
-    baseUnit: basis.baseUnit,
-    costPerBaseUnit: unitPrice / basis.baseQuantity,
+    baseUnit: pricing.normalizedUnit,
+    costPerBaseUnit: pricing.normalizedPrice,
   }
 }
 

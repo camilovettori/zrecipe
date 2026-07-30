@@ -42,11 +42,11 @@ function normalizeUnit(unit: Unit) {
   return unit.trim().toLowerCase()
 }
 
-function getFamily(unit: string) {
+export function getUnitFamily(unit: string): 'weight' | 'volume' | 'count' | null {
   if (unit in WEIGHT_TO_GRAMS) return 'weight'
   if (unit in VOLUME_TO_ML) return 'volume'
   if (unit in COUNT_TO_UNIT) return 'count'
-  return 'count'
+  return null
 }
 
 export function getConversionFactor(fromUnit: Unit, toUnit: Unit) {
@@ -57,10 +57,10 @@ export function getConversionFactor(fromUnit: Unit, toUnit: Unit) {
     return 1
   }
 
-  const fromFamily = getFamily(from)
-  const toFamily = getFamily(to)
+  const fromFamily = getUnitFamily(from)
+  const toFamily = getUnitFamily(to)
 
-  if (fromFamily !== toFamily) {
+  if (!fromFamily || !toFamily || fromFamily !== toFamily) {
     return null
   }
 
@@ -104,4 +104,3 @@ export function normalizeToBaseUnit(value: number, unit: Unit) {
   }
   return { value, unit: normalized }
 }
-

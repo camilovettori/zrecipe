@@ -112,7 +112,7 @@ export default function RecipesPage() {
   const [category, setCategory] = useState('all')
   const [allergenFilter, setAllergenFilter] = useState<number | null>(null)
   const [excludeRecipeIds, setExcludeRecipeIds] = useState<Set<string>>(new Set())
-  const [view, setView] = useState<ViewMode>('grid')
+  const [view, setView] = useState<ViewMode>('list')
   const [sortBy, setSortBy] = useState<SortKey>('margin_desc')
   const categoryOptions = useMemo(
     () => [
@@ -134,6 +134,8 @@ export default function RecipesPage() {
     const stored = localStorage.getItem('recipes-view-mode') as ViewMode | null
     if (stored === 'grid' || stored === 'list' || stored === 'categories') {
       setView(stored)
+    } else {
+      setView('list')
     }
   }, [])
 

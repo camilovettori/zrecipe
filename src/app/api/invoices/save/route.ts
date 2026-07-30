@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import { getPackagePricingBasis, normalizePackageUnit, normalizeText } from '@/lib/invoices'
+import { normalizeText, resolveInvoiceIngredientPricing } from '@/lib/invoices'
 
 type SaveItem = {
   id?: string
@@ -36,29 +36,6 @@ type SupplierMatch =
 type AdminClient = {
   from(table: string): any
   storage: any
-}
-
-function resolveIngredientPricing(item: SaveItem) {
-  const packageSize = Number(item.packageSize ?? NaN)
-  const packageUnit = normalizePackageUnit(item.packageUnit)
-  const basis = getPackagePricingBasis(packageSize, packageUnit)
-
-  if (basis && basis.baseQuantity > 0) {
-    return {
-      currentPrice: Number((item.unitPrice / basis.baseQuantity).toFixed(4)),
-      priceUnit: basis.baseUnit,
-      packageSize: packageSize,
-      packageUnit: packageUnit,
-    }
-  }
-
-  return {
-    currentPrice: Number.isFinite(item.unitPrice) ? item.unitPrice : 0,
-    priceUnit:
-      normalizePackageUnit(item.newIngredientUnit ?? item.unit) ?? item.newIngredientUnit ?? item.unit,
-    packageSize: null,
-    packageUnit: null,
-  }
 }
 
 function guessIngredientCategory(description: string) {
@@ -135,7 +112,7 @@ export async function POST(request: NextRequest) {
 
   const { data: existingIngredientsData, error: existingIngredientsError } = await admin
     .from('ingredients')
-    .select('id, name')
+    .select('id, name, price_unit')
     .eq('tenant_id', tenantId)
 
   if (existingIngredientsError) {
@@ -143,11 +120,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unable to resolve ingredients' }, { status: 500 })
   }
 
+  const existingIngredients = (existingIngredientsData ?? []) as Array<{
+    id: string
+    name: string
+    price_unit: string | null
+  }>
   const ingredientIdByNormalizedName = new Map<string, string>(
-    ((existingIngredientsData ?? []) as Array<{ id: string; name: string }>).map((ing) => [
+    existingIngredients.map((ing) => [
       normalizeText(ing.name),
       ing.id,
     ])
+  )
+  const ingredientPriceUnitById = new Map(
+    existingIngredients.map((ing) => [ing.id, ing.price_unit])
   )
 
   try {
@@ -192,6 +177,38 @@ export async function POST(request: NextRequest) {
 
     if (items.length === 0) {
       return NextResponse.json({ error: 'At least one invoice item is required' }, { status: 400 })
+    }
+
+    // Validate every row that will create or update an ingredient before the
+    // invoice is written. Unmatched rows can still be stored as invoice data.
+    for (const item of items) {
+      const linkedIngredientId =
+        item.ingredientMatch?.type === 'existing'
+          ? item.ingredientMatch.id
+          : item.ingredientId
+      const updatesIngredient = Boolean(
+        linkedIngredientId || item.ingredientMatch?.type === 'create' || item.createIngredient
+      )
+      if (!updatesIngredient) continue
+
+      const pricing = resolveInvoiceIngredientPricing({
+        unitPrice: item.unitPrice,
+        invoiceUnit: item.unit,
+        packageSize: item.packageSize,
+        packageUnit: item.packageUnit,
+        targetUnit:
+          (linkedIngredientId ? ingredientPriceUnitById.get(linkedIngredientId) : null) ??
+          item.newIngredientUnit,
+      })
+
+      if (!pricing.valid) {
+        return NextResponse.json(
+          {
+            error: `Needs review: ${item.description || 'invoice item'}. ${pricing.warning}`,
+          },
+          { status: 400 }
+        )
+      }
     }
 
     const normalizedSupplierName = supplierName.trim()
@@ -318,10 +335,34 @@ export async function POST(request: NextRequest) {
     for (const item of items) {
       let ingredientId = item.ingredientId ?? null
       const ingredientMatch = item.ingredientMatch ?? null
-      const pricing = resolveIngredientPricing(item)
 
       if (ingredientMatch?.type === 'existing' && ingredientMatch.id) {
         ingredientId = ingredientMatch.id
+      }
+
+      const pricing = resolveInvoiceIngredientPricing({
+        unitPrice: item.unitPrice,
+        invoiceUnit: item.unit,
+        packageSize: item.packageSize,
+        packageUnit: item.packageUnit,
+        targetUnit:
+          (ingredientId ? ingredientPriceUnitById.get(ingredientId) : null) ??
+          item.newIngredientUnit,
+      })
+
+      // Unmatched rows do not update ingredient pricing, but still retain
+      // their exact invoice quantity, unit, price, and line total below.
+      const updatesIngredient = Boolean(
+        ingredientId || ingredientMatch?.type === 'create' || item.createIngredient
+      )
+      if (
+        updatesIngredient &&
+        (!pricing.valid || pricing.normalizedPrice == null || !pricing.normalizedUnit)
+      ) {
+        return NextResponse.json(
+          { error: `Needs review: ${item.description}. ${pricing.warning}` },
+          { status: 400 }
+        )
       }
 
       if ((ingredientMatch?.type === 'create' || item.createIngredient) && !ingredientId) {
@@ -353,8 +394,8 @@ export async function POST(request: NextRequest) {
               item.newIngredientCategory && item.newIngredientCategory !== 'Other'
                 ? item.newIngredientCategory
                 : guessIngredientCategory(item.description || ingredientName),
-            current_price: pricing.currentPrice,
-            price_unit: pricing.priceUnit,
+            current_price: pricing.normalizedPrice,
+            price_unit: pricing.normalizedUnit,
             package_size: pricing.packageSize,
             package_unit: pricing.packageUnit,
             needs_verification: item.needs_verification ?? false,
@@ -389,8 +430,8 @@ export async function POST(request: NextRequest) {
         description: item.description,
         quantity: item.quantity,
         unit: item.unit,
-        package_size: pricing.packageSize,
-        package_unit: pricing.packageUnit,
+        package_size: item.packageSize ?? null,
+        package_unit: item.packageUnit ?? null,
         unit_price: item.unitPrice,
         total_price: item.total,
       }
@@ -428,8 +469,8 @@ export async function POST(request: NextRequest) {
 
         if (shouldUpdateCurrent) {
           const ingredientUpdatePayload = {
-            current_price: pricing.currentPrice,
-            price_unit: pricing.priceUnit,
+            current_price: pricing.normalizedPrice,
+            price_unit: pricing.normalizedUnit,
             package_size: pricing.packageSize,
             package_unit: pricing.packageUnit,
             last_purchase_date: invoiceDate,
@@ -454,8 +495,8 @@ export async function POST(request: NextRequest) {
         const historyPayload = {
           ingredient_id: ingredientId,
           tenant_id: tenantId,
-          price: pricing.currentPrice,
-          unit: pricing.priceUnit,
+          price: pricing.normalizedPrice,
+          unit: pricing.normalizedUnit,
           brand: item.newIngredientBrand?.trim() || null,
           invoice_id: invoiceId,
           recorded_at: invoiceDate,

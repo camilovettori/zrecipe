@@ -25,6 +25,7 @@ import InvoiceEditor from '@/components/invoices/InvoiceEditor'
 import {
   autoDetectCsvColumns,
   createEmptyInvoiceItem,
+  getDefaultIngredientPriceUnit,
   type InvoiceFileType,
   type InvoiceFormState,
   type InvoiceLineItem,
@@ -129,7 +130,7 @@ function buildDraftFromItems(
           quantity: item.quantity,
           unit: item.unit,
           packageSize: item.packageSize ?? null,
-          packageUnit: item.packageUnit ?? 'kg',
+          packageUnit: item.packageUnit ?? null,
           unitPrice: item.unitPrice,
           total: item.total,
           ingredientId: hasMemory ? item.memoryIngredientId! : null,
@@ -140,7 +141,10 @@ function buildDraftFromItems(
           createIngredient: false,
           newIngredientName: '',
           newIngredientCategory: 'Other',
-          newIngredientUnit: item.unit,
+          newIngredientUnit:
+            getDefaultIngredientPriceUnit(
+              item.packageSize && item.packageUnit ? item.packageUnit : item.unit
+            ) ?? item.unit,
         }
       })
     : [createEmptyInvoiceItem()]
@@ -354,7 +358,7 @@ export default function ImportInvoicesPage() {
       const unit = row[map.unit] ?? row.Unit ?? 'unit'
       const unitPrice = Number.parseFloat(row[map.unitPrice] ?? row['Unit Price'] ?? '0') || 0
       const packageSize = null
-      const packageUnit = 'kg'
+      const packageUnit = null
       const total =
         Number.parseFloat(row[map.total] ?? row.Total ?? `${quantity * unitPrice}`) ||
         quantity * unitPrice
@@ -470,7 +474,7 @@ export default function ImportInvoicesPage() {
                   quantity: 1,
                   unit: 'unit',
                   packageSize: null,
-                  packageUnit: 'kg',
+                  packageUnit: null,
                   unitPrice: 0,
                   total: 0,
                 },
@@ -554,7 +558,7 @@ export default function ImportInvoicesPage() {
                   quantity: 1,
                   unit: 'unit',
                   packageSize: null,
-                  packageUnit: 'kg',
+                  packageUnit: null,
                   unitPrice: 0,
                   total: 0,
                   },
@@ -663,7 +667,7 @@ export default function ImportInvoicesPage() {
                   quantity: 1,
                   unit: 'unit',
                   packageSize: null,
-                  packageUnit: 'kg',
+                  packageUnit: null,
                   unitPrice: 0,
                   total: 0,
                   },
@@ -701,7 +705,7 @@ export default function ImportInvoicesPage() {
               quantity: 1,
               unit: 'unit',
               packageSize: null,
-              packageUnit: 'kg',
+              packageUnit: null,
               unitPrice: 0,
               total: 0,
             },
@@ -1087,7 +1091,7 @@ export default function ImportInvoicesPage() {
                     const unit = row[csvColumnMap.unit] ?? 'unit'
                     const unitPrice = Number.parseFloat(row[csvColumnMap.unitPrice] ?? '0') || 0
                     const packageSize = null
-                    const packageUnit = 'kg'
+                    const packageUnit = null
                     const total =
                       Number.parseFloat(row[csvColumnMap.total] ?? `${quantity * unitPrice}`) ||
                       quantity * unitPrice

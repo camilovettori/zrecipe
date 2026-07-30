@@ -6,6 +6,7 @@ import InvoiceEditor, { DescriptionCombobox } from '@/components/invoices/Invoic
 import {
   INVOICE_UNITS,
   PACKAGE_UNIT_OPTIONS,
+  getDefaultIngredientPriceUnit,
   normalizeText,
   scoreIngredientMatch,
   type InvoiceFormState,
@@ -39,6 +40,7 @@ export type GroupOccurrence = {
   invoiceDate: string
   brand: string
   price: number
+  total: number
   quantity: number
   unit: string
   skip: boolean
@@ -80,7 +82,7 @@ function buildInitialGroups(
           name: item.description.trim(),
           unit: item.unit || 'unit',
           packageSize: item.packageSize ?? null,
-          packageUnit: item.packageUnit ?? 'kg',
+          packageUnit: item.packageUnit ?? null,
           category: 'Other',
           ingredientMatch: best
             ? { type: 'existing', id: best.id, name: best.name }
@@ -99,6 +101,7 @@ function buildInitialGroups(
         invoiceDate: draft.meta.invoiceDate,
         brand: item.brand?.trim() || '',
         price: item.unitPrice,
+        total: item.total,
         quantity: item.quantity,
         unit: item.unit,
         skip: false,
@@ -142,7 +145,17 @@ export default function BulkInvoiceReview({
       prev.map((g) =>
         g.id !== groupId
           ? g
-          : { ...g, occurrences: g.occurrences.map((o) => (o.id === occId ? { ...o, ...patch } : o)) }
+          : {
+              ...g,
+              occurrences: g.occurrences.map((o) => {
+                if (o.id !== occId) return o
+                const next = { ...o, ...patch }
+                if (patch.quantity !== undefined || patch.price !== undefined) {
+                  next.total = Number((next.quantity * next.price).toFixed(2))
+                }
+                return next
+              }),
+            }
       )
     )
   }
@@ -165,7 +178,7 @@ export default function BulkInvoiceReview({
             name: occ.fileName.replace(/\.[^.]+$/, ''),
             unit: occ.unit || 'unit',
             packageSize: null,
-            packageUnit: 'kg',
+            packageUnit: null,
             category: 'Other',
             ingredientMatch: { type: 'create', name: occ.fileName.replace(/\.[^.]+$/, '') },
             skip: false,
@@ -308,7 +321,10 @@ export default function BulkInvoiceReview({
             createIngredient: group.ingredientMatch.type === 'create',
             newIngredientName: group.ingredientMatch.type === 'create' ? group.name : '',
             newIngredientCategory: group.category,
-            newIngredientUnit: group.unit,
+            newIngredientUnit:
+              getDefaultIngredientPriceUnit(
+                group.packageSize && group.packageUnit ? group.packageUnit : group.unit
+              ) ?? group.unit,
           }
 
           return (
@@ -355,9 +371,12 @@ export default function BulkInvoiceReview({
                       className="h-9 w-20 rounded-lg border border-slate-200 bg-white px-2 text-xs outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10"
                     />
                     <CustomSelect
-                      value={group.packageUnit ?? 'kg'}
-                      onChange={(v) => updateGroup(group.id, { packageUnit: v })}
-                      options={PACKAGE_UNIT_OPTIONS.map((u) => ({ value: u, label: u }))}
+                      value={group.packageUnit ?? ''}
+                      onChange={(v) => updateGroup(group.id, { packageUnit: v || null })}
+                      options={[
+                        { value: '', label: 'Unit?' },
+                        ...PACKAGE_UNIT_OPTIONS.map((u) => ({ value: u, label: u })),
+                      ]}
                       size="sm"
                       className="w-20"
                     />
