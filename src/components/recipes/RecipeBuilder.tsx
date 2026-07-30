@@ -553,10 +553,17 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const hasLoaded = useRef(false)
   const suppressNextDirtyRef = useRef(false)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const aiImportActiveRef = useRef(false)
+  const aiImportSessionRef = useRef(0)
+  const persistedRecipeIdRef = useRef<string | null>(isNew ? null : recipeId)
   const recipeRef = useRef(recipe)
   const computedIngredientsRef = useRef<typeof computedIngredients>([])
 
   const storageKey = `zrecipe:recipe-draft:${recipeId}`
+
+  useEffect(() => {
+    if (!isNew) persistedRecipeIdRef.current = recipeId
+  }, [isNew, recipeId])
 
   // ── Load recipe ────────────────────────────────────────────────────────────
 
@@ -732,6 +739,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   useEffect(() => {
     if (typeof window === 'undefined') return
     const handle = setInterval(() => {
+      if (aiImportActiveRef.current) return
       localStorage.setItem(storageKey, JSON.stringify(recipe))
     }, 30_000)
     return () => clearInterval(handle)
@@ -751,6 +759,10 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     }
     setSaveStatus('dirty')
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
+    if (aiImportActiveRef.current) {
+      autoSaveTimerRef.current = null
+      return
+    }
     autoSaveTimerRef.current = setTimeout(() => void handleAutoSaveRef.current?.(), 3000)
   }, [recipe]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1223,8 +1235,10 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       ingredients: currentIngredients.map((item) => ({ ...item, lineCost: calculateLineCost(item) })),
     }
 
-    const savedIsNew = !loadedRecipe
-    const saved = savedIsNew ? await createRecipe(payload) : await updateRecipe(recipeId, payload)
+    const activeRecipeId = persistedRecipeIdRef.current
+    const savedIsNew = !activeRecipeId
+    const saved = savedIsNew ? await createRecipe(payload) : await updateRecipe(activeRecipeId, payload)
+    persistedRecipeIdRef.current = saved.id
     const hydratedIngredients = await hydrateIngredientAllergens(saved.ingredients)
     const hydratedRecipe = { ...saved, ingredients: hydratedIngredients } as RecipeRecord
 
@@ -1247,7 +1261,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     }
 
     return saved
-  }, [createRecipe, fetchRecipeImage, hydrateIngredientAllergens, loadedRecipe, recipeId, storageKey, updateRecipe])
+  }, [createRecipe, fetchRecipeImage, hydrateIngredientAllergens, storageKey, updateRecipe])
 
   const handleSave = async () => {
     if (autoSaveTimerRef.current) { clearTimeout(autoSaveTimerRef.current); autoSaveTimerRef.current = null }
@@ -1269,9 +1283,21 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
   const handleAutoSave = useCallback(async () => {
     autoSaveTimerRef.current = null
+    if (aiImportActiveRef.current) {
+      setSaveStatus('dirty')
+      return
+    }
+    const importSessionAtStart = aiImportSessionRef.current
     setSaveStatus('autosaving')
     try {
       const saved = await doSave(recipeRef.current, computedIngredientsRef.current, true)
+      if (
+        aiImportActiveRef.current ||
+        aiImportSessionRef.current !== importSessionAtStart
+      ) {
+        setSaveStatus('dirty')
+        return
+      }
       setSaveStatus('saved')
       setTimeout(() => setSaveStatus((s) => s === 'saved' ? 'clean' : s), 2000)
       if (isNew) router.replace(`/recipes/${saved.id}`)
@@ -1282,6 +1308,29 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
   // Keep the ref pointing to the latest handleAutoSave
   handleAutoSaveRef.current = handleAutoSave
+
+  const handleAiImportOpenChange = useCallback((nextOpen: boolean) => {
+    if (nextOpen && !aiImportActiveRef.current) {
+      aiImportSessionRef.current += 1
+    }
+    aiImportActiveRef.current = nextOpen
+    setAiImportOpen(nextOpen)
+
+    if (nextOpen) {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current)
+        autoSaveTimerRef.current = null
+      }
+      return
+    }
+
+    if (saveStatus === 'dirty' || saveStatus === 'failed') {
+      autoSaveTimerRef.current = setTimeout(
+        () => void handleAutoSaveRef.current?.(),
+        3000
+      )
+    }
+  }, [saveStatus])
 
   const handleDelete = async () => {
     if (isNew) return
@@ -2119,7 +2168,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
               {recipe.ingredients.length === 0 && (
                 <button
                   type="button"
-                  onClick={() => setAiImportOpen(true)}
+                  onClick={() => handleAiImportOpenChange(true)}
                   title="Upload a recipe photo, PDF, or file - AI will extract the ingredients for you."
                   className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
                 >
@@ -2542,7 +2591,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
       <AiImportRecipeModal
         open={aiImportOpen}
-        onOpenChange={setAiImportOpen}
+        onOpenChange={handleAiImportOpenChange}
         onImported={handleAiRecipeImported}
       />
     </div>
