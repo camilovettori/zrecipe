@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils'
 import type { IngredientRow } from '@/hooks/useIngredients'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 import DeleteCategoryModal from '@/components/ingredients/DeleteCategoryModal'
+import RenameCategoryModal from '@/components/shared/RenameCategoryModal'
 import { useIngredientCategories } from '@/hooks/useIngredientCategories'
 import { useIngredientBrands } from '@/hooks/useIngredientBrands'
 import { useSuppliers } from '@/hooks/useSuppliers'
@@ -164,6 +165,9 @@ export default function IngredientForm({
   const [customCategoryInput, setCustomCategoryInput] = useState('')
   const [categoryToDelete, setCategoryToDelete] = useState<{ name: string; count: number } | null>(null)
   const [deleteCategoryModalOpen, setDeleteCategoryModalOpen] = useState(false)
+  // RenameCategoryModal owns the input's live value, so only the category
+  // being renamed needs to be tracked here.
+  const [categoryRenameState, setCategoryRenameState] = useState<{ oldName: string } | null>(null)
   const [overrideUnitPrice, setOverrideUnitPrice] = useState(false)
   const [packagePriceInput, setPackagePriceInput] = useState('')
   const [supplierQuery, setSupplierQuery] = useState(ingredient?.supplier?.name ?? '')
@@ -602,6 +606,34 @@ export default function IngredientForm({
     setCategoryToDelete(null)
   }
 
+  const handleRenameCategory = async (oldName: string, newName: string) => {
+    const trimmed = newName.trim()
+    if (!trimmed || trimmed.toLowerCase() === oldName.toLowerCase()) return
+
+    const supabase = createClient()
+
+    // Update ALL ingredients with this category to the new name
+    const { error } = await supabase
+      .from('ingredients')
+      .update({ category: trimmed })
+      .ilike('category', oldName)
+
+    if (error) {
+      toast.error('Failed to rename category')
+      return
+    }
+
+    toast.success(`Category renamed to "${trimmed}"`)
+
+    // If this ingredient currently uses the old category, update the form
+    if (categoryValue.toLowerCase() === oldName.toLowerCase()) {
+      setValue('category', trimmed, { shouldValidate: true })
+    }
+
+    setCategoryRenameState(null)
+    await refetchCategories()
+  }
+
   return (
     <>
     <form id="ingredient-form" onSubmit={handleSubmit(onSubmit)}>
@@ -741,6 +773,7 @@ export default function IngredientForm({
                     value: c,
                     label: c,
                     onDelete: c === 'Other' ? undefined : () => handleDeleteCategory(c),
+                    onEdit: c === 'Other' ? undefined : () => setCategoryRenameState({ oldName: c }),
                   })),
                   ...(isCustomCategory ? [{ value: '__custom__', label: categoryValue }] : []),
                   { value: '__create__', label: '+ Create category...' },
@@ -951,6 +984,15 @@ export default function IngredientForm({
           setCategoryToDelete(null)
         }}
         onConfirm={handleReassignAndRemoveCategory}
+      />
+    )}
+
+    {categoryRenameState && (
+      <RenameCategoryModal
+        open={Boolean(categoryRenameState)}
+        categoryName={categoryRenameState.oldName}
+        onClose={() => setCategoryRenameState(null)}
+        onConfirm={(newName) => handleRenameCategory(categoryRenameState.oldName, newName)}
       />
     )}
     </>

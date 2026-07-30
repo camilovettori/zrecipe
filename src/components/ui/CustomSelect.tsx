@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, Trash2 } from 'lucide-react'
+import { Check, ChevronDown, Pencil, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export interface SelectOption {
@@ -12,6 +12,7 @@ export interface SelectOption {
   icon?: React.ReactNode
   description?: string
   onDelete?: () => void
+  onEdit?: () => void
 }
 
 interface CustomSelectProps {
@@ -168,6 +169,19 @@ export function CustomSelect({
                     <span className="mt-0.5 block text-xs font-normal text-slate-400">{option.description}</span>
                   )}
                 </span>
+                {option.onEdit && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      option.onEdit?.()
+                    }}
+                    className="ml-auto shrink-0 rounded-md p-1 text-slate-300 transition hover:bg-slate-100 hover:text-slate-600"
+                    aria-label={`Edit ${option.label}`}
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                )}
                 {option.onDelete && (
                   <button
                     type="button"
@@ -175,7 +189,10 @@ export function CustomSelect({
                       e.stopPropagation()
                       option.onDelete?.()
                     }}
-                    className="ml-2 shrink-0 rounded-md p-1 text-slate-300 transition hover:bg-red-50 hover:text-red-500"
+                    className={cn(
+                      'shrink-0 rounded-md p-1 text-slate-300 transition hover:bg-red-50 hover:text-red-500',
+                      !option.onEdit && 'ml-auto'
+                    )}
                     aria-label={`Delete ${option.label}`}
                   >
                     <Trash2 className="h-3.5 w-3.5" />

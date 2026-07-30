@@ -45,9 +45,11 @@ import {
   type RecipeIngredientDraft,
   type RecipeRecord,
   type RecipeStepDraft,
-  RECIPE_CATEGORIES,
   useRecipes,
 } from '@/hooks/useRecipes'
+import { useRecipeCategories } from '@/hooks/useRecipeCategories'
+import DeleteCategoryModal from '@/components/ingredients/DeleteCategoryModal'
+import RenameCategoryModal from '@/components/shared/RenameCategoryModal'
 import type { IngredientLookup } from '@/hooks/useInvoices'
 import { resolveTenantContext, resolveTenantId } from '@/hooks/useTenant'
 import { useSubscription } from '@/hooks/useSubscription'
@@ -528,6 +530,10 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const [isMobile, setIsMobile] = useState(false)
   const [categoryMode, setCategoryMode] = useState<'select' | 'custom'>('select')
   const [customCategoryInput, setCustomCategoryInput] = useState('')
+  const { categories: recipeCategories, refetch: refetchRecipeCategories } = useRecipeCategories()
+  const [recipeCategoryToDelete, setRecipeCategoryToDelete] = useState<{ name: string; count: number } | null>(null)
+  const [deleteRecipeCategoryModalOpen, setDeleteRecipeCategoryModalOpen] = useState(false)
+  const [recipeCategoryRenameState, setRecipeCategoryRenameState] = useState<{ oldName: string } | null>(null)
   const [aiImportOpen, setAiImportOpen] = useState(false)
   const [yieldModalOpen, setYieldModalOpen] = useState(false)
   const [yieldFactorsEnabled, setYieldFactorsEnabled] = useState(false)
@@ -898,6 +904,96 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
   const updateRecipeField = <K extends keyof RecipeEditorData>(field: K, value: RecipeEditorData[K]) => {
     setRecipe((c) => ({ ...c, [field]: value }))
+  }
+
+  // ── Recipe category delete / rename ─────────────────────────────────────────
+  // Mirrors IngredientForm.tsx's category management, but against the
+  // `recipes` table and tenants.hidden_recipe_categories.
+
+  const hideRecipeCategoryForTenant = async (categoryName: string) => {
+    const supabase = createClient()
+    const tenantId = await resolveTenantId()
+    const { data: tenantRow } = await supabase
+      .from('tenants')
+      .select('hidden_recipe_categories')
+      .eq('id', tenantId)
+      .single()
+    const current: string[] = tenantRow?.hidden_recipe_categories ?? []
+    if (!current.some((c) => c.toLowerCase() === categoryName.toLowerCase())) {
+      await supabase
+        .from('tenants')
+        .update({ hidden_recipe_categories: [...current, categoryName] })
+        .eq('id', tenantId)
+    }
+    toast.success(`"${categoryName}" removed from category list`)
+    await refetchRecipeCategories()
+  }
+
+  const handleDeleteRecipeCategory = async (categoryName: string) => {
+    const supabase = createClient()
+
+    const { count } = await supabase
+      .from('recipes')
+      .select('id', { count: 'exact', head: true })
+      .ilike('category', categoryName)
+
+    if ((count ?? 0) > 0) {
+      setRecipeCategoryToDelete({ name: categoryName, count: count ?? 0 })
+      setDeleteRecipeCategoryModalOpen(true)
+      return
+    }
+
+    await hideRecipeCategoryForTenant(categoryName)
+  }
+
+  const handleReassignAndRemoveRecipeCategory = async (replacementCategory: string) => {
+    if (!recipeCategoryToDelete) return
+    const supabase = createClient()
+
+    const { error } = await supabase
+      .from('recipes')
+      .update({ category: replacementCategory })
+      .ilike('category', recipeCategoryToDelete.name)
+
+    if (error) {
+      toast.error('Unable to move recipes to the new category')
+      return
+    }
+
+    await hideRecipeCategoryForTenant(recipeCategoryToDelete.name)
+
+    if (recipe.category.toLowerCase() === recipeCategoryToDelete.name.toLowerCase()) {
+      updateRecipeField('category', replacementCategory)
+    }
+
+    setDeleteRecipeCategoryModalOpen(false)
+    setRecipeCategoryToDelete(null)
+  }
+
+  const handleRenameRecipeCategory = async (oldName: string, newName: string) => {
+    const trimmed = newName.trim()
+    if (!trimmed || trimmed.toLowerCase() === oldName.toLowerCase()) return
+
+    const supabase = createClient()
+
+    const { error } = await supabase
+      .from('recipes')
+      .update({ category: trimmed })
+      .ilike('category', oldName)
+
+    if (error) {
+      toast.error('Failed to rename category')
+      return
+    }
+
+    toast.success(`Category renamed to "${trimmed}"`)
+
+    if (recipe.category.toLowerCase() === oldName.toLowerCase()) {
+      updateRecipeField('category', trimmed)
+    }
+
+    setRecipeCategoryRenameState(null)
+    await refetchRecipeCategories()
   }
 
   const updateIngredient = (id: string, patch: Partial<RecipeIngredientDraft>) => {
@@ -1946,7 +2042,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
             <div className="block">
               <div className="mb-1.5 flex items-center gap-1.5">
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Category</span>
-                {recipe.category && !RECIPE_CATEGORIES.includes(recipe.category) && categoryMode === 'select' && (
+                {recipe.category && !recipeCategories.includes(recipe.category) && categoryMode === 'select' && (
                   <button
                     type="button"
                     title="Edit custom category"
@@ -1960,7 +2056,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
               {categoryMode === 'select' ? (
                 <CustomSelect
-                  value={recipe.category && !RECIPE_CATEGORIES.includes(recipe.category) ? recipe.category : recipe.category}
+                  value={recipe.category && !recipeCategories.includes(recipe.category) ? recipe.category : recipe.category}
                   onChange={(v) => {
                     if (v === '__create__') {
                       setCategoryMode('custom')
@@ -1970,8 +2066,13 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                     }
                   }}
                   options={[
-                    ...RECIPE_CATEGORIES.map((c) => ({ value: c, label: c })),
-                    ...(recipe.category && !RECIPE_CATEGORIES.includes(recipe.category)
+                    ...recipeCategories.map((c) => ({
+                      value: c,
+                      label: c,
+                      onDelete: c === 'Other' ? undefined : () => handleDeleteRecipeCategory(c),
+                      onEdit: c === 'Other' ? undefined : () => setRecipeCategoryRenameState({ oldName: c }),
+                    })),
+                    ...(recipe.category && !recipeCategories.includes(recipe.category)
                       ? [{ value: recipe.category, label: recipe.category }]
                       : []),
                     { value: '', label: '', separator: true },
@@ -2594,6 +2695,30 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
         onOpenChange={handleAiImportOpenChange}
         onImported={handleAiRecipeImported}
       />
+
+      {recipeCategoryToDelete && (
+        <DeleteCategoryModal
+          open={deleteRecipeCategoryModalOpen}
+          categoryName={recipeCategoryToDelete.name}
+          count={recipeCategoryToDelete.count}
+          categories={recipeCategories}
+          entityLabel="recipe"
+          onClose={() => {
+            setDeleteRecipeCategoryModalOpen(false)
+            setRecipeCategoryToDelete(null)
+          }}
+          onConfirm={handleReassignAndRemoveRecipeCategory}
+        />
+      )}
+
+      {recipeCategoryRenameState && (
+        <RenameCategoryModal
+          open={Boolean(recipeCategoryRenameState)}
+          categoryName={recipeCategoryRenameState.oldName}
+          onClose={() => setRecipeCategoryRenameState(null)}
+          onConfirm={(newName) => handleRenameRecipeCategory(recipeCategoryRenameState.oldName, newName)}
+        />
+      )}
     </div>
   )
 }

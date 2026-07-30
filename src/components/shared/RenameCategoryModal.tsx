@@ -1,43 +1,37 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { AlertTriangle, X } from 'lucide-react'
-import { CustomSelect } from '@/components/ui/CustomSelect'
+import { Pencil, X } from 'lucide-react'
 
-interface DeleteCategoryModalProps {
+interface RenameCategoryModalProps {
   open: boolean
   categoryName: string
-  count: number
-  categories: string[]
   onClose: () => void
-  onConfirm: (replacementCategory: string) => void | Promise<void>
-  /** What the count refers to — "ingredient" (default) or "recipe". */
-  entityLabel?: string
+  onConfirm: (newName: string) => void | Promise<void>
 }
 
-export default function DeleteCategoryModal({
+export default function RenameCategoryModal({
   open,
   categoryName,
-  count,
-  categories,
   onClose,
   onConfirm,
-  entityLabel = 'ingredient',
-}: DeleteCategoryModalProps) {
-  const [replacement, setReplacement] = useState('')
+}: RenameCategoryModalProps) {
+  const [value, setValue] = useState(categoryName)
   const [loading, setLoading] = useState(false)
 
-  const replacementOptions = categories.filter(
-    (c) => c.toLowerCase() !== categoryName.toLowerCase()
-  )
+  useEffect(() => {
+    if (open) setValue(categoryName)
+  }, [open, categoryName])
+
+  const trimmed = value.trim()
+  const unchanged = !trimmed || trimmed.toLowerCase() === categoryName.toLowerCase()
 
   const handleConfirm = async () => {
-    if (!replacement) return
+    if (unchanged) return
     setLoading(true)
     try {
-      await onConfirm(replacement)
-      setReplacement('')
+      await onConfirm(trimmed)
     } finally {
       setLoading(false)
     }
@@ -45,7 +39,6 @@ export default function DeleteCategoryModal({
 
   const handleClose = () => {
     if (loading) return
-    setReplacement('')
     onClose()
   }
 
@@ -62,30 +55,35 @@ export default function DeleteCategoryModal({
           </Dialog.Close>
 
           <div className="flex items-start gap-4">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/30">
-              <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700">
+              <Pencil className="h-5 w-5 text-slate-600 dark:text-slate-300" />
             </div>
             <div>
               <Dialog.Title className="text-base font-semibold text-slate-900 dark:text-white">
-                Remove &ldquo;{categoryName}&rdquo;?
+                Rename &ldquo;{categoryName}&rdquo;
               </Dialog.Title>
               <Dialog.Description className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
-                {count} {entityLabel}{count !== 1 ? 's' : ''} currently use &ldquo;{categoryName}&rdquo;. Choose
-                a category to move {count !== 1 ? 'them' : 'it'} to before removing &ldquo;{categoryName}
-                &rdquo;.
+                All items currently using this category will be updated to the new name.
               </Dialog.Description>
             </div>
           </div>
 
           <div className="mt-5">
             <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
-              Move to
+              New name
             </label>
-            <CustomSelect
-              value={replacement}
-              onChange={setReplacement}
-              placeholder="Select a replacement category…"
-              options={replacementOptions.map((c) => ({ value: c, label: c }))}
+            <input
+              autoFocus
+              type="text"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  handleConfirm()
+                }
+              }}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
             />
           </div>
 
@@ -99,10 +97,10 @@ export default function DeleteCategoryModal({
             </button>
             <button
               onClick={handleConfirm}
-              disabled={loading || !replacement}
-              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={loading || unchanged}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {loading ? 'Moving…' : 'Move & remove category'}
+              {loading ? 'Renaming…' : 'Rename'}
             </button>
           </div>
         </Dialog.Content>
