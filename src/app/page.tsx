@@ -14,6 +14,9 @@ import PrimaryCTALink from '@/components/landing/PrimaryCTALink'
 import HeroDemoVideo from '@/components/landing/HeroDemoVideo'
 
 export const metadata: Metadata = {
+  title: 'ZRecipe — Recipe Costing Software for Bakeries, Cafés & Restaurants',
+  description:
+    'ZRecipe turns supplier invoices into accurate recipe costs, real margins, and EU-compliant allergen labels. Built for independent food businesses in Ireland and the EU. 14-day free trial, €25/month.',
   alternates: { canonical: '/' },
 }
 
@@ -424,7 +427,7 @@ export default function LandingPage() {
               <div>
                 <Image
                   src="/images/logo4.png"
-                  alt="ZRecipe"
+                  alt="ZRecipe — recipe costing software for independent food businesses"
                   width={140}
                   height={47}
                   style={{ height: '32px', width: 'auto', objectFit: 'contain' }}

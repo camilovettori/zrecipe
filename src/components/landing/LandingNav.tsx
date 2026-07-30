@@ -38,7 +38,7 @@ export default function LandingNav() {
         <Link href="/" className="flex items-center gap-2" onClick={() => setOpen(false)}>
           <Image
             src="/images/fundobranco2.png"
-            alt="ZRecipe"
+            alt="ZRecipe logo"
             width={140}
             height={47}
             priority

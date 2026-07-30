@@ -58,6 +58,7 @@ export default function HeroDemoVideo() {
             muted
             playsInline
             preload="metadata"
+            aria-label="ZRecipe recipe costing demo — importing an invoice and building a recipe with live cost calculation"
             className="h-full w-full rounded-xl object-cover"
           >
             <source src="/videos/video1.webm" type="video/webm" />
@@ -91,6 +92,7 @@ export default function HeroDemoVideo() {
               controls
               playsInline
               preload="metadata"
+              aria-label="ZRecipe recipe costing demo — importing an invoice and building a recipe with live cost calculation"
               className="aspect-video h-auto w-full"
             >
               <source src="/videos/video1.webm" type="video/webm" />
