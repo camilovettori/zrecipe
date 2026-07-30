@@ -249,24 +249,19 @@ function IngredientRow({
     ? Math.ceil(item.quantity / (yieldPct / 100))
     : null
 
-  const apWeight = (() => {
-    if (item.unit === 'g')  return item.quantity
-    if (item.unit === 'kg') return item.quantity * 1000
-    if (item.unit === 'ml') return item.quantity
-    if (item.unit === 'L')  return item.quantity * 1000
-    return null
-  })()
-
-  const epWeight = (() => {
-    if (apWeight == null) return null
-    if (['g', 'kg'].includes(item.unit)) return { value: apWeight * (yieldPct / 100), unitLabel: 'g' }
-    if (['ml', 'L'].includes(item.unit)) return { value: apWeight * (yieldPct / 100), unitLabel: 'ml' }
+  // item.quantity = EP (Edible Portion — what the recipe actually uses).
+  // Convert to base unit (g or ml) for the NET WT column display.
+  const epWeightBase = (() => {
+    if (item.unit === 'g')  return { value: item.quantity, unitLabel: 'g' }
+    if (item.unit === 'kg') return { value: item.quantity * 1000, unitLabel: 'g' }
+    if (item.unit === 'ml') return { value: item.quantity, unitLabel: 'ml' }
+    if (item.unit === 'L')  return { value: item.quantity * 1000, unitLabel: 'ml' }
     return null
   })()
 
   const handleEpWeightChange = (newEpG: number) => {
-    if (apWeight == null || apWeight <= 0) return
-    const newYieldPct = Math.round(Math.min(100, Math.max(1, (newEpG / apWeight) * 100)) * 100) / 100
+    if (epWeightBase == null || epWeightBase.value <= 0) return
+    const newYieldPct = Math.round(Math.min(100, Math.max(1, (newEpG / epWeightBase.value) * 100)) * 100) / 100
     onUpdate({ yield_percent: newYieldPct, yield_override: true })
   }
 
@@ -409,11 +404,11 @@ function IngredientRow({
             )}
           </div>
 
-          {/* EP WT */}
+          {/* NET WT — edible portion (item.quantity) in base units */}
           {batchMultiplier > 1 ? (
             <span className="text-right text-sm tabular-nums text-slate-600">
-              {epWeight
-                ? `${Math.round(epWeight.value * batchMultiplier)}${epWeight.unitLabel}`
+              {epWeightBase
+                ? `${Math.round(epWeightBase.value * batchMultiplier)}${epWeightBase.unitLabel}`
                 : (item.ep_weight_manual ? `${Math.round(item.ep_weight_manual * batchMultiplier)}g` : '—')}
             </span>
           ) : (
@@ -421,11 +416,11 @@ function IngredientRow({
               type="number"
               min="0"
               step="1"
-              value={epWeight
-                ? (epWeightDraft ?? (Math.round(epWeight.value) || ''))
+              value={epWeightBase
+                ? (epWeightDraft ?? (Math.round(epWeightBase.value) || ''))
                 : (item.ep_weight_manual || '')}
               onChange={(e) => {
-                if (epWeight) {
+                if (epWeightBase) {
                   setEpWeightDraft(e.target.value)
                 } else {
                   const num = e.target.value === '' ? 0 : parseFloat(e.target.value)
@@ -433,14 +428,14 @@ function IngredientRow({
                 }
               }}
               onBlur={(e) => {
-                if (epWeight) {
+                if (epWeightBase) {
                   const v = parseFloat(e.target.value || '0')
                   if (!isNaN(v) && v >= 0) handleEpWeightChange(v)
                   setEpWeightDraft(null)
                 }
               }}
               onKeyDown={(e) => {
-                if (epWeight) {
+                if (epWeightBase) {
                   if (e.key === 'Enter') {
                     const v = parseFloat(e.currentTarget.value || '0')
                     if (!isNaN(v) && v >= 0) handleEpWeightChange(v)
@@ -449,7 +444,8 @@ function IngredientRow({
                   if (e.key === 'Escape') setEpWeightDraft(null)
                 }
               }}
-              placeholder={epWeight ? '' : 'g'}
+              placeholder={epWeightBase ? '' : 'g'}
+              title="Net weight (edible portion) in base units"
               className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-right text-sm outline-none transition focus:border-emerald-500 focus:bg-white"
             />
           )}
@@ -2353,7 +2349,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                 <div className="text-center">Qty</div>
                 <div className="text-center">Unit</div>
                 <div className="text-center">Yield</div>
-                <div className="text-center">Net Wt</div>
+                <div className="text-center" title="Net weight (edible portion) in base units">Net Wt</div>
                 <div className="text-right">Cost</div>
                 <div />
               </div>
