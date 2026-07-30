@@ -88,7 +88,7 @@ export function YieldFactorPopover({ item, onUpdate }: Props) {
         <button
           type="button"
           onClick={handleOpen}
-          title={`Correction factor ×${formatCf(cf)} (yield ${Math.round(yieldPct)}%) — click to edit`}
+          title={`Yield factor ×${formatCf(cf)} (yield ${Math.round(yieldPct)}%) — click to edit`}
           className="flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100"
         >
           ×{formatCf(cf)}
@@ -97,10 +97,10 @@ export function YieldFactorPopover({ item, onUpdate }: Props) {
         <button
           type="button"
           onClick={handleOpen}
-          title="No trim loss — click to set a correction factor"
+          title="No trim loss — click to set a yield factor"
           className="rounded-md px-1.5 py-0.5 text-xs text-slate-300 transition-colors hover:bg-slate-50 hover:text-slate-500"
         >
-          CF
+          YF
         </button>
       )}
 
@@ -110,7 +110,7 @@ export function YieldFactorPopover({ item, onUpdate }: Props) {
           {/* Header with toggle */}
           <div className="mb-3 flex items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold leading-tight text-gray-800">Correction Factor</p>
+              <p className="text-sm font-semibold leading-tight text-gray-800">Yield Factor</p>
               <p className="mt-0.5 text-xs leading-tight text-gray-400">
                 {yfEnabled ? 'Accounts for trim loss (peeling, boning, etc.)' : 'No trim loss'}
               </p>
@@ -179,7 +179,7 @@ export function YieldFactorPopover({ item, onUpdate }: Props) {
             </>
           ) : (
             <p className="py-2 text-xs text-gray-400">
-              Enable to apply a correction factor for trim loss
+              Enable to apply a yield factor for trim loss
             </p>
           )}
         </div>
