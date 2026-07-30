@@ -288,13 +288,22 @@ function IngredientRow({
               >
                 <Link2 className="h-3.5 w-3.5" />
               </Link>
+              <Link
+                href={`/recipes/${item.subRecipeId}`}
+                target="_blank"
+                title="View sub-recipe"
+                className="min-w-0 whitespace-normal break-words text-left text-sm font-medium leading-tight text-emerald-700 transition hover:text-emerald-500 hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {item.ingredientName}
+              </Link>
               <button
                 type="button"
                 onClick={onSubstituteClick}
-                title="Substitute ingredient"
-                className="min-w-0 whitespace-normal break-words text-left text-sm font-medium leading-tight text-emerald-700 transition hover:text-emerald-500 hover:underline"
+                title="Substitute"
+                className="shrink-0 rounded-full p-1 text-slate-300 transition hover:bg-emerald-50 hover:text-emerald-600"
               >
-                {item.ingredientName}
+                <RefreshCw className="h-3.5 w-3.5" />
               </button>
             </div>
           ) : item.ingredientId ? (
