@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChefHat, Grid2X2, LayoutList, Lock, Plus, Search } from 'lucide-react'
+import { ArrowLeft, ChefHat, Folder, Grid2X2, LayoutList, Lock, Plus, Search } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import RecipeCard from '@/components/recipes/RecipeCard'
-import { useRecipes } from '@/hooks/useRecipes'
+import RecipeCategoryCard, { getRecipeCategoryStyle } from '@/components/recipes/RecipeCategoryCard'
+import { useRecipes, type RecipeSummary } from '@/hooks/useRecipes'
 import { useSubscription } from '@/hooks/useSubscription'
 import { EU_ALLERGENS } from '@/lib/allergens'
 import { cn } from '@/lib/utils'
@@ -13,7 +14,7 @@ import { CustomSelect } from '@/components/ui/CustomSelect'
 import { convertUnit } from '@/lib/utils/unit-converter'
 import { format } from 'date-fns'
 
-type ViewMode = 'grid' | 'list'
+type ViewMode = 'grid' | 'list' | 'categories'
 type SortKey = 'margin_desc' | 'profit_desc' | 'cost_asc' | 'name_asc' | 'updated_desc'
 
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
@@ -76,6 +77,33 @@ function SkeletonRow() {
   )
 }
 
+function RecipeGrid({
+  recipes,
+  onOpen,
+}: {
+  recipes: RecipeSummary[]
+  onOpen: (id: string) => void
+}) {
+  return (
+    <motion.div layout className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <AnimatePresence mode="popLayout">
+        {recipes.map((recipe) => (
+          <motion.div
+            key={recipe.id}
+            layout
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.16 }}
+          >
+            <RecipeCard recipe={recipe} onClick={onOpen} />
+          </motion.div>
+        ))}
+      </AnimatePresence>
+    </motion.div>
+  )
+}
+
 export default function RecipesPage() {
   const router = useRouter()
   const { recipes, loading, error } = useRecipes()
@@ -90,7 +118,7 @@ export default function RecipesPage() {
     () => [
       'all',
       'sub-ingredients',
-      ...Array.from(new Set(recipes.map((r) => r.category).filter(Boolean))).sort(),
+      ...Array.from(new Set(recipes.map((r) => r.category?.trim() || 'Uncategorised'))).sort(),
     ],
     [recipes]
   )
@@ -101,6 +129,18 @@ export default function RecipesPage() {
     if (!recipes.length) return 0
     return recipes.reduce((s, r) => s + r.cost.marginPercent, 0) / recipes.length
   }, [recipes])
+
+  useEffect(() => {
+    const stored = localStorage.getItem('recipes-view-mode') as ViewMode | null
+    if (stored === 'grid' || stored === 'list' || stored === 'categories') {
+      setView(stored)
+    }
+  }, [])
+
+  const setViewMode = (mode: ViewMode) => {
+    setView(mode)
+    localStorage.setItem('recipes-view-mode', mode)
+  }
 
   useEffect(() => {
     if (!allergenFilter) { setExcludeRecipeIds(new Set()); return }
@@ -114,7 +154,13 @@ export default function RecipesPage() {
     const q = query.trim().toLowerCase()
     const filtered = recipes.filter((r) => {
       const matchesSearch = !q || r.name.toLowerCase().includes(q) || r.description.toLowerCase().includes(q)
-      const matchesCategory = category === 'all' ? true : category === 'sub-ingredients' ? r.isSubIngredient : r.category.toLowerCase() === category.toLowerCase()
+      const recipeCategory = r.category?.trim() || 'Uncategorised'
+      const matchesCategory =
+        category === 'all'
+          ? true
+          : category === 'sub-ingredients'
+            ? r.isSubIngredient
+            : recipeCategory.toLowerCase() === category.toLowerCase()
       const matchesAllergen = !allergenFilter || !excludeRecipeIds.has(r.id)
       return matchesSearch && matchesCategory && matchesAllergen
     })
@@ -132,6 +178,76 @@ export default function RecipesPage() {
       }
     })
   }, [category, query, recipes, allergenFilter, excludeRecipeIds, sortBy])
+
+  const categoryGroups = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const grouped = new Map<string, typeof recipes>()
+
+    for (const recipe of recipes) {
+      if (allergenFilter && excludeRecipeIds.has(recipe.id)) continue
+
+      const categoryName = recipe.category?.trim() || 'Uncategorised'
+      const categoryMatches = !q || categoryName.toLowerCase().includes(q)
+      const recipeMatches =
+        !q ||
+        recipe.name.toLowerCase().includes(q) ||
+        recipe.description.toLowerCase().includes(q)
+
+      if (!categoryMatches && !recipeMatches) continue
+
+      const existing = grouped.get(categoryName) ?? []
+      existing.push(recipe)
+      grouped.set(categoryName, existing)
+    }
+
+    return Array.from(grouped.entries())
+      .map(([name, items]) => {
+        const pricedRecipes = items.filter((recipe) => !recipe.isSubIngredient && recipe.cost.sellingPrice > 0)
+        const averageMargin = pricedRecipes.length > 0
+          ? pricedRecipes.reduce((sum, recipe) => sum + recipe.cost.marginPercent, 0) / pricedRecipes.length
+          : null
+        const missingPriceCount = items.filter(
+          (recipe) => !recipe.isSubIngredient && recipe.cost.sellingPrice <= 0
+        ).length
+        const incompleteCount = items.filter(
+          (recipe) => recipe.ingredientCount === 0 || recipe.cost.totalCost <= 0
+        ).length
+
+        return {
+          name,
+          recipes: items,
+          averageMargin,
+          missingPriceCount,
+          incompleteCount,
+        }
+      })
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [allergenFilter, excludeRecipeIds, query, recipes])
+
+  const categoryDetailAverageMargin = useMemo(() => {
+    const pricedRecipes = filteredRecipes.filter(
+      (recipe) => !recipe.isSubIngredient && recipe.cost.sellingPrice > 0
+    )
+    if (pricedRecipes.length === 0) return null
+    return pricedRecipes.reduce((sum, recipe) => sum + recipe.cost.marginPercent, 0) / pricedRecipes.length
+  }, [filteredRecipes])
+
+  const openCategory = (categoryName: string) => {
+    const q = query.trim().toLowerCase()
+    const hasRecipeMatch = recipes.some((recipe) => {
+      const recipeCategory = recipe.category?.trim() || 'Uncategorised'
+      return (
+        recipeCategory === categoryName &&
+        (
+          recipe.name.toLowerCase().includes(q) ||
+          recipe.description.toLowerCase().includes(q)
+        )
+      )
+    })
+
+    if (q && !hasRecipeMatch) setQuery('')
+    setCategory(categoryName)
+  }
 
   const hasFilters = query.trim().length > 0 || category !== 'all' || allergenFilter !== null
 
@@ -212,11 +328,11 @@ export default function RecipesPage() {
           options={SORT_OPTIONS}
         />
 
-        {/* Grid / list toggle */}
+        {/* Grid / list / categories toggle */}
         <div className="flex rounded-lg bg-gray-100 p-0.5">
           <button
             type="button"
-            onClick={() => setView('grid')}
+            onClick={() => setViewMode('grid')}
             className={cn(
               'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all',
               view === 'grid' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
@@ -227,7 +343,7 @@ export default function RecipesPage() {
           </button>
           <button
             type="button"
-            onClick={() => setView('list')}
+            onClick={() => setViewMode('list')}
             className={cn(
               'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all',
               view === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
@@ -235,6 +351,18 @@ export default function RecipesPage() {
           >
             <LayoutList className="h-4 w-4" />
             List
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('categories')}
+            title="Categories"
+            className={cn(
+              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all',
+              view === 'categories' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            )}
+          >
+            <Folder className="h-4 w-4" />
+            Categories
           </button>
         </div>
       </div>
@@ -253,6 +381,10 @@ export default function RecipesPage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
           </div>
+        ) : view === 'categories' ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+          </div>
         ) : (
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
             <table className="w-full table-fixed">
@@ -260,6 +392,107 @@ export default function RecipesPage() {
                 {Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} />)}
               </tbody>
             </table>
+          </div>
+        )
+      ) : view === 'categories' ? (
+        category === 'all' ? (
+          categoryGroups.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-50">
+                <Folder className="h-8 w-8 text-emerald-400" />
+              </div>
+              <h3 className="mb-1 text-lg font-semibold text-gray-800">
+                {recipes.length === 0 ? 'No recipes yet' : 'No recipe categories found'}
+              </h3>
+              <p className="mb-6 max-w-xs text-sm text-gray-400">
+                {recipes.length === 0
+                  ? 'Create your first recipe to start browsing by category.'
+                  : 'Try a different search or allergen filter.'}
+              </p>
+              {recipes.length === 0 && (
+                <button
+                  type="button"
+                  onClick={() => router.push('/recipes/new')}
+                  className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-500"
+                >
+                  + Create your first recipe
+                </button>
+              )}
+            </div>
+          ) : (
+            <div>
+              <div className="mb-4">
+                <h2 className="text-sm font-semibold text-slate-800">Browse by category</h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Open a category to review its recipes, margins, and pricing.
+                </p>
+              </div>
+              <motion.div layout className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <AnimatePresence mode="popLayout">
+                  {categoryGroups.map((group) => (
+                    <RecipeCategoryCard
+                      key={group.name}
+                      name={group.name}
+                      recipeCount={group.recipes.length}
+                      averageMargin={group.averageMargin}
+                      missingPriceCount={group.missingPriceCount}
+                      incompleteCount={group.incompleteCount}
+                      previewNames={group.recipes.slice(0, 3).map((recipe) => recipe.name)}
+                      onClick={() => openCategory(group.name)}
+                    />
+                  ))}
+                </AnimatePresence>
+              </motion.div>
+            </div>
+          )
+        ) : (
+          <div className="space-y-4">
+            <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <div className={cn(
+                  'flex h-10 w-10 items-center justify-center rounded-xl',
+                  getRecipeCategoryStyle(category).folder
+                )}>
+                  <Folder className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold text-slate-900">
+                    {category === 'sub-ingredients' ? 'Sub-ingredients' : category}
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    {filteredRecipes.length} recipe{filteredRecipes.length === 1 ? '' : 's'}
+                    {categoryDetailAverageMargin != null && ` · Avg margin ${categoryDetailAverageMargin.toFixed(1)}%`}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCategory('all')}
+                className="flex items-center gap-1.5 self-start rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 sm:self-auto"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Back to categories
+              </button>
+            </div>
+
+            {filteredRecipes.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50">
+                  <Folder className="h-7 w-7 text-emerald-400" />
+                </div>
+                <h3 className="text-base font-semibold text-gray-800">
+                  No recipes found for this category
+                </h3>
+                <p className="mt-1 text-sm text-gray-400">
+                  Try a different search or allergen filter.
+                </p>
+              </div>
+            ) : (
+              <RecipeGrid
+                recipes={filteredRecipes}
+                onOpen={(id) => router.push(`/recipes/${id}`)}
+              />
+            )}
           </div>
         )
       ) : filteredRecipes.length === 0 ? (
@@ -286,22 +519,10 @@ export default function RecipesPage() {
           )}
         </div>
       ) : view === 'grid' ? (
-        <motion.div layout className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <AnimatePresence mode="popLayout">
-            {filteredRecipes.map((recipe) => (
-              <motion.div
-                key={recipe.id}
-                layout
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 8 }}
-                transition={{ duration: 0.16 }}
-              >
-                <RecipeCard recipe={recipe} onClick={(id) => router.push(`/recipes/${id}`)} />
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </motion.div>
+        <RecipeGrid
+          recipes={filteredRecipes}
+          onOpen={(id) => router.push(`/recipes/${id}`)}
+        />
       ) : (
         /* List view */
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -439,4 +660,3 @@ export default function RecipesPage() {
     </div>
   )
 }
-

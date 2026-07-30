@@ -34,4 +34,4 @@ BEGIN
     FOREIGN KEY (ingredient_id)
     REFERENCES public.ingredients(id)
     ON DELETE RESTRICT;
-END $$;
+END $$;git 
