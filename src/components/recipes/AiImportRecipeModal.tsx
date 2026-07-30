@@ -6,11 +6,11 @@ import { useDropzone } from 'react-dropzone'
 import Papa from 'papaparse'
 import {
   AlertTriangle,
+  ChevronDown,
   FileText,
   Image as ImageIcon,
   Loader2,
   Maximize2,
-  Pencil,
   Plus,
   Search,
   Sparkles,
@@ -35,7 +35,7 @@ type MatchCandidate =
   | { kind: 'ingredient'; id: string; name: string; current_price: number | null; price_unit: string | null }
   | { kind: 'sub-recipe'; id: string; name: string; costPerUnit: number | null; unit: string | null }
 
-type RowStatus = 'matched' | 'new'
+type RowStatus = 'matched' | 'ambiguous' | 'new'
 
 type ImportRow = {
   id: string
@@ -44,6 +44,9 @@ type ImportRow = {
   unit: string
   status: RowStatus
   match: MatchCandidate | null
+  /** Ranked partial matches (score >= 1) shown in the popover when status
+   *  is 'ambiguous'. Empty when matched or truly new. */
+  suggestions: MatchCandidate[]
 }
 
 export type ImportedRecipePayload = {
@@ -168,6 +171,38 @@ function imageFileToBase64(file: File) {
   })
 }
 
+/**
+ * Ranked, token-aware search: 3 = identical token set (any order), 2 = every
+ * query token is a member of the candidate's token set, 1 = some query token
+ * is a substring of some candidate token. Shared by the popover's live search
+ * and by ambiguous-status suggestion pre-computation, so both stay in sync.
+ */
+function rankCandidates(query: string, candidates: MatchCandidate[], limit = 8): MatchCandidate[] {
+  const queryTokens = nameTokens(query)
+  if (queryTokens.length === 0) {
+    return [...candidates].sort((a, b) => a.name.localeCompare(b.name)).slice(0, limit)
+  }
+
+  const queryKey = tokenKey(query)
+
+  return candidates
+    .map((candidate) => {
+      const candidateTokens = nameTokens(candidate.name)
+      const candidateTokenSet = new Set(candidateTokens)
+
+      let score = 0
+      if (tokenKey(candidate.name) === queryKey) score = 3
+      else if (queryTokens.every((t) => candidateTokenSet.has(t))) score = 2
+      else if (queryTokens.some((qt) => candidateTokens.some((ct) => ct.includes(qt)))) score = 1
+
+      return { candidate, score }
+    })
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score || a.candidate.name.localeCompare(b.candidate.name))
+    .slice(0, limit)
+    .map(({ candidate }) => candidate)
+}
+
 function matchRows(
   ingredients: ExtractedRecipeResponse['ingredients'],
   candidates: MatchCandidate[]
@@ -175,13 +210,23 @@ function matchRows(
   return (ingredients ?? []).map((item) => {
     const name = String(item.name ?? '').trim()
     const exact = findCandidateMatch(name, candidates)
-    return {
+    const base = {
       id: crypto.randomUUID(),
       name,
       quantity: item.quantity && item.quantity > 0 ? Number(item.quantity) : 1,
       unit: normalizeUnit(item.unit),
-      status: exact ? 'matched' : 'new',
-      match: exact ?? null,
+    }
+
+    if (exact) {
+      return { ...base, status: 'matched' as const, match: exact, suggestions: [] }
+    }
+
+    const suggestions = name ? rankCandidates(name, candidates, 6) : []
+    return {
+      ...base,
+      status: suggestions.length > 0 ? ('ambiguous' as const) : ('new' as const),
+      match: null,
+      suggestions,
     }
   })
 }
@@ -191,6 +236,15 @@ function formatCandidatePrice(candidate: MatchCandidate) {
     return candidate.current_price != null ? `€${candidate.current_price}/${candidate.price_unit ?? 'unit'}` : 'no price'
   }
   return candidate.costPerUnit != null ? `€${candidate.costPerUnit}/${candidate.unit ?? 'unit'}` : 'no price'
+}
+
+/** Same as formatCandidatePrice, but for the matched-row status line, which
+ *  spells out "no price yet" instead of the popover's terser "no price". */
+function formatMatchedStatusPrice(candidate: MatchCandidate) {
+  if (candidate.kind === 'ingredient') {
+    return candidate.current_price != null ? `€${candidate.current_price}/${candidate.price_unit ?? 'unit'}` : 'no price yet'
+  }
+  return candidate.costPerUnit != null ? `€${candidate.costPerUnit}/${candidate.unit ?? 'unit'}` : 'no price yet'
 }
 
 export default function AiImportRecipeModal({ open, onOpenChange, onImported }: AiImportRecipeModalProps) {
@@ -358,34 +412,16 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
 
   const fileKind = file ? (fileTypeFromName(file) as FileKind) : null
   const matchedCount = rows.filter((row) => row.status === 'matched').length
+  const ambiguousCount = rows.filter((row) => row.status === 'ambiguous').length
   const newCount = rows.filter((row) => row.status === 'new').length
-  const canSave = recipeName.trim().length > 0 && rows.length > 0 && rows.every((row) => row.name.trim() && row.quantity > 0)
+  const hasAmbiguous = ambiguousCount > 0
+  const canSave =
+    recipeName.trim().length > 0 &&
+    rows.length > 0 &&
+    rows.every((row) => row.name.trim() && row.quantity > 0) &&
+    !hasAmbiguous
 
-  const matchOptions = useMemo(() => {
-    const queryTokens = nameTokens(matchQuery)
-    if (queryTokens.length === 0) {
-      return [...candidates].sort((a, b) => a.name.localeCompare(b.name)).slice(0, 8)
-    }
-
-    const queryKey = tokenKey(matchQuery)
-
-    return candidates
-      .map((candidate) => {
-        const candidateTokens = nameTokens(candidate.name)
-        const candidateTokenSet = new Set(candidateTokens)
-
-        let score = 0
-        if (tokenKey(candidate.name) === queryKey) score = 3
-        else if (queryTokens.every((t) => candidateTokenSet.has(t))) score = 2
-        else if (queryTokens.some((qt) => candidateTokens.some((ct) => ct.includes(qt)))) score = 1
-
-        return { candidate, score }
-      })
-      .filter(({ score }) => score > 0)
-      .sort((a, b) => b.score - a.score || a.candidate.name.localeCompare(b.candidate.name))
-      .slice(0, 8)
-      .map(({ candidate }) => candidate)
-  }, [candidates, matchQuery])
+  const matchOptions = useMemo(() => rankCandidates(matchQuery, candidates, 8), [candidates, matchQuery])
 
   const updateRow = (id: string, patch: Partial<ImportRow>) => {
     setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)))
@@ -393,11 +429,26 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
 
   const handleNameChange = (id: string, name: string) => {
     const exact = findCandidateMatch(name, candidates)
-    updateRow(id, { name, match: exact ?? null, status: exact ? 'matched' : 'new' })
+    if (exact) {
+      updateRow(id, { name, match: exact, status: 'matched', suggestions: [] })
+      return
+    }
+    const suggestions = name.trim() ? rankCandidates(name, candidates, 6) : []
+    updateRow(id, { name, match: null, status: suggestions.length > 0 ? 'ambiguous' : 'new', suggestions })
+  }
+
+  const toggleMatchPopover = (row: ImportRow) => {
+    if (editingMatchId === row.id) {
+      setEditingMatchId(null)
+      setMatchQuery('')
+    } else {
+      setEditingMatchId(row.id)
+      setMatchQuery(row.name)
+    }
   }
 
   const selectMatch = (rowId: string, candidate: MatchCandidate) => {
-    updateRow(rowId, { match: candidate, status: 'matched' })
+    updateRow(rowId, { match: candidate, status: 'matched', suggestions: [] })
     setEditingMatchId(null)
     setMatchQuery('')
   }
@@ -432,7 +483,7 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
         price_unit: row.price_unit,
       }
       setCandidates((current) => [...current, created].sort((a, b) => a.name.localeCompare(b.name)))
-      updateRow(rowId, { match: created, status: 'matched' })
+      updateRow(rowId, { match: created, status: 'matched', suggestions: [] })
       setEditingMatchId(null)
       setMatchQuery('')
     } catch (err) {
@@ -479,8 +530,18 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
       setCookTime(data.cook_time_minutes ?? 0)
       setYieldQty(data.yield_quantity && data.yield_quantity > 0 ? data.yield_quantity : 1)
       setYieldUnit(data.yield_unit || 'portion')
-      setRows(matchRows(data.ingredients, candidates))
+      const newRows = matchRows(data.ingredients, candidates)
+      setRows(newRows)
       setStep('review')
+
+      // Surface the first ambiguous row's popover immediately, pre-filled
+      // with its extracted name, so the user sees the choices right away
+      // instead of discovering the amber state on their own.
+      const firstAmbiguous = newRows.find((row) => row.status === 'ambiguous')
+      if (firstAmbiguous) {
+        setEditingMatchId(firstAmbiguous.id)
+        setMatchQuery(firstAmbiguous.name)
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not extract this recipe'
       setError(message)
@@ -736,7 +797,9 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
                       <span className="shrink-0 rounded-full bg-slate-50 px-3 py-1.5 text-xs font-semibold">
                         <span className="text-emerald-700">{matchedCount} matched</span>
                         <span className="text-slate-300"> · </span>
-                        <span className="text-amber-700">{newCount} new</span>
+                        <span className="text-amber-700">{ambiguousCount} to resolve</span>
+                        <span className="text-slate-300"> · </span>
+                        <span className="text-orange-700">{newCount} new</span>
                       </span>
                     </div>
                   </div>
@@ -749,22 +812,108 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
                     </div>
                     <div className="divide-y divide-slate-100">
                       {rows.map((row) => (
-                        <div key={row.id} className="relative flex items-start gap-2.5 px-5 py-3">
+                        <div key={row.id} className="flex items-start gap-2.5 px-5 py-3">
                           <span
                             className={cn(
                               'mt-3.5 h-2 w-2 shrink-0 rounded-full',
-                              row.status === 'matched' ? 'bg-emerald-500' : 'bg-amber-500'
+                              row.status === 'matched'
+                                ? 'bg-emerald-500'
+                                : row.status === 'ambiguous'
+                                  ? 'bg-amber-500'
+                                  : 'bg-orange-500'
                             )}
                           />
-                          <div className="min-w-0 flex-1">
-                            <input
-                              value={row.name}
-                              onChange={(e) => handleNameChange(row.id, e.target.value)}
-                              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10"
-                            />
-                            <p className="mt-1 truncate text-xs text-slate-400">
-                              {row.match ? `Matched to: ${row.match.name}` : 'Will create new'}
-                            </p>
+                          <div className="relative min-w-0 flex-1">
+                            <div className="relative">
+                              <input
+                                value={row.name}
+                                onChange={(e) => handleNameChange(row.id, e.target.value)}
+                                onFocus={() => {
+                                  if (editingMatchId !== row.id) {
+                                    setEditingMatchId(row.id)
+                                    setMatchQuery(row.name)
+                                  }
+                                }}
+                                className={cn(
+                                  'w-full rounded-lg border px-3 py-2 text-sm outline-none transition focus:ring-4',
+                                  row.status === 'matched' &&
+                                    'border-emerald-400 bg-emerald-50/30 focus:ring-emerald-500/10',
+                                  row.status === 'ambiguous' &&
+                                    'border-amber-400 bg-amber-50/30 pr-8 focus:ring-amber-500/10',
+                                  row.status === 'new' &&
+                                    'border-orange-400 bg-orange-50/30 focus:ring-orange-500/10'
+                                )}
+                              />
+                              {row.status === 'ambiguous' && (
+                                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-amber-500" />
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => toggleMatchPopover(row)}
+                              className={cn(
+                                'mt-1 block max-w-full truncate text-left text-xs transition hover:underline',
+                                row.status === 'matched'
+                                  ? 'text-emerald-600'
+                                  : row.status === 'ambiguous'
+                                    ? 'text-amber-600'
+                                    : 'text-orange-600'
+                              )}
+                            >
+                              {row.status === 'matched' && row.match
+                                ? `✓ ${row.match.name} ${formatMatchedStatusPrice(row.match)}`
+                                : row.status === 'ambiguous'
+                                  ? `Choose a match — ${row.suggestions.length} option${row.suggestions.length !== 1 ? 's' : ''} found`
+                                  : 'No match found · will create new'}
+                            </button>
+
+                            {editingMatchId === row.id && (
+                              <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl">
+                                <div className="relative">
+                                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-300" />
+                                  <input
+                                    autoFocus
+                                    value={matchQuery}
+                                    onChange={(e) => setMatchQuery(e.target.value)}
+                                    placeholder="Search ingredients by name..."
+                                    className="w-full rounded-xl border border-slate-200 py-2 pl-9 pr-3 text-sm outline-none focus:border-emerald-400"
+                                  />
+                                </div>
+                                <div className="mt-2 max-h-56 overflow-y-auto">
+                                  {matchOptions.map((option) => (
+                                    <button
+                                      key={option.id}
+                                      type="button"
+                                      onClick={() => selectMatch(row.id, option)}
+                                      className="flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm transition hover:bg-emerald-50"
+                                    >
+                                      <span className="flex min-w-0 items-center gap-1.5">
+                                        <span className="truncate font-medium text-slate-800">{option.name}</span>
+                                        {option.kind === 'sub-recipe' && (
+                                          <span className="shrink-0 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-600">
+                                            Sub-recipe
+                                          </span>
+                                        )}
+                                      </span>
+                                      <span className="shrink-0 text-xs text-slate-400">
+                                        {formatCandidatePrice(option)}
+                                      </span>
+                                    </button>
+                                  ))}
+                                  {matchQuery.trim() && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCreateNew(row.id)}
+                                      disabled={creatingIngredient}
+                                      className="mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      {creatingIngredient ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                                      Create new ingredient: {matchQuery.trim()}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            )}
                           </div>
                           <input
                             type="number"
@@ -783,80 +932,18 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
                           </select>
                           <button
                             type="button"
-                            onClick={() => {
-                              const next = editingMatchId === row.id ? null : row.id
-                              setEditingMatchId(next)
-                              setMatchQuery(next ? row.name : '')
-                            }}
-                            className={cn(
-                              'inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1.5 text-xs font-semibold transition',
-                              row.status === 'matched' ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'
-                            )}
-                          >
-                            <Pencil className="h-3 w-3" />
-                            {row.status === 'matched' ? 'Matched' : 'New'}
-                          </button>
-                          <button
-                            type="button"
                             onClick={() => setRows((current) => current.filter((item) => item.id !== row.id))}
                             className="h-8 w-8 shrink-0 rounded-lg p-2 text-slate-300 transition hover:bg-red-50 hover:text-red-500"
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
-
-                          {editingMatchId === row.id && (
-                            <div className="absolute left-5 right-5 top-full z-20 mt-1 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl sm:left-auto sm:right-16 sm:w-80">
-                              <div className="relative">
-                                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-300" />
-                                <input
-                                  value={matchQuery}
-                                  onChange={(e) => setMatchQuery(e.target.value)}
-                                  placeholder="Search ingredients by name..."
-                                  className="w-full rounded-xl border border-slate-200 py-2 pl-9 pr-3 text-sm outline-none focus:border-emerald-400"
-                                />
-                              </div>
-                              <div className="mt-2 max-h-56 overflow-y-auto">
-                                {matchOptions.map((option) => (
-                                  <button
-                                    key={option.id}
-                                    type="button"
-                                    onClick={() => selectMatch(row.id, option)}
-                                    className="flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm transition hover:bg-emerald-50"
-                                  >
-                                    <span className="flex min-w-0 items-center gap-1.5">
-                                      <span className="truncate font-medium text-slate-800">{option.name}</span>
-                                      {option.kind === 'sub-recipe' && (
-                                        <span className="shrink-0 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-600">
-                                          Sub-recipe
-                                        </span>
-                                      )}
-                                    </span>
-                                    <span className="shrink-0 text-xs text-slate-400">
-                                      {formatCandidatePrice(option)}
-                                    </span>
-                                  </button>
-                                ))}
-                                {matchQuery.trim() && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCreateNew(row.id)}
-                                    disabled={creatingIngredient}
-                                    className="mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
-                                  >
-                                    {creatingIngredient ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                                    Create new ingredient: {matchQuery.trim()}
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       ))}
                     </div>
                     <div className="px-5 py-4">
                       <button
                         type="button"
-                        onClick={() => setRows((current) => [...current, { id: crypto.randomUUID(), name: '', quantity: 1, unit: 'g', status: 'new', match: null }])}
+                        onClick={() => setRows((current) => [...current, { id: crypto.randomUUID(), name: '', quantity: 1, unit: 'g', status: 'new', match: null, suggestions: [] }])}
                         className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
                       >
                         <Plus className="h-4 w-4" />
@@ -927,15 +1014,20 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
               Cancel
             </button>
             {step === 'review' && (
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={!canSave || saving}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                Add to recipe
-              </button>
+              <div className="flex flex-wrap items-center justify-end gap-3">
+                {hasAmbiguous && (
+                  <p className="text-xs font-medium text-amber-600">Resolve amber items before importing</p>
+                )}
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={!canSave || saving}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  Add to recipe
+                </button>
+              </div>
             )}
           </div>
         </Dialog.Content>
