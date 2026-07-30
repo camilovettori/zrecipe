@@ -1004,6 +1004,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
           price_unit: formData.unit,
           package_size: formData.packageSize || null,
           package_unit: formData.packageUnit || null,
+          last_supplier_id: formData.supplierId ?? null,
         })
         .select('id, name, current_price, price_unit')
         .single()

@@ -2,9 +2,17 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { Check, Loader2, Pencil, X } from 'lucide-react'
+import { AlertTriangle, Check, Loader2, Pencil, X } from 'lucide-react'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 import { useIngredientCategories } from '@/hooks/useIngredientCategories'
+import { useSuppliers } from '@/hooks/useSuppliers'
+import {
+  calculateNormalizedIngredientPrice,
+  buildCostExamples,
+  getSuspiciousIngredientPriceWarning,
+  formatIngredientUnitPrice,
+  getDefaultIngredientPriceUnit,
+} from '@/lib/utils/ingredient-pricing'
 
 export type NewIngredientFormData = {
   name: string
@@ -16,6 +24,8 @@ export type NewIngredientFormData = {
   packageUnit: string
   recipeQuantity: number
   recipeUnit: string
+  supplierId: string | null
+  supplierName?: string
 }
 
 interface NewIngredientModalProps {
@@ -28,6 +38,7 @@ interface NewIngredientModalProps {
 }
 
 const PRICE_UNITS = ['kg', 'g', 'L', 'ml', 'unit']
+const PACKAGE_UNITS = ['kg', 'g', 'L', 'ml', 'unit', 'dozen']
 const RECIPE_UNITS = ['g', 'kg', 'ml', 'L', 'unit']
 
 function parsePositiveNumber(value: string) {
@@ -44,16 +55,27 @@ export default function NewIngredientModal({
   onSave,
 }: NewIngredientModalProps) {
   const { categories } = useIngredientCategories()
+  const { suppliers, createSupplier } = useSuppliers()
   const nameInputRef = useRef<HTMLInputElement | null>(null)
+  const priceUnitTouchedRef = useRef(false)
+
   const [name, setName] = useState(initialName)
   const [brand, setBrand] = useState('')
   const [category, setCategory] = useState('Other')
   const [categoryMode, setCategoryMode] = useState<'select' | 'custom'>('select')
   const [customCategoryInput, setCustomCategoryInput] = useState('')
-  const [pricePerUnit, setPricePerUnit] = useState('')
-  const [unit, setUnit] = useState('kg')
+
+  const [supplierQuery, setSupplierQuery] = useState('')
+  const [supplierId, setSupplierId] = useState<string | null>(null)
+  const [supplierDropdownOpen, setSupplierDropdownOpen] = useState(false)
+  const [supplierError, setSupplierError] = useState<string | null>(null)
+  const [resolvingSupplier, setResolvingSupplier] = useState(false)
+
+  const [packagePriceInput, setPackagePriceInput] = useState('')
   const [packageSize, setPackageSize] = useState('')
   const [packageUnit, setPackageUnit] = useState('kg')
+  const [priceUnit, setPriceUnit] = useState('kg')
+
   const [recipeQuantity, setRecipeQuantity] = useState('')
   const [recipeUnit, setRecipeUnit] = useState('kg')
   const [submitted, setSubmitted] = useState(false)
@@ -65,39 +87,81 @@ export default function NewIngredientModal({
     setCategory('Other')
     setCategoryMode('select')
     setCustomCategoryInput('')
-    setPricePerUnit('')
-    setUnit('kg')
+    setSupplierQuery('')
+    setSupplierId(null)
+    setSupplierDropdownOpen(false)
+    setSupplierError(null)
+    setResolvingSupplier(false)
+    setPackagePriceInput('')
     setPackageSize('')
     setPackageUnit('kg')
+    setPriceUnit('kg')
+    priceUnitTouchedRef.current = false
     setRecipeQuantity('')
     setRecipeUnit('kg')
     setSubmitted(false)
     window.setTimeout(() => nameInputRef.current?.focus(), 0)
   }, [initialName, open])
 
+  // "Add to recipe" unit defaults from the normalized costing unit, mirroring
+  // the old behavior where it tracked the single price unit — now that price
+  // unit and package unit are separate fields, this is the one that matters
+  // for recipe costing.
   useEffect(() => {
-    setRecipeUnit(unit)
-    setPackageUnit(unit)
-  }, [unit])
+    setRecipeUnit(priceUnit)
+  }, [priceUnit])
+
+  const supplierSuggestions = useMemo(() => {
+    const q = supplierQuery.trim().toLowerCase()
+    if (!q) return []
+    return suppliers.filter((s) => s.name.toLowerCase().includes(q)).slice(0, 6)
+  }, [suppliers, supplierQuery])
 
   const dirty = useMemo(
     () =>
       name.trim() !== initialName.trim() ||
       Boolean(brand.trim()) ||
       category !== 'Other' ||
-      Boolean(pricePerUnit) ||
-      unit !== 'kg' ||
+      Boolean(supplierQuery.trim()) ||
+      Boolean(packagePriceInput) ||
       Boolean(packageSize) ||
       packageUnit !== 'kg' ||
+      priceUnit !== 'kg' ||
       Boolean(recipeQuantity) ||
       recipeUnit !== 'kg',
-    [brand, category, initialName, name, packageSize, packageUnit, pricePerUnit, recipeQuantity, recipeUnit, unit]
+    [
+      brand,
+      category,
+      initialName,
+      name,
+      packagePriceInput,
+      packageSize,
+      packageUnit,
+      priceUnit,
+      recipeQuantity,
+      recipeUnit,
+      supplierQuery,
+    ]
   )
 
   const trimmedName = name.trim()
-  const parsedPrice = parsePositiveNumber(pricePerUnit)
   const parsedRecipeQuantity = parsePositiveNumber(recipeQuantity)
   const parsedPackageSize = packageSize ? parsePositiveNumber(packageSize) : null
+
+  const pricingPreview = useMemo(
+    () =>
+      calculateNormalizedIngredientPrice({
+        packagePrice: parsePositiveNumber(packagePriceInput),
+        packageQuantity: parsedPackageSize,
+        packageUnit,
+        priceUnit,
+      }),
+    [packagePriceInput, parsedPackageSize, packageUnit, priceUnit]
+  )
+
+  const unitExamples = buildCostExamples(pricingPreview.normalizedPrice, pricingPreview.normalizedUnit)
+  const suspiciousPriceWarning = getSuspiciousIngredientPriceWarning(pricingPreview)
+  const pricingValid = pricingPreview.isValid && pricingPreview.normalizedPrice != null
 
   const isCustomCategory = Boolean(category) && !categories.includes(category)
 
@@ -110,11 +174,12 @@ export default function NewIngredientModal({
   }
 
   const nameError = submitted && !trimmedName ? 'Name is required' : null
-  const priceError = submitted && parsedPrice == null ? 'Price is required to calculate costs' : null
+  const pricingError =
+    submitted && !pricingValid ? pricingPreview.warnings[0] ?? 'Enter a valid package price, quantity and unit.' : null
   const recipeQuantityError = submitted && parsedRecipeQuantity == null ? 'Quantity is required' : null
 
   const requestClose = () => {
-    if (saving) return
+    if (saving || resolvingSupplier) return
     if (dirty && !window.confirm('Discard this new ingredient?')) return
     onClose()
   }
@@ -122,19 +187,41 @@ export default function NewIngredientModal({
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     setSubmitted(true)
+    setSupplierError(null)
 
-    if (!trimmedName || parsedPrice == null || parsedRecipeQuantity == null) return
+    if (!trimmedName || !pricingValid || parsedRecipeQuantity == null) return
+
+    const trimmedSupplierQuery = supplierQuery.trim()
+    let resolvedSupplierId: string | null = supplierId
+
+    if (trimmedSupplierQuery && !resolvedSupplierId) {
+      try {
+        setResolvingSupplier(true)
+        const created = await createSupplier({ name: trimmedSupplierQuery })
+        resolvedSupplierId = created.id
+        setSupplierId(created.id)
+      } catch (err) {
+        setSupplierError(err instanceof Error ? err.message : 'Unable to save supplier')
+        setResolvingSupplier(false)
+        return
+      }
+      setResolvingSupplier(false)
+    } else if (!trimmedSupplierQuery) {
+      resolvedSupplierId = null
+    }
 
     await onSave({
       name: trimmedName,
       brand: brand.trim(),
       category,
-      pricePerUnit: parsedPrice,
-      unit,
+      pricePerUnit: pricingPreview.normalizedPrice!,
+      unit: pricingPreview.normalizedUnit,
       packageSize: parsedPackageSize,
       packageUnit,
       recipeQuantity: parsedRecipeQuantity,
       recipeUnit,
+      supplierId: resolvedSupplierId,
+      supplierName: trimmedSupplierQuery || undefined,
     })
   }
 
@@ -179,6 +266,11 @@ export default function NewIngredientModal({
             {error && (
               <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 {error}
+              </div>
+            )}
+            {supplierError && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {supplierError}
               </div>
             )}
 
@@ -281,57 +373,131 @@ export default function NewIngredientModal({
                   </label>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-[1fr_120px]">
-                  <label className="block">
-                    <span className="mb-1.5 block text-xs font-medium text-slate-600">Price per unit</span>
-                    <div className="relative">
-                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
-                        {'\u20ac'}
-                      </span>
+                <label className="relative block">
+                  <span className="mb-1.5 block text-xs font-medium text-slate-600">
+                    Supplier <span className="font-normal text-slate-400">(optional)</span>
+                  </span>
+                  <input
+                    value={supplierQuery}
+                    onChange={(e) => {
+                      setSupplierQuery(e.target.value)
+                      setSupplierId(null)
+                      setSupplierDropdownOpen(true)
+                    }}
+                    onFocus={() => setSupplierDropdownOpen(true)}
+                    onBlur={() => setTimeout(() => setSupplierDropdownOpen(false), 150)}
+                    placeholder="e.g. Elliotts Cash & Carry"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-emerald-500"
+                  />
+                  {supplierDropdownOpen && supplierSuggestions.length > 0 && (
+                    <div className="absolute z-20 mt-1.5 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                      {supplierSuggestions.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setSupplierId(s.id)
+                            setSupplierQuery(s.name)
+                            setSupplierDropdownOpen(false)
+                          }}
+                          className="flex w-full items-center px-3 py-2 text-left text-sm transition hover:bg-slate-50"
+                        >
+                          {s.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {!supplierId && supplierQuery.trim() && (
+                    <p className="mt-1.5 text-xs text-slate-400">
+                      Will create a new supplier &quot;{supplierQuery.trim()}&quot; on save.
+                    </p>
+                  )}
+                </label>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5">
+                  <p className="text-xs font-semibold text-slate-700">What did the full package cost?</p>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    Enter what you paid for the whole pack — ZRecipe calculates the unit cost.
+                  </p>
+
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs font-medium text-slate-600">Package price (€)</span>
+                      <div className="relative">
+                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+                          {'€'}
+                        </span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={packagePriceInput}
+                          onChange={(event) => setPackagePriceInput(event.target.value)}
+                          placeholder="0.00"
+                          className="w-full rounded-lg border border-slate-200 bg-white px-8 py-2 text-sm outline-none transition focus:border-emerald-500"
+                        />
+                      </div>
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs font-medium text-slate-600">Package size</span>
                       <input
                         type="number"
                         min="0"
-                        step="0.01"
-                        value={pricePerUnit}
-                        onChange={(event) => setPricePerUnit(event.target.value)}
-                        className="w-full rounded-lg border border-slate-200 px-8 py-2 text-sm outline-none transition focus:border-emerald-500"
+                        step="0.001"
+                        value={packageSize}
+                        onChange={(event) => setPackageSize(event.target.value)}
+                        placeholder="6, 10, 2.5"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-emerald-500"
                       />
-                    </div>
-                    {priceError && <p className="mt-1 text-xs text-red-600">{priceError}</p>}
-                  </label>
+                    </label>
 
-                  <label className="block">
-                    <span className="mb-1.5 block text-xs font-medium text-slate-600">Unit</span>
-                    <CustomSelect
-                      value={unit}
-                      onChange={setUnit}
-                      options={PRICE_UNITS.map((o) => ({ value: o, label: o }))}
-                    />
-                  </label>
-                </div>
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs font-medium text-slate-600">Package unit</span>
+                      <CustomSelect
+                        value={packageUnit}
+                        onChange={(v) => {
+                          setPackageUnit(v)
+                          if (!priceUnitTouchedRef.current) {
+                            setPriceUnit(getDefaultIngredientPriceUnit(v))
+                          }
+                        }}
+                        options={PACKAGE_UNITS.map((o) => ({ value: o, label: o }))}
+                      />
+                    </label>
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block">
-                    <span className="mb-1.5 block text-xs font-medium text-slate-600">Package size</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.001"
-                      value={packageSize}
-                      onChange={(event) => setPackageSize(event.target.value)}
-                      placeholder="6, 10, 2.5"
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-emerald-500"
-                    />
-                  </label>
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs font-medium text-slate-600">Priced per</span>
+                      <CustomSelect
+                        value={priceUnit}
+                        onChange={(v) => {
+                          priceUnitTouchedRef.current = true
+                          setPriceUnit(v)
+                        }}
+                        options={PRICE_UNITS.map((o) => ({ value: o, label: o }))}
+                      />
+                    </label>
+                  </div>
 
-                  <label className="block">
-                    <span className="mb-1.5 block text-xs font-medium text-slate-600">Package unit</span>
-                    <CustomSelect
-                      value={packageUnit}
-                      onChange={setPackageUnit}
-                      options={PRICE_UNITS.map((o) => ({ value: o, label: o }))}
-                    />
-                  </label>
+                  <div className="mt-3 border-t border-slate-200 pt-3">
+                    <p className="text-sm text-slate-600">
+                      ={' '}
+                      <span className="font-semibold text-emerald-700">
+                        {formatIngredientUnitPrice(pricingPreview.normalizedPrice, pricingPreview.normalizedUnit)}
+                      </span>
+                    </p>
+                    {unitExamples.length > 0 && (
+                      <p className="mt-1 text-[11px] text-slate-400">{unitExamples.join(' · ')}</p>
+                    )}
+                    {pricingError && <p className="mt-1.5 text-xs text-red-600">{pricingError}</p>}
+                    {suspiciousPriceWarning && (
+                      <div className="mt-2 flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span>{suspiciousPriceWarning}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </section>
 
@@ -371,17 +537,17 @@ export default function NewIngredientModal({
               <button
                 type="button"
                 onClick={requestClose}
-                disabled={saving}
+                disabled={saving || resolvingSupplier}
                 className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                disabled={saving}
+                disabled={saving || resolvingSupplier}
                 className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-60"
               >
-                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                {(saving || resolvingSupplier) && <Loader2 className="h-4 w-4 animate-spin" />}
                 Save & Add to Recipe
               </button>
             </div>
