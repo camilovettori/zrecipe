@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { convertUnit, isConvertible } from '@/lib/utils/unit-converter'
+import { convertUnit } from '@/lib/utils/unit-converter'
 import { calculateCost, calculateIngredientCost } from '@/lib/utils/cost-calculator'
 import { type IngredientLookup } from '@/hooks/useInvoices'
 import { resolveTenantId } from '@/hooks/useTenant'
@@ -751,22 +751,18 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           yieldUnit: input.yieldUnit,
         }
       )
-      // Compute cost per sub-ingredient unit so parent recipes can price by weight/volume.
-      // When yield and sub-ingredient unit are in the same family (e.g. yield=1.15kg, unit=g):
-      //   yieldInSubUnit = convertUnit(1.15, 'kg', 'g') = 1150 → costPerGram = totalCost / 1150
-      // When yield is in a count unit (e.g. 'unit') incompatible with 'g':
-      //   fall back to total ingredient weight to derive the base quantity.
-      const subIngredientUnit = input.subIngredientUnit || 'g'
+      // Compute cost per sub-ingredient unit so parent recipes can price by weight/volume
+      // OR by count. subIngredientUnit is pinned to the recipe's own yield unit in
+      // RecipeBuilder.doSave, so yieldUnit and subIngredientUnit are always in the same
+      // family — this always converts cleanly:
+      //   Weight/volume yield (e.g. 1.15 kg, subIngredientUnit = 'kg'):
+      //     yieldInSubUnit = 1.15 → costPerUnit = totalCost / 1.15 (€/kg)
+      //   Count yield (e.g. 1 unit, subIngredientUnit = 'unit'):
+      //     yieldInSubUnit = 1 → costPerUnit = totalCost / 1 (€/unit = total cost of one item)
+      const subIngredientUnit = input.subIngredientUnit || 'unit'
       const yieldInSubUnit = (() => {
         if (!input.isSubIngredient) return 0
-        if (isConvertible(input.yieldUnit, subIngredientUnit)) {
-          return convertUnit(input.yieldQuantity, input.yieldUnit, subIngredientUnit)
-        }
-        // Yield unit incompatible — sum the total weight of all weight/volume ingredients
-        return input.ingredients.reduce((sum, ing) => {
-          if (!isConvertible(ing.unit, subIngredientUnit)) return sum
-          return sum + convertUnit(ing.quantity, ing.unit, subIngredientUnit)
-        }, 0)
+        return convertUnit(input.yieldQuantity, input.yieldUnit, subIngredientUnit)
       })()
       const subIngredientCostPerUnit =
         input.isSubIngredient && yieldInSubUnit > 0
@@ -800,7 +796,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           imageUrl: input.imageUrls[0] ?? input.imageUrl,
           imageUrls: input.imageUrls,
           isSubIngredient: input.isSubIngredient,
-          subIngredientUnit: input.subIngredientUnit || 'g',
+          subIngredientUnit,
           subIngredientCostPerUnit,
           storageInstructions: input.storageInstructions ?? null,
           ingredients: input.ingredients,

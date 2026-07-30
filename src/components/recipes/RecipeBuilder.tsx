@@ -955,8 +955,9 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
   const addSubRecipe = (subRecipe: SubRecipeLookup, quantity: number, unit: string) => {
     // Priced exactly like a regular ingredient: current_price/price_unit are the
-    // sub-recipe's own cost-per-base-unit (€/g or €/ml) and base unit — no
-    // separate reconstruction needed, the shared cost calculator handles it.
+    // sub-recipe's own cost-per-unit (€/g, €/ml, or €/unit for count-yield
+    // sub-recipes) and that unit — no separate reconstruction needed, the
+    // shared cost calculator handles it.
     const nextLine = createIngredientLine({
       ingredientId: null,
       subRecipeId: subRecipe.id,
@@ -1152,10 +1153,14 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       ...currentRecipe,
       // When used as a sub-recipe, pin the unit to the recipe's own yield unit so
       // convertUnit(yieldQty, yieldUnit, yieldUnit) = yieldQty and cost-per-unit = totalCost / yieldQty.
+      // - Weight/volume yield (kg, g, L, ml, etc.) → sub_ingredient_unit = yield unit,
+      //   cost = totalCost / yieldInBaseUnit (canonical formula, unchanged).
+      // - Count yield (unit, dozen, portion, etc.) → sub_ingredient_unit = yield unit,
+      //   cost = totalCost / yieldQuantity (e.g. "1 unit" Challah → €/unit, not forced into €/g).
       subIngredientUnit: currentRecipe.isSubIngredient
         ? (isConvertible(currentRecipe.yieldUnit, 'g') || isConvertible(currentRecipe.yieldUnit, 'ml')
             ? currentRecipe.yieldUnit
-            : 'g')  // count yield unit → default to gram so weight-based usage works
+            : currentRecipe.yieldUnit || 'unit')  // count yield → price per yield unit (e.g. 'unit')
         : currentRecipe.subIngredientUnit,
       ingredients: currentIngredients.map((item) => ({ ...item, lineCost: calculateLineCost(item) })),
     }
