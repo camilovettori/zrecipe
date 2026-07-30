@@ -14,9 +14,9 @@ import PrimaryCTALink from '@/components/landing/PrimaryCTALink'
 import HeroDemoVideo from '@/components/landing/HeroDemoVideo'
 
 export const metadata: Metadata = {
-  title: 'ZRecipe — Recipe Costing Software for Bakeries, Cafés & Restaurants',
+  title: 'ZRecipe — Recipe Costing for Food Businesses',
   description:
-    'ZRecipe turns supplier invoices into accurate recipe costs, real margins, and EU-compliant allergen labels. Built for independent food businesses in Ireland and the EU. 14-day free trial, €25/month.',
+    'Turn supplier invoices into accurate recipe costs, real margins, and EU-compliant allergen labels. 14-day free trial.',
   alternates: { canonical: '/' },
 }
 
