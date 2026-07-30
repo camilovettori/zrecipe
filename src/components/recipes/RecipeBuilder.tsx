@@ -245,12 +245,9 @@ function IngredientRow({
     : ''
 
   const yieldPct = item.yield_percent ?? 100
-  const apQty = yieldPct > 0 && yieldPct < 100
-    ? Math.ceil(item.quantity / (yieldPct / 100))
-    : null
 
   // item.quantity = EP (Edible Portion — what the recipe actually uses).
-  // Convert to base unit (g or ml) for the NET WT column display.
+  // Convert to base unit (g or ml) for display.
   const epWeightBase = (() => {
     if (item.unit === 'g')  return { value: item.quantity, unitLabel: 'g' }
     if (item.unit === 'kg') return { value: item.quantity * 1000, unitLabel: 'g' }
@@ -259,9 +256,28 @@ function IngredientRow({
     return null
   })()
 
-  const handleEpWeightChange = (newEpG: number) => {
+  // AP (As Purchased) = EP × correction factor = EP / (yieldPct/100).
+  // This is how much raw ingredient to buy/prep.
+  const apWeightBase = (() => {
+    if (epWeightBase == null || yieldPct >= 100) return null
+    return { value: epWeightBase.value / (yieldPct / 100), unitLabel: epWeightBase.unitLabel }
+  })()
+
+  // The weight column shows AP (what to buy) when a correction factor is
+  // active, otherwise it shows EP (= gross = net when there's no trim loss).
+  const netWtDisplay = apWeightBase ?? epWeightBase
+
+  const handleWeightColumnChange = (newValue: number) => {
     if (epWeightBase == null || epWeightBase.value <= 0) return
-    const newYieldPct = Math.round(Math.min(100, Math.max(1, (newEpG / epWeightBase.value) * 100)) * 100) / 100
+    if (yieldPct >= 100) {
+      // No correction factor — editing the column changes quantity directly.
+      // Convert the base-unit value back to item.unit.
+      const factor = item.unit === 'kg' ? 0.001 : item.unit === 'L' ? 0.001 : 1
+      onUpdate({ quantity: newValue * factor })
+      return
+    }
+    // Correction factor active — editing the (AP) column changes the factor.
+    const newYieldPct = Math.round(Math.min(100, Math.max(1, (epWeightBase.value / newValue) * 100)) * 100) / 100
     onUpdate({ yield_percent: newYieldPct, yield_override: true })
   }
 
@@ -404,11 +420,11 @@ function IngredientRow({
             )}
           </div>
 
-          {/* NET WT — edible portion (item.quantity) in base units */}
+          {/* Wt — AP (what to buy) when a correction factor is active, else EP */}
           {batchMultiplier > 1 ? (
             <span className="text-right text-sm tabular-nums text-slate-600">
-              {epWeightBase
-                ? `${Math.round(epWeightBase.value * batchMultiplier)}${epWeightBase.unitLabel}`
+              {netWtDisplay
+                ? `${Math.round(netWtDisplay.value * batchMultiplier)}${netWtDisplay.unitLabel}`
                 : (item.ep_weight_manual ? `${Math.round(item.ep_weight_manual * batchMultiplier)}g` : '—')}
             </span>
           ) : (
@@ -416,11 +432,11 @@ function IngredientRow({
               type="number"
               min="0"
               step="1"
-              value={epWeightBase
-                ? (epWeightDraft ?? (Math.round(epWeightBase.value) || ''))
+              value={netWtDisplay
+                ? (epWeightDraft ?? (Math.round(netWtDisplay.value) || ''))
                 : (item.ep_weight_manual || '')}
               onChange={(e) => {
-                if (epWeightBase) {
+                if (netWtDisplay) {
                   setEpWeightDraft(e.target.value)
                 } else {
                   const num = e.target.value === '' ? 0 : parseFloat(e.target.value)
@@ -428,24 +444,24 @@ function IngredientRow({
                 }
               }}
               onBlur={(e) => {
-                if (epWeightBase) {
+                if (netWtDisplay) {
                   const v = parseFloat(e.target.value || '0')
-                  if (!isNaN(v) && v >= 0) handleEpWeightChange(v)
+                  if (!isNaN(v) && v >= 0) handleWeightColumnChange(v)
                   setEpWeightDraft(null)
                 }
               }}
               onKeyDown={(e) => {
-                if (epWeightBase) {
+                if (netWtDisplay) {
                   if (e.key === 'Enter') {
                     const v = parseFloat(e.currentTarget.value || '0')
-                    if (!isNaN(v) && v >= 0) handleEpWeightChange(v)
+                    if (!isNaN(v) && v >= 0) handleWeightColumnChange(v)
                     setEpWeightDraft(null)
                   }
                   if (e.key === 'Escape') setEpWeightDraft(null)
                 }
               }}
-              placeholder={epWeightBase ? '' : 'g'}
-              title="Net weight (edible portion) in base units"
+              placeholder={netWtDisplay ? '' : 'g'}
+              title="Weight in base units. When a correction factor is applied, shows the gross (as-purchased) amount."
               className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-right text-sm outline-none transition focus:border-emerald-500 focus:bg-white"
             />
           )}
@@ -473,15 +489,6 @@ function IngredientRow({
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         </div>
-
-        {/* AP sub-row — only when yield factor is applied */}
-        {apQty != null && (
-          <div className="grid grid-cols-[28px_1fr_36px_70px_70px_60px_80px_65px_28px] gap-1.5 px-2 pb-1">
-            <div className="col-start-7 text-center text-[10px] text-slate-400">
-              AP: {apQty}{item.unit}
-            </div>
-          </div>
-        )}
       </div>
     </Reorder.Item>
   )
@@ -2349,7 +2356,12 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                 <div className="text-center">Qty</div>
                 <div className="text-center">Unit</div>
                 <div className="text-center">Yield</div>
-                <div className="text-center" title="Net weight (edible portion) in base units">Net Wt</div>
+                <div
+                  className="text-center"
+                  title="Weight in base units. When a correction factor is applied, shows the gross (as-purchased) amount."
+                >
+                  Wt
+                </div>
                 <div className="text-right">Cost</div>
                 <div />
               </div>

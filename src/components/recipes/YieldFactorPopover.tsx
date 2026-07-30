@@ -10,19 +10,31 @@ interface Props {
   onUpdate: (patch: Partial<RecipeIngredientDraft>) => void
 }
 
+// 1 decimal place, trailing ".0" dropped (×1.5 stays, ×2.0 becomes ×2).
+function formatCf(cf: number) {
+  const rounded = Math.round(cf * 10) / 10
+  return rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1)
+}
+
 export function YieldFactorPopover({ item, onUpdate }: Props) {
   const yieldPct = item.yield_percent ?? 100
+  const cf = yieldPct > 0 ? 100 / yieldPct : 1
   const [open, setOpen] = useState(false)
-  const [localPct, setLocalPct] = useState(yieldPct)
+  const [localCf, setLocalCf] = useState(yieldPct > 0 ? 100 / yieldPct : 1)
   const [yfEnabled, setYfEnabled] = useState(yieldPct < 100)
   const containerRef = useRef<HTMLDivElement>(null)
 
   const suggestion = findYieldFactor(item.ingredientName)
   const suggestedPct = suggestion?.yieldPercent ?? 80
+  const suggestedCf = suggestedPct > 0 ? 100 / suggestedPct : 1
 
-  const previewApQty = localPct > 0
-    ? Math.ceil(item.quantity / (localPct / 100))
+  const previewApQty = localCf > 0
+    ? Math.ceil(item.quantity * localCf)
     : item.quantity
+
+  const previewYieldPct = localCf > 0
+    ? Math.round((100 / localCf) * 100) / 100
+    : 100
 
   useEffect(() => {
     if (!open) return
@@ -43,19 +55,20 @@ export function YieldFactorPopover({ item, onUpdate }: Props) {
   }, [open])
 
   const handleOpen = () => {
-    setLocalPct(Math.round(yieldPct))
+    setLocalCf(yieldPct > 0 ? Number((100 / yieldPct).toFixed(2)) : 1)
     setYfEnabled(yieldPct < 100)
     setOpen((v) => !v)
   }
 
   const handleApply = () => {
-    const clamped = Math.min(100, Math.max(1, localPct || 100))
-    onUpdate({ yield_percent: clamped, yield_override: clamped !== suggestedPct })
+    const clampedCf = Math.max(1, localCf || 1)
+    const newYieldPct = Math.round(Math.min(100, Math.max(1, 100 / clampedCf)) * 100) / 100
+    onUpdate({ yield_percent: newYieldPct, yield_override: newYieldPct !== suggestedPct })
     setOpen(false)
   }
 
   const handleReset = () => {
-    setLocalPct(suggestedPct)
+    setLocalCf(Number(suggestedCf.toFixed(2)))
   }
 
   const handleToggle = () => {
@@ -65,7 +78,7 @@ export function YieldFactorPopover({ item, onUpdate }: Props) {
       onUpdate({ yield_percent: 100, yield_override: false })
       setOpen(false)
     } else {
-      setLocalPct(suggestedPct)
+      setLocalCf(Number(suggestedCf.toFixed(2)))
     }
   }
 
@@ -75,19 +88,19 @@ export function YieldFactorPopover({ item, onUpdate }: Props) {
         <button
           type="button"
           onClick={handleOpen}
-          title="Yield factor applied — click to edit"
+          title={`Correction factor ×${formatCf(cf)} (yield ${Math.round(yieldPct)}%) — click to edit`}
           className="flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100"
         >
-          YF {Math.round(yieldPct)}%
+          ×{formatCf(cf)}
         </button>
       ) : (
         <button
           type="button"
           onClick={handleOpen}
-          title="No yield loss — click to set yield factor"
+          title="No trim loss — click to set a correction factor"
           className="rounded-md px-1.5 py-0.5 text-xs text-slate-300 transition-colors hover:bg-slate-50 hover:text-slate-500"
         >
-          YF
+          CF
         </button>
       )}
 
@@ -97,9 +110,9 @@ export function YieldFactorPopover({ item, onUpdate }: Props) {
           {/* Header with toggle */}
           <div className="mb-3 flex items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold leading-tight text-gray-800">Yield Factor</p>
+              <p className="text-sm font-semibold leading-tight text-gray-800">Correction Factor</p>
               <p className="mt-0.5 text-xs leading-tight text-gray-400">
-                {yfEnabled ? 'Trim loss applied' : 'No trim loss'}
+                {yfEnabled ? 'Accounts for trim loss (peeling, boning, etc.)' : 'No trim loss'}
               </p>
             </div>
             <button
@@ -121,28 +134,30 @@ export function YieldFactorPopover({ item, onUpdate }: Props) {
             <>
               {suggestion && (
                 <p className="mb-2 text-xs text-slate-400">
-                  Reference: {suggestedPct}% — {suggestion.notes}
+                  Reference: ×{formatCf(suggestedCf)} — {suggestion.notes}
                 </p>
               )}
 
-              <div className="mb-3 flex items-center gap-2">
+              <div className="mb-1 flex items-center gap-2">
                 <input
                   type="number"
                   min="1"
-                  max="100"
-                  value={localPct || ''}
-                  onChange={(e) => setLocalPct(Number(e.target.value))}
+                  max="99"
+                  step="0.01"
+                  value={localCf || ''}
+                  onChange={(e) => setLocalCf(Number(e.target.value))}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleApply() }}
                   autoFocus
                   className="w-16 rounded-lg border border-slate-200 px-2 py-1 text-right text-sm outline-none focus:border-emerald-500"
                 />
-                <span className="text-sm text-slate-500">%</span>
-                {localPct < 100 && item.quantity > 0 && (
+                <span className="text-sm text-slate-500">×</span>
+                {localCf > 1 && item.quantity > 0 && (
                   <span className="text-xs text-slate-400">
-                    AP: {previewApQty}{item.unit}
+                    Buy: {previewApQty}{item.unit}
                   </span>
                 )}
               </div>
+              <p className="mb-3 text-xs text-slate-400">= {previewYieldPct}% usable</p>
 
               <div className="flex gap-2">
                 <button
@@ -156,7 +171,7 @@ export function YieldFactorPopover({ item, onUpdate }: Props) {
                   type="button"
                   onClick={handleReset}
                   className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-500 hover:bg-slate-50"
-                  title={`Restore reference value (${suggestedPct}%)`}
+                  title={`Restore reference value (×${formatCf(suggestedCf)})`}
                 >
                   Reset
                 </button>
@@ -164,7 +179,7 @@ export function YieldFactorPopover({ item, onUpdate }: Props) {
             </>
           ) : (
             <p className="py-2 text-xs text-gray-400">
-              Enable to account for trim loss (peeling, boning, etc.)
+              Enable to apply a correction factor for trim loss
             </p>
           )}
         </div>
