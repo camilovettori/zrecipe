@@ -139,14 +139,17 @@ export function useIngredients() {
         i.name.toLowerCase().includes(search.toLowerCase()) ||
         (i.brand?.toLowerCase().includes(search.toLowerCase()) ?? false)
       const matchCat =
-        category === 'all' || i.category?.toLowerCase() === category.toLowerCase()
+        category === 'all' ||
+        (category === 'Uncategorised'
+          ? !i.category
+          : i.category?.toLowerCase() === category.toLowerCase())
       const matchNeedsPrice = !needsPriceOnly || i.needsPrice
       return matchSearch && matchCat && matchNeedsPrice
     }),
     sortBy
   )
   const categories = Array.from(
-    new Set(all.map((i) => i.category).filter((cat): cat is string => Boolean(cat)))
+    new Set(all.map((i) => i.category || 'Uncategorised'))
   ).sort()
   // Global count, independent of search/category filters, so the "Needs
   // price" chip stays a stable indicator rather than shifting with
@@ -197,6 +200,7 @@ export function useIngredients() {
   }
 
   return {
+    allIngredients: all,
     ingredients,
     categories,
     loading,

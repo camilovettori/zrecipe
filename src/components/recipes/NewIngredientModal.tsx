@@ -235,8 +235,6 @@ export default function NewIngredientModal({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/65 backdrop-blur-sm" />
         <Dialog.Content
-          onPointerDownOutside={(event) => event.preventDefault()}
-          onInteractOutside={(event) => event.preventDefault()}
           onEscapeKeyDown={(event) => {
             event.preventDefault()
             requestClose()

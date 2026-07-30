@@ -6,39 +6,53 @@ export type DeleteIngredientResult =
   | { ok: false; reason: 'unknown'; message: string }
 
 /**
- * Deletes an ingredient by id. On a foreign-key violation (still referenced
- * by recipe_ingredients, price history, allergens, etc.) this counts recipe
- * usage so the caller can show a specific, actionable message instead of a
- * generic failure — the count query only runs when the delete actually
- * fails, so the happy path stays a single round trip.
+ * Deletes an ingredient only when it is not used by a recipe. The preflight
+ * check is intentional: older databases may use ON DELETE SET NULL, which
+ * would otherwise leave an unlinked ingredient line behind.
  */
 export async function deleteIngredientById(
   supabase: ReturnType<typeof createClient>,
   id: string
 ): Promise<DeleteIngredientResult> {
-  const { error } = await supabase.from('ingredients').delete().eq('id', id)
+  const [{ count: recipeCount, error: usageError }, { data: ingredient }] = await Promise.all([
+    supabase
+      .from('recipe_ingredients')
+      .select('id', { count: 'exact', head: true })
+      .eq('ingredient_id', id),
+    supabase
+      .from('ingredients')
+      .select('name')
+      .eq('id', id)
+      .maybeSingle(),
+  ])
 
-  if (!error) return { ok: true }
+  if (usageError) {
+    return {
+      ok: false,
+      reason: 'unknown',
+      message: `Could not verify recipe usage: ${usageError.message}`,
+    }
+  }
 
-  // Foreign key violation → the ingredient is still referenced somewhere.
-  // Most common cause: still used in recipes. Count them so the message is specific.
-  if (error.code === '23503') {
-    const [{ count: recipeCount }, { data: ing }] = await Promise.all([
-      supabase
-        .from('recipe_ingredients')
-        .select('id', { count: 'exact', head: true })
-        .eq('ingredient_id', id),
-      supabase
-        .from('ingredients')
-        .select('name')
-        .eq('id', id)
-        .maybeSingle(),
-    ])
+  if ((recipeCount ?? 0) > 0) {
     return {
       ok: false,
       reason: 'in_use',
       recipeCount: recipeCount ?? 0,
-      ingredientName: ing?.name ?? null,
+      ingredientName: ingredient?.name ?? null,
+    }
+  }
+
+  const { error } = await supabase.from('ingredients').delete().eq('id', id)
+
+  if (!error) return { ok: true }
+
+  if (error.code === '23503') {
+    return {
+      ok: false,
+      reason: 'in_use',
+      recipeCount: recipeCount ?? 0,
+      ingredientName: ingredient?.name ?? null,
     }
   }
 

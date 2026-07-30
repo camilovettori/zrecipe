@@ -905,15 +905,19 @@ export default function IngredientDetailPage() {
                   </span>
                 )}
                 {!isNew && (
-                  <div className="ml-auto flex items-center gap-1.5">
+                  <div className="ml-auto flex items-center gap-2">
                     {usedRecipes.length > 0 && (
-                      <IconButtonWithTooltip
-                        icon={substituting ? Loader2 : Repeat}
-                        iconClassName={substituting ? 'animate-spin' : undefined}
-                        tooltip="Substitute in all recipes"
+                      <button
+                        type="button"
                         onClick={() => setSubstituteModalOpen(true)}
                         disabled={substituting}
-                      />
+                        className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {substituting
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <Repeat className="h-3.5 w-3.5" />}
+                        Substitute all
+                      </button>
                     )}
                     <IconButtonWithTooltip
                       icon={Merge}
@@ -938,8 +942,12 @@ export default function IngredientDetailPage() {
                   Not used in any recipe yet
                 </p>
               ) : (
-                <div className="space-y-1">
-                  {usedRecipes.map((recipe) => {
+                <div>
+                  <p className="mb-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                    Open a recipe below, or replace this ingredient across every listed recipe.
+                  </p>
+                  <div className="space-y-1">
+                    {usedRecipes.map((recipe) => {
                     const category = (recipe.category ?? 'other').toLowerCase()
                     const emoji = categoryEmoji[category] ?? categoryEmoji.other
 
@@ -959,7 +967,8 @@ export default function IngredientDetailPage() {
                         </span>
                       </button>
                     )
-                  })}
+                    })}
+                  </div>
                 </div>
               )}
             </div>
@@ -991,6 +1000,7 @@ export default function IngredientDetailPage() {
         currentSubRecipeId={null}
         currentIngredientName={ingredient?.name ?? ''}
         hasNote={false}
+        scopeCount={usedRecipes.length}
         onSubstitute={async (replacement: SubstituteReplacement) => {
           if (!ingredient) return
           setSubstituting(true)
@@ -998,8 +1008,16 @@ export default function IngredientDetailPage() {
             const supabase = createClient()
             const updatePayload =
               replacement.kind === 'ingredient'
-                ? { ingredient_id: replacement.data.id, sub_recipe_id: null }
-                : { sub_recipe_id: replacement.data.id, ingredient_id: null }
+                ? {
+                    ingredient_id: replacement.data.id,
+                    sub_recipe_id: null,
+                    notes: replacement.data.name,
+                  }
+                : {
+                    sub_recipe_id: replacement.data.id,
+                    ingredient_id: null,
+                    notes: replacement.data.name,
+                  }
 
             const affectedCount = usedRecipes.length
 
@@ -1010,7 +1028,7 @@ export default function IngredientDetailPage() {
 
             if (error) {
               toast.error('Failed to substitute ingredient')
-              return
+              throw error
             }
 
             toast.success(

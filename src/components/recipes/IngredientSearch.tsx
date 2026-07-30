@@ -284,7 +284,10 @@ export default function IngredientSearch({
       </div>
 
       {open && hasDropdownContent && (
-        <div className="absolute z-20 mt-1.5 w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+        <div
+          onMouseDown={(event) => event.preventDefault()}
+          className="absolute z-20 mt-1.5 w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
+        >
           {loading ? (
             <div className="flex items-center gap-2 px-4 py-3 text-sm text-slate-500">
               <Loader2 className="h-4 w-4 animate-spin" />

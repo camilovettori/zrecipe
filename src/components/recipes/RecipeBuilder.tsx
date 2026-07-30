@@ -14,6 +14,7 @@ import {
   ChefHat,
   Check,
   CheckCircle,
+  Copy,
   FileText,
   GripVertical,
   ImageIcon,
@@ -182,6 +183,11 @@ function mapRecipeToState(recipe: RecipeRecord): RecipeEditorData {
   }
 }
 
+type DuplicateRecipeSnapshot = Omit<RecipeEditorData, 'ingredients' | 'instructions'> & {
+  ingredients: Partial<RecipeIngredientDraft>[]
+  instructions: Array<Pick<RecipeStepDraft, 'text'>>
+}
+
 function FieldHint({ text }: { text: string }) {
   const [show, setShow] = useState(false)
 
@@ -332,9 +338,22 @@ function IngredientRow({
               )}
             </div>
           ) : (
-            <span className="min-w-0 whitespace-normal break-words text-left text-sm leading-tight text-slate-800">
-              {item.ingredientName}
-            </span>
+            <button
+              type="button"
+              onClick={onSubstituteClick}
+              title="This ingredient is no longer linked. Click to match a replacement."
+              className="flex min-w-0 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-left transition hover:border-amber-300 hover:bg-amber-100"
+            >
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+              <span className="min-w-0">
+                <span className="block whitespace-normal break-words text-sm leading-tight text-slate-800">
+                  {item.ingredientName}
+                </span>
+                <span className="block text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                  Unlinked - fix match
+                </span>
+              </span>
+            </button>
           )}
 
           {/* Note */}
@@ -543,6 +562,36 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
   useEffect(() => {
     if (isNew) {
+      // A deliberate duplicate takes priority over AI prefill and stale local drafts.
+      const duplicateRaw = typeof window !== 'undefined'
+        ? sessionStorage.getItem('zrecipe-duplicate-source')
+        : null
+      if (duplicateRaw) {
+        sessionStorage.removeItem('zrecipe-duplicate-source')
+        try {
+          const parsed = JSON.parse(duplicateRaw) as DuplicateRecipeSnapshot
+          const duplicatedIngredients = parsed.ingredients?.map((item) =>
+            createIngredientLine({ ...item, id: undefined })
+          ) ?? []
+          setRecipe({
+            ...blankRecipe(),
+            ...parsed,
+            instructions: parsed.instructions?.length
+              ? parsed.instructions.map((step) => createStep(step.text))
+              : [createStep()],
+            ingredients: duplicatedIngredients,
+          })
+          setYieldFactorsEnabled(duplicatedIngredients.some(
+            (item) => (item.yield_percent ?? 100) < 100 && !item.yield_override
+          ))
+          hasLoaded.current = true
+          setLoading(false)
+          return
+        } catch {
+          // Invalid duplicate data should not block opening a clean new recipe.
+        }
+      }
+
       // AI prefill via sessionStorage takes priority
       const aiRaw = typeof window !== 'undefined' ? sessionStorage.getItem('prefill-recipe') : null
       if (aiRaw) {
@@ -1249,6 +1298,26 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     }
   }
 
+  const handleDuplicate = () => {
+    if (isNew || !loadedRecipe) return
+
+    const ingredients = computedIngredients.map((item) => {
+      const copy: Partial<RecipeIngredientDraft> = { ...item }
+      delete copy.id
+      return copy
+    })
+
+    const snapshot: DuplicateRecipeSnapshot = {
+      ...recipe,
+      name: `${recipe.name.trim() || loadedRecipe.name} (Copy)`,
+      ingredients,
+      instructions: recipe.instructions.map((step) => ({ text: step.text })),
+    }
+
+    sessionStorage.setItem('zrecipe-duplicate-source', JSON.stringify(snapshot))
+    router.push('/recipes/new')
+  }
+
   const handlePrintFull = useCallback(() => {
     const printWindow = window.open('', '_blank')
     if (!printWindow) return
@@ -1601,6 +1670,17 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
             {hasFullAccess ? <Printer className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
             <span className="hidden sm:inline">Print</span>
           </button>
+
+          {!isNew && (
+            <button
+              type="button"
+              onClick={handleDuplicate}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              <Copy className="h-4 w-4" />
+              <span className="hidden sm:inline">Duplicate</span>
+            </button>
+          )}
 
           {!isNew && (
             <button

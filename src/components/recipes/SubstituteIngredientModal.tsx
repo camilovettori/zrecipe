@@ -18,6 +18,7 @@ interface Props {
   currentSubRecipeId: string | null
   currentIngredientName: string
   hasNote: boolean
+  scopeCount?: number
   onSubstitute: (replacement: SubstituteReplacement, keepNote: boolean) => void | Promise<void>
   onClose: () => void
 }
@@ -28,6 +29,7 @@ export function SubstituteIngredientModal({
   currentSubRecipeId,
   currentIngredientName,
   hasNote,
+  scopeCount,
   onSubstitute,
   onClose,
 }: Props) {
@@ -36,6 +38,7 @@ export function SubstituteIngredientModal({
   const [results, setResults] = useState<IngredientLookup[]>([])
   const [subRecipes, setSubRecipes] = useState<SubRecipeLookup[]>([])
   const [loading, setLoading] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [selected, setSelected] = useState<SubstituteReplacement | null>(null)
   const [keepNote, setKeepNote] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -48,6 +51,7 @@ export function SubstituteIngredientModal({
       setSubRecipes([])
       setSelected(null)
       setKeepNote(false)
+      setSubmitting(false)
       setTimeout(() => inputRef.current?.focus(), 50)
     }
   }, [open])
@@ -123,14 +127,19 @@ export function SubstituteIngredientModal({
     return replacement.data.id === currentSubRecipeId
   }
 
-  const handleSubstitute = () => {
+  const handleSubstitute = async () => {
     if (!selected) return
     if (isSameAsCurrentItem(selected)) {
       onClose()
       return
     }
-    onSubstitute(selected, keepNote)
-    onClose()
+    setSubmitting(true)
+    try {
+      await onSubstitute(selected, keepNote)
+      onClose()
+    } catch {
+      setSubmitting(false)
+    }
   }
 
   const hasResults = results.length > 0 || subRecipes.length > 0
@@ -148,12 +157,15 @@ export function SubstituteIngredientModal({
                 Substitute ingredient
               </Dialog.Title>
               <Dialog.Description className="mt-0.5 text-xs text-slate-500">
-                Replacing: {currentIngredientName}
+                {scopeCount
+                  ? `Replace ${currentIngredientName} in ${scopeCount} recipe${scopeCount === 1 ? '' : 's'}.`
+                  : `Replacing: ${currentIngredientName}`}
               </Dialog.Description>
             </div>
             <button
               type="button"
               onClick={onClose}
+              disabled={submitting}
               className="ml-4 shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
             >
               <X className="h-4 w-4" />
@@ -289,6 +301,7 @@ export function SubstituteIngredientModal({
             <button
               type="button"
               onClick={onClose}
+              disabled={submitting}
               className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm text-slate-600 transition hover:bg-slate-50"
             >
               Cancel
@@ -296,10 +309,11 @@ export function SubstituteIngredientModal({
             <button
               type="button"
               onClick={handleSubstitute}
-              disabled={!selected}
-              className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!selected || submitting}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Substitute
+              {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              {submitting ? 'Substituting...' : scopeCount ? 'Substitute all' : 'Substitute'}
             </button>
           </div>
         </Dialog.Content>
