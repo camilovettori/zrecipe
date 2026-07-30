@@ -29,13 +29,11 @@ type FileKind = 'pdf' | 'image' | 'csv'
 
 // Ingredient identity is name only — brand is purchase-level (see
 // resolveIngredientPrice.ts), so it is never selected, matched on, or
-// written by this feature.
-type IngredientOption = {
-  id: string
-  name: string
-  current_price: number | null
-  price_unit: string | null
-}
+// written by this feature. Sub-recipes are also name-only candidates —
+// see MatchCandidate below.
+type MatchCandidate =
+  | { kind: 'ingredient'; id: string; name: string; current_price: number | null; price_unit: string | null }
+  | { kind: 'sub-recipe'; id: string; name: string; costPerUnit: number | null; unit: string | null }
 
 type RowStatus = 'matched' | 'new'
 
@@ -45,7 +43,7 @@ type ImportRow = {
   quantity: number
   unit: string
   status: RowStatus
-  match: IngredientOption | null
+  match: MatchCandidate | null
 }
 
 export type ImportedRecipePayload = {
@@ -56,7 +54,8 @@ export type ImportedRecipePayload = {
   yieldUnit: string
   ingredients: Array<{
     id: string
-    ingredientId: string
+    ingredientId: string | null
+    subRecipeId: string | null
     ingredientName: string
     ingredientBrand: string | null
     quantity: number
@@ -115,11 +114,33 @@ function canonicalIngredientName(value: string) {
   return INGREDIENT_NAME_ALIASES[normalized] ?? normalized
 }
 
-/** Match by name only, case-insensitive. Brand is never a search criterion here. */
-function findIngredientMatch(name: string, options: IngredientOption[]) {
-  const canonicalName = canonicalIngredientName(name)
-  const sameName = options.filter((option) => canonicalIngredientName(option.name) === canonicalName)
-  return sameName.length === 1 ? sameName[0] : undefined
+// Conservative, symmetric: only strips a trailing "s" on words long enough
+// that it's unlikely to be part of the root word itself.
+function singularizeToken(t: string) {
+  return t.length > 3 && t.endsWith('s') ? t.slice(0, -1) : t
+}
+
+function nameTokens(name: string): string[] {
+  return canonicalIngredientName(name).split(' ').filter(Boolean).map(singularizeToken)
+}
+
+// Order-independent identity for a name: same words in any order produce
+// the same key, so "salted butter" and "Butter Salted" are equivalent.
+function tokenKey(name: string): string {
+  return Array.from(new Set(nameTokens(name))).sort().join(' ')
+}
+
+/**
+ * Match by name only (word-order independent), case-insensitive. Brand is
+ * never a search criterion here. Only auto-matches when exactly one
+ * candidate shares the same token key — ambiguous cases stay unmatched so
+ * the user picks explicitly in the popover.
+ */
+function findCandidateMatch(name: string, candidates: MatchCandidate[]): MatchCandidate | undefined {
+  const key = tokenKey(name)
+  if (!key) return undefined
+  const sameKey = candidates.filter((candidate) => tokenKey(candidate.name) === key)
+  return sameKey.length === 1 ? sameKey[0] : undefined
 }
 
 function normalizeUnit(value: string | null | undefined) {
@@ -149,11 +170,11 @@ function imageFileToBase64(file: File) {
 
 function matchRows(
   ingredients: ExtractedRecipeResponse['ingredients'],
-  options: IngredientOption[]
+  candidates: MatchCandidate[]
 ): ImportRow[] {
   return (ingredients ?? []).map((item) => {
     const name = String(item.name ?? '').trim()
-    const exact = findIngredientMatch(name, options)
+    const exact = findCandidateMatch(name, candidates)
     return {
       id: crypto.randomUUID(),
       name,
@@ -163,6 +184,13 @@ function matchRows(
       match: exact ?? null,
     }
   })
+}
+
+function formatCandidatePrice(candidate: MatchCandidate) {
+  if (candidate.kind === 'ingredient') {
+    return candidate.current_price != null ? `€${candidate.current_price}/${candidate.price_unit ?? 'unit'}` : 'no price'
+  }
+  return candidate.costPerUnit != null ? `€${candidate.costPerUnit}/${candidate.unit ?? 'unit'}` : 'no price'
 }
 
 export default function AiImportRecipeModal({ open, onOpenChange, onImported }: AiImportRecipeModalProps) {
@@ -179,7 +207,7 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
   const [yieldQty, setYieldQty] = useState(1)
   const [yieldUnit, setYieldUnit] = useState('portion')
   const [rows, setRows] = useState<ImportRow[]>([])
-  const [ingredientOptions, setIngredientOptions] = useState<IngredientOption[]>([])
+  const [candidates, setCandidates] = useState<MatchCandidate[]>([])
   const [tenantId, setTenantId] = useState<string | null>(null)
   const [editingMatchId, setEditingMatchId] = useState<string | null>(null)
   const [matchQuery, setMatchQuery] = useState('')
@@ -187,24 +215,69 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
 
   useEffect(() => {
     if (!open) return
-    const loadIngredients = async () => {
+    const loadCandidates = async () => {
       try {
         const supabase = createClient()
         const tid = await resolveTenantId()
         setTenantId(tid)
-        const { data, error: loadError } = await supabase
-          .from('ingredients')
-          .select('id, name, current_price, price_unit')
-          .eq('tenant_id', tid)
-          .order('name')
 
-        if (loadError) throw loadError
-        setIngredientOptions((data ?? []) as IngredientOption[])
+        const [ingredientResult, subRecipeResult] = await Promise.all([
+          supabase
+            .from('ingredients')
+            .select('id, name, current_price, price_unit')
+            .eq('tenant_id', tid)
+            .order('name'),
+          // AI import always creates a brand-new recipe, so there's no
+          // "editing recipe" to exclude from its own sub-recipe candidates
+          // (unlike IngredientSearch/SubstituteIngredientModal).
+          supabase
+            .from('recipes')
+            .select('id, name, sub_ingredient_cost_per_unit, sub_ingredient_unit, yield_unit')
+            .eq('tenant_id', tid)
+            .eq('is_sub_ingredient', true)
+            .order('name'),
+        ])
+
+        if (ingredientResult.error) throw ingredientResult.error
+        if (subRecipeResult.error) throw subRecipeResult.error
+
+        const ingredientCandidates: MatchCandidate[] = (
+          (ingredientResult.data ?? []) as Array<{
+            id: string
+            name: string
+            current_price: number | null
+            price_unit: string | null
+          }>
+        ).map((row) => ({
+          kind: 'ingredient',
+          id: row.id,
+          name: row.name,
+          current_price: row.current_price,
+          price_unit: row.price_unit,
+        }))
+
+        const subRecipeCandidates: MatchCandidate[] = (
+          (subRecipeResult.data ?? []) as Array<{
+            id: string
+            name: string
+            sub_ingredient_cost_per_unit: number | null
+            sub_ingredient_unit: string | null
+            yield_unit: string | null
+          }>
+        ).map((row) => ({
+          kind: 'sub-recipe',
+          id: row.id,
+          name: row.name,
+          costPerUnit: row.sub_ingredient_cost_per_unit ?? null,
+          unit: row.sub_ingredient_unit ?? row.yield_unit ?? 'unit',
+        }))
+
+        setCandidates([...ingredientCandidates, ...subRecipeCandidates])
       } catch (err) {
-        console.error('[ai recipe import] ingredient lookup failed', err)
+        console.error('[ai recipe import] candidate lookup failed', err)
       }
     }
-    loadIngredients()
+    loadCandidates()
   }, [open])
 
   useEffect(() => {
@@ -289,24 +362,42 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
   const canSave = recipeName.trim().length > 0 && rows.length > 0 && rows.every((row) => row.name.trim() && row.quantity > 0)
 
   const matchOptions = useMemo(() => {
-    const query = normalizeName(matchQuery)
-    if (!query) return ingredientOptions.slice(0, 6)
-    return ingredientOptions
-      .filter((option) => normalizeName(option.name).includes(query))
-      .slice(0, 6)
-  }, [ingredientOptions, matchQuery])
+    const queryTokens = nameTokens(matchQuery)
+    if (queryTokens.length === 0) {
+      return [...candidates].sort((a, b) => a.name.localeCompare(b.name)).slice(0, 8)
+    }
+
+    const queryKey = tokenKey(matchQuery)
+
+    return candidates
+      .map((candidate) => {
+        const candidateTokens = nameTokens(candidate.name)
+        const candidateTokenSet = new Set(candidateTokens)
+
+        let score = 0
+        if (tokenKey(candidate.name) === queryKey) score = 3
+        else if (queryTokens.every((t) => candidateTokenSet.has(t))) score = 2
+        else if (queryTokens.some((qt) => candidateTokens.some((ct) => ct.includes(qt)))) score = 1
+
+        return { candidate, score }
+      })
+      .filter(({ score }) => score > 0)
+      .sort((a, b) => b.score - a.score || a.candidate.name.localeCompare(b.candidate.name))
+      .slice(0, 8)
+      .map(({ candidate }) => candidate)
+  }, [candidates, matchQuery])
 
   const updateRow = (id: string, patch: Partial<ImportRow>) => {
     setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)))
   }
 
   const handleNameChange = (id: string, name: string) => {
-    const exact = findIngredientMatch(name, ingredientOptions)
+    const exact = findCandidateMatch(name, candidates)
     updateRow(id, { name, match: exact ?? null, status: exact ? 'matched' : 'new' })
   }
 
-  const selectMatch = (rowId: string, option: IngredientOption) => {
-    updateRow(rowId, { match: option, status: 'matched' })
+  const selectMatch = (rowId: string, candidate: MatchCandidate) => {
+    updateRow(rowId, { match: candidate, status: 'matched' })
     setEditingMatchId(null)
     setMatchQuery('')
   }
@@ -332,8 +423,15 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
         .single()
 
       if (insertError) throw insertError
-      const created = data as IngredientOption
-      setIngredientOptions((current) => [...current, created].sort((a, b) => a.name.localeCompare(b.name)))
+      const row = data as { id: string; name: string; current_price: number | null; price_unit: string | null }
+      const created: MatchCandidate = {
+        kind: 'ingredient',
+        id: row.id,
+        name: row.name,
+        current_price: row.current_price,
+        price_unit: row.price_unit,
+      }
+      setCandidates((current) => [...current, created].sort((a, b) => a.name.localeCompare(b.name)))
       updateRow(rowId, { match: created, status: 'matched' })
       setEditingMatchId(null)
       setMatchQuery('')
@@ -381,7 +479,7 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
       setCookTime(data.cook_time_minutes ?? 0)
       setYieldQty(data.yield_quantity && data.yield_quantity > 0 ? data.yield_quantity : 1)
       setYieldUnit(data.yield_unit || 'portion')
-      setRows(matchRows(data.ingredients, ingredientOptions))
+      setRows(matchRows(data.ingredients, candidates))
       setStep('review')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not extract this recipe'
@@ -403,7 +501,24 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
       let createdCount = 0
 
       for (const row of rows) {
-        let ingredient = row.match
+        if (row.match?.kind === 'sub-recipe') {
+          const subRecipe = row.match
+          importedIngredients.push({
+            id: crypto.randomUUID(),
+            ingredientId: null,
+            subRecipeId: subRecipe.id,
+            ingredientName: row.name.trim(),
+            ingredientBrand: null,
+            quantity: row.quantity,
+            unit: normalizeUnit(row.unit),
+            currentPrice: subRecipe.costPerUnit,
+            priceUnit: subRecipe.unit,
+            isNew: subRecipe.costPerUnit == null,
+          })
+          continue
+        }
+
+        let ingredient = row.match?.kind === 'ingredient' ? row.match : null
 
         if (!ingredient) {
           const { data, error: insertError } = await supabase
@@ -421,13 +536,21 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
             .single()
 
           if (insertError) throw insertError
-          ingredient = data as IngredientOption
+          const created = data as { id: string; name: string; current_price: number | null; price_unit: string | null }
+          ingredient = {
+            kind: 'ingredient',
+            id: created.id,
+            name: created.name,
+            current_price: created.current_price,
+            price_unit: created.price_unit,
+          }
           createdCount += 1
         }
 
         importedIngredients.push({
           id: crypto.randomUUID(),
           ingredientId: ingredient.id,
+          subRecipeId: null,
           ingredientName: row.name.trim(),
           ingredientBrand: null,
           quantity: row.quantity,
@@ -700,9 +823,16 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
                                     onClick={() => selectMatch(row.id, option)}
                                     className="flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm transition hover:bg-emerald-50"
                                   >
-                                    <span className="truncate font-medium text-slate-800">{option.name}</span>
+                                    <span className="flex min-w-0 items-center gap-1.5">
+                                      <span className="truncate font-medium text-slate-800">{option.name}</span>
+                                      {option.kind === 'sub-recipe' && (
+                                        <span className="shrink-0 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-600">
+                                          Sub-recipe
+                                        </span>
+                                      )}
+                                    </span>
                                     <span className="shrink-0 text-xs text-slate-400">
-                                      {option.current_price != null ? `€${option.current_price}/${option.price_unit ?? 'unit'}` : 'no price'}
+                                      {formatCandidatePrice(option)}
                                     </span>
                                   </button>
                                 ))}

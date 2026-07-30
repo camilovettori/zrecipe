@@ -885,10 +885,13 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
   const handleAiRecipeImported = (payload: ImportedRecipePayload) => {
     const importedLines = payload.ingredients.map((ingredient) => {
-      const yf = yieldFactorsEnabled ? findYieldFactor(ingredient.ingredientName) : null
+      // Sub-recipe lines have no ingredient row to look up a yield factor
+      // for — mirrors addSubRecipe(), which never applies yield factors.
+      const yf = yieldFactorsEnabled && !ingredient.subRecipeId ? findYieldFactor(ingredient.ingredientName) : null
       return createIngredientLine({
         id: ingredient.id,
         ingredientId: ingredient.ingredientId,
+        subRecipeId: ingredient.subRecipeId ?? null,
         ingredientName: ingredient.ingredientName,
         ingredientBrand: ingredient.ingredientBrand,
         quantity: ingredient.quantity,
