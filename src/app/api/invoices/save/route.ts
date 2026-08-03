@@ -31,6 +31,9 @@ type SaveItem = {
     | null
   extractedDescriptionOriginal?: string | null
   needs_verification?: boolean
+  normalizedPriceConfidence?: 'high' | 'review'
+  needsReviewReason?: string | null
+  quantityInterpretationConfirmed?: boolean
 }
 
 type SupplierMatch =
@@ -210,12 +213,26 @@ export async function POST(request: NextRequest) {
       )
       if (!updatesIngredient) continue
 
+      if (
+        item.normalizedPriceConfidence === 'review' &&
+        !item.quantityInterpretationConfirmed
+      ) {
+        return NextResponse.json(
+          {
+            error: `Needs review: ${item.description || 'invoice item'}. ${item.needsReviewReason ?? 'Confirm invoice quantity source and package size before updating ingredient cost.'}`,
+          },
+          { status: 400 }
+        )
+      }
+
       if (linkedIngredientId && !tenantIngredientIds.has(linkedIngredientId)) {
         return NextResponse.json({ error: 'Selected ingredient is not available in this workspace' }, { status: 400 })
       }
 
       const pricing = resolveInvoiceIngredientPricing({
         unitPrice: item.unitPrice,
+        lineTotal: item.total,
+        quantity: item.quantity,
         invoiceUnit: item.unit,
         packageSize: item.packageSize,
         packageUnit: item.packageUnit,
@@ -365,6 +382,8 @@ export async function POST(request: NextRequest) {
 
       const pricing = resolveInvoiceIngredientPricing({
         unitPrice: item.unitPrice,
+        lineTotal: item.total,
+        quantity: item.quantity,
         invoiceUnit: item.unit,
         packageSize: item.packageSize,
         packageUnit: item.packageUnit,
@@ -378,6 +397,18 @@ export async function POST(request: NextRequest) {
       const updatesIngredient = Boolean(
         ingredientId || ingredientMatch?.type === 'create' || item.createIngredient
       )
+      if (
+        updatesIngredient &&
+        item.normalizedPriceConfidence === 'review' &&
+        !item.quantityInterpretationConfirmed
+      ) {
+        return NextResponse.json(
+          {
+            error: `Needs review: ${item.description}. ${item.needsReviewReason ?? 'Confirm invoice quantity source and package size before updating ingredient cost.'}`,
+          },
+          { status: 400 }
+        )
+      }
       if (
         updatesIngredient &&
         (!pricing.valid || pricing.normalizedPrice == null || !pricing.normalizedUnit)

@@ -29,6 +29,7 @@ import {
   type InvoiceFileType,
   type InvoiceFormState,
   type InvoiceLineItem,
+  type InvoiceQuantitySource,
   scoreIngredientMatch,
   recalculateInvoiceTotals,
 } from '@/lib/invoices'
@@ -114,6 +115,18 @@ function buildDraftFromItems(
     // "(verify)" signal from AI extraction, already converted to a boolean
     // and stripped from description server-side — see /api/invoices/extract.
     needs_verification?: boolean
+    originalDescription?: string | null
+    rawQuantityColumns?: Record<string, number | null>
+    rawCasesQuantity?: number | null
+    rawUnitsQuantity?: number | null
+    rawSizeText?: string | null
+    extractedCasePackCount?: number | null
+    extractedUnitSize?: number | null
+    extractedUnitMeasure?: string | null
+    quantitySource?: InvoiceQuantitySource
+    normalizedPriceConfidence?: 'high' | 'review'
+    needsReviewReason?: string | null
+    supplierRawText?: string | null
   }>,
   meta?: {
     subtotalAmount?: number | null
@@ -129,8 +142,21 @@ function buildDraftFromItems(
           id: crypto.randomUUID(),
           description,
           product_code: item.product_code ?? null,
-          extractedDescriptionOriginal: item.extractedDescriptionOriginal ?? item.description,
+          extractedDescriptionOriginal:
+            item.originalDescription ?? item.extractedDescriptionOriginal ?? item.description,
           needs_verification: item.needs_verification ?? false,
+          rawQuantityColumns: item.rawQuantityColumns ?? {},
+          rawCasesQuantity: item.rawCasesQuantity ?? null,
+          rawUnitsQuantity: item.rawUnitsQuantity ?? null,
+          rawSizeText: item.rawSizeText ?? null,
+          extractedCasePackCount: item.extractedCasePackCount ?? null,
+          extractedUnitSize: item.extractedUnitSize ?? null,
+          extractedUnitMeasure: item.extractedUnitMeasure ?? null,
+          quantitySource: item.quantitySource,
+          normalizedPriceConfidence: item.normalizedPriceConfidence,
+          needsReviewReason: item.needsReviewReason ?? null,
+          supplierRawText: item.supplierRawText ?? null,
+          quantityInterpretationConfirmed: false,
           newIngredientBrand: item.brand?.trim() || '',
           quantity: item.quantity,
           unit: item.unit,
@@ -568,6 +594,18 @@ export default function ImportInvoicesPage() {
               memory_ingredient_id?: string | null
               memory_ingredient_name?: string | null
               needs_verification?: boolean
+              original_description?: string | null
+              raw_quantity_columns?: Record<string, number | null>
+              raw_cases_quantity?: number | null
+              raw_units_quantity?: number | null
+              raw_size_text?: string | null
+              extracted_case_pack_count?: number | null
+              extracted_unit_size?: number | null
+              extracted_unit_measure?: string | null
+              quantity_source?: InvoiceQuantitySource
+              normalized_price_confidence?: 'high' | 'review'
+              needs_review_reason?: string | null
+              supplier_raw_text?: string | null
             }>
           thousands_correction_applied?: boolean
         }
@@ -679,6 +717,18 @@ export default function ImportInvoicesPage() {
             memory_ingredient_id?: string | null
             memory_ingredient_name?: string | null
             needs_verification?: boolean
+            original_description?: string | null
+            raw_quantity_columns?: Record<string, number | null>
+            raw_cases_quantity?: number | null
+            raw_units_quantity?: number | null
+            raw_size_text?: string | null
+            extracted_case_pack_count?: number | null
+            extracted_unit_size?: number | null
+            extracted_unit_measure?: string | null
+            quantity_source?: InvoiceQuantitySource
+            normalized_price_confidence?: 'high' | 'review'
+            needs_review_reason?: string | null
+            supplier_raw_text?: string | null
           }>
           thousands_correction_applied?: boolean
         }

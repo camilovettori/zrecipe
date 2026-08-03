@@ -42,6 +42,248 @@ export type InvoiceLineItem = {
    *  /api/invoices/extract). Drives the amber review-row treatment and, on
    *  save, becomes ingredients.needs_verification for newly-created rows. */
   needs_verification?: boolean
+  /** Raw invoice evidence. Review-only, not persisted. */
+  rawQuantityColumns?: Record<string, number | null>
+  rawCasesQuantity?: number | null
+  rawUnitsQuantity?: number | null
+  rawSizeText?: string | null
+  extractedCasePackCount?: number | null
+  extractedUnitSize?: number | null
+  extractedUnitMeasure?: string | null
+  quantitySource?: InvoiceQuantitySource
+  normalizedPriceConfidence?: 'high' | 'review'
+  needsReviewReason?: string | null
+  supplierRawText?: string | null
+  quantityInterpretationConfirmed?: boolean
+}
+
+export type InvoiceQuantitySource =
+  | 'CASES'
+  | 'UNITS'
+  | 'QTY'
+  | 'EACH'
+  | 'KG'
+  | 'LTR'
+  | 'PACKS'
+  | 'OUTERS'
+  | 'ORDERED'
+  | 'DELIVERED'
+  | 'MULTIPLE'
+  | 'UNKNOWN'
+
+export type HendersonQuantityPatch = {
+  quantity?: number
+  unit?: string
+  package_size?: number | null
+  package_unit?: string | null
+  needs_verification: boolean
+  raw_cases_quantity: number | null
+  raw_units_quantity: number | null
+  raw_size_text: string | null
+  extracted_case_pack_count: number | null
+  extracted_unit_size: number | null
+  extracted_unit_measure: string | null
+  quantity_source: InvoiceQuantitySource
+  raw_quantity_columns: Record<string, number | null>
+  normalized_price_confidence: 'high' | 'review'
+  needs_review_reason: string | null
+}
+
+function positiveNumber(value: number | null | undefined) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+function finiteNumber(value: number | null | undefined) {
+  if (value == null) return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function canonicalQuantitySource(source: string | null | undefined): InvoiceQuantitySource {
+  const key = (source ?? '').trim().toUpperCase().replace(/[\s_-]+/g, ' ')
+  if (['CASE', 'CASES', 'CASE QTY'].includes(key)) return 'CASES'
+  if (['UNIT', 'UNITS', 'UNIT QTY'].includes(key)) return 'UNITS'
+  if (['EACH', 'EA'].includes(key)) return 'EACH'
+  if (['OUTER', 'OUTERS'].includes(key)) return 'OUTERS'
+  if (['PACK', 'PACKS'].includes(key)) return 'PACKS'
+  if (['KG', 'KGS'].includes(key)) return 'KG'
+  if (['LTR', 'LITRE', 'LITER', 'L'].includes(key)) return 'LTR'
+  if (key === 'QTY' || key === 'QUANTITY') return 'QTY'
+  if (key === 'ORDERED') return 'ORDERED'
+  if (key === 'DELIVERED' || key === 'SUPPLIED') return 'DELIVERED'
+  if (key === 'MULTIPLE' || key === 'BOTH') return 'MULTIPLE'
+  return 'UNKNOWN'
+}
+
+function sourceFromColumnName(column: string) {
+  return canonicalQuantitySource(column)
+}
+
+/**
+ * Preserves quantity-column truth first, then derives package costing fields.
+ * It never changes invoice unit price or line total.
+ */
+export function resolveInvoiceQuantityEvidence({
+  rawQuantityColumns = {},
+  quantitySource,
+  rawSizeText,
+  needsVerification = false,
+}: {
+  rawQuantityColumns?: Record<string, number | null>
+  quantitySource?: string | null
+  rawSizeText?: string | null
+  needsVerification?: boolean
+}): HendersonQuantityPatch {
+  const preservedColumns = Object.fromEntries(
+    Object.entries(rawQuantityColumns).map(([key, value]) => [key, finiteNumber(value)])
+  )
+  const activeColumns = Object.entries(preservedColumns)
+    .map(([key, value]) => ({ key, value: positiveNumber(value), source: sourceFromColumnName(key) }))
+    .filter((entry) => entry.value != null)
+  const distinctActiveSources = Array.from(new Set(activeColumns.map((entry) => entry.source)))
+  let source = canonicalQuantitySource(quantitySource)
+  if (activeColumns.length > 1 || distinctActiveSources.length > 1) source = 'MULTIPLE'
+  else if (source === 'UNKNOWN' && activeColumns.length === 1) source = activeColumns[0].source
+
+  const sourceEntry = activeColumns.find((entry) => entry.source === source) ?? activeColumns[0]
+  const sourceQuantity = sourceEntry?.value ?? null
+  const sizeText = rawSizeText?.trim() || null
+  const sizeMatch = sizeText?.match(
+    /(\d+(?:\.\d+)?)\s*[xX\u00d7]\s*(\d+(?:\.\d+)?)\s*(kg|g|l|ltr|litre|liter|ml)?\b/i
+  )
+  const packCount = sizeMatch ? positiveNumber(Number(sizeMatch[1])) : null
+  const unitSize = sizeMatch ? positiveNumber(Number(sizeMatch[2])) : null
+  const rawMeasure = sizeMatch?.[3]?.toLowerCase() ?? null
+  const unitMeasure = rawMeasure
+    ? rawMeasure === 'l' || rawMeasure === 'ltr' || rawMeasure === 'litre' || rawMeasure === 'liter'
+      ? 'L'
+      : rawMeasure
+    : sizeMatch
+      ? 'unit'
+      : null
+  const evidence = {
+    raw_cases_quantity: preservedColumns.cases ?? preservedColumns.CASES ?? null,
+    raw_units_quantity: preservedColumns.units ?? preservedColumns.UNITS ?? null,
+    raw_quantity_columns: preservedColumns,
+    raw_size_text: sizeText,
+    extracted_case_pack_count: packCount,
+    extracted_unit_size: unitSize,
+    extracted_unit_measure: unitMeasure,
+    quantity_source: source,
+  }
+
+  if (source === 'MULTIPLE') {
+    return {
+      ...evidence,
+      package_size: null,
+      package_unit: null,
+      needs_verification: true,
+      normalized_price_confidence: 'review',
+      needs_review_reason: 'Multiple quantity columns contain values. Confirm how the supplier calculated this line.',
+    }
+  }
+
+  if (source === 'UNKNOWN') {
+    return {
+      ...evidence,
+      package_size: null,
+      package_unit: null,
+      needs_verification: true,
+      normalized_price_confidence: 'review',
+      needs_review_reason: sizeMatch
+        ? 'Quantity source is unknown. Pack count will not be applied until the source column is confirmed.'
+        : 'Quantity source could not be identified from the invoice.',
+    }
+  }
+
+  if (source === 'KG' || source === 'LTR') {
+    return {
+      ...evidence,
+      ...(sourceQuantity ? { quantity: sourceQuantity } : {}),
+      unit: source === 'KG' ? 'kg' : 'L',
+      package_size: 1,
+      package_unit: source === 'KG' ? 'kg' : 'L',
+      needs_verification: needsVerification || !sourceQuantity,
+      normalized_price_confidence: sourceQuantity ? 'high' : 'review',
+      needs_review_reason: sourceQuantity ? null : 'The quantity value for this source column is missing.',
+    }
+  }
+
+  if (source === 'CASES' || source === 'OUTERS') {
+    if (!packCount || !unitSize || !unitMeasure || !sourceQuantity) {
+      return {
+        ...evidence,
+        needs_verification: true,
+        normalized_price_confidence: 'review',
+        needs_review_reason: 'Case quantity needs a readable pack format before ingredient cost can be normalized.',
+      }
+    }
+    return {
+      ...evidence,
+      quantity: sourceQuantity,
+      unit: 'case',
+      package_size: packCount * unitSize,
+      package_unit: unitMeasure,
+      needs_verification: needsVerification,
+      normalized_price_confidence: needsVerification ? 'review' : 'high',
+      needs_review_reason: needsVerification ? 'This invoice row was flagged for review during extraction.' : null,
+    }
+  }
+
+  if (source === 'UNITS' || source === 'EACH') {
+    if (!unitSize || !unitMeasure || !sourceQuantity) {
+      return {
+        ...evidence,
+        needs_verification: true,
+        normalized_price_confidence: 'review',
+        needs_review_reason: 'Unit quantity needs a readable individual size before ingredient cost can be normalized.',
+      }
+    }
+    return {
+      ...evidence,
+      quantity: sourceQuantity,
+      unit: 'unit',
+      package_size: unitSize,
+      package_unit: unitMeasure,
+      needs_verification: needsVerification,
+      normalized_price_confidence: needsVerification ? 'review' : 'high',
+      needs_review_reason: needsVerification ? 'This invoice row was flagged for review during extraction.' : null,
+    }
+  }
+
+  // QTY, PACKS, ORDERED and DELIVERED do not prove case-vs-unit semantics.
+  return {
+    ...evidence,
+    ...(sourceQuantity ? { quantity: sourceQuantity } : {}),
+    ...(sizeMatch ? { package_size: null, package_unit: null } : {}),
+    needs_verification: needsVerification || Boolean(sizeMatch),
+    normalized_price_confidence: sizeMatch || needsVerification ? 'review' : 'high',
+    needs_review_reason: sizeMatch
+      ? `${source} does not prove whether the pack multiplier should be applied. Confirm the purchase unit.`
+      : needsVerification
+        ? 'This invoice row was flagged for review during extraction.'
+        : null,
+  }
+}
+
+/** Backward-compatible Henderson adapter; core logic is supplier-agnostic. */
+export function resolveHendersonQuantity({
+  rawCasesQuantity,
+  rawUnitsQuantity,
+  rawSizeText,
+  needsVerification = false,
+}: {
+  rawCasesQuantity?: number | null
+  rawUnitsQuantity?: number | null
+  rawSizeText?: string | null
+  needsVerification?: boolean
+}) {
+  return resolveInvoiceQuantityEvidence({
+    rawQuantityColumns: { cases: rawCasesQuantity ?? null, units: rawUnitsQuantity ?? null },
+    rawSizeText,
+    needsVerification,
+  })
 }
 
 export type InvoiceFormState = {
@@ -152,23 +394,38 @@ export type InvoiceIngredientPricing = {
  */
 export function resolveInvoiceIngredientPricing({
   unitPrice,
+  lineTotal,
+  quantity,
   invoiceUnit,
   packageSize,
   packageUnit,
   targetUnit,
 }: {
   unitPrice: number
+  lineTotal?: number | null
+  quantity?: number | null
   invoiceUnit: string | null | undefined
   packageSize?: number | null
   packageUnit?: string | null
   targetUnit?: string | null
 }): InvoiceIngredientPricing {
-  const price = Number(unitPrice)
+  const invoicePrice = Number(unitPrice)
+  const parsedLineTotal = Number(lineTotal)
+  const parsedQuantity = Number(quantity)
+  const hasLineTotalBasis =
+    lineTotal != null &&
+    Number.isFinite(parsedLineTotal) &&
+    parsedLineTotal >= 0 &&
+    Number.isFinite(parsedQuantity) &&
+    parsedQuantity > 0
+  // The normalized cost derives from the preserved line total when present;
+  // invoice unit price itself remains untouched in the review model/database.
+  const price = hasLineTotalBasis ? parsedLineTotal / parsedQuantity : invoicePrice
   const parsedPackageSize = Number(packageSize)
   const hasPackageSize = Number.isFinite(parsedPackageSize) && parsedPackageSize > 0
   const normalizedPackageUnit = normalizePackageUnit(packageUnit)
 
-  if (!Number.isFinite(price) || price < 0) {
+  if (!Number.isFinite(invoicePrice) || invoicePrice < 0 || !Number.isFinite(price) || price < 0) {
     return {
       valid: false,
       needsReview: true,

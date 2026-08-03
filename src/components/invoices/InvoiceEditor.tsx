@@ -477,6 +477,8 @@ function PackageCostLabel({
       : null
   const pricing = resolveInvoiceIngredientPricing({
     unitPrice: item.unitPrice,
+    lineTotal: item.total,
+    quantity: item.quantity,
     invoiceUnit: item.unit,
     packageSize: item.packageSize,
     packageUnit: item.packageUnit,
@@ -723,6 +725,51 @@ function ReviewItemCard({
         </div>
       </div>
 
+      {(item.quantitySource || item.rawSizeText) && (
+        <div className={cn(
+          'mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl border px-3 py-2 text-xs',
+          item.normalizedPriceConfidence === 'review' || item.quantitySource === 'MULTIPLE' || item.quantitySource === 'UNKNOWN'
+            ? 'border-amber-200 bg-amber-50 text-amber-800'
+            : 'border-slate-200 bg-slate-50/70 text-slate-600'
+        )}>
+          <span>
+            Invoice quantity source:{' '}
+            <strong className="font-semibold text-slate-800">
+              {item.quantitySource ?? 'UNKNOWN'}
+            </strong>
+          </span>
+          {item.rawSizeText && (
+            <span>
+              Pack format: <strong className="font-semibold text-slate-800">{item.rawSizeText}</strong>
+            </span>
+          )}
+          {item.packageSize != null && item.packageUnit && (
+            <span>
+              Package size used:{' '}
+              <strong className="font-semibold text-slate-800">
+                {item.packageSize} {item.packageUnit}
+              </strong>
+            </span>
+          )}
+        </div>
+      )}
+
+      {(item.quantitySource === 'UNITS' || item.quantitySource === 'EACH') &&
+        (item.extractedCasePackCount ?? 0) > 1 && (
+          <p className="mt-2 flex items-start gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            Quantity source is {item.quantitySource}, but the pack format contains {item.rawSizeText}.
+            ZRecipe will use {item.extractedUnitSize} {item.extractedUnitMeasure} per unit, not the case total.
+          </p>
+        )}
+
+      {item.needsReviewReason && (
+        <p className="mt-2 flex items-start gap-1.5 text-xs font-medium text-amber-700">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          {item.needsReviewReason}
+        </p>
+      )}
+
       {item.packageSize == null && WEIGHT_VOLUME_IN_DESCRIPTION.test(item.description) && (
         <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-700">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -866,6 +913,16 @@ export default function InvoiceEditor({
     const items = draft.items.map((item) => {
       if (item.id !== itemId) return item
       const next = { ...item, ...patch }
+      if (
+        'quantity' in patch ||
+        'unit' in patch ||
+        'packageSize' in patch ||
+        'packageUnit' in patch
+      ) {
+        next.quantityInterpretationConfirmed = true
+        next.normalizedPriceConfidence = 'high'
+        next.needsReviewReason = null
+      }
       next.total = recalculateItemTotal(next)
       return next
     })

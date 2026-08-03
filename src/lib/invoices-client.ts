@@ -1,4 +1,4 @@
-import type { InvoiceFileType } from '@/lib/invoices'
+import type { InvoiceFileType, InvoiceQuantitySource } from '@/lib/invoices'
 
 export function fileTypeFromName(file: File): InvoiceFileType {
   if (file.type.includes('pdf') || file.name.toLowerCase().endsWith('.pdf')) return 'pdf'
@@ -99,6 +99,18 @@ export type ExtractedInvoiceItem = {
   packageUnit?: string | null
   unitPrice: number
   total: number
+  originalDescription?: string | null
+  rawQuantityColumns?: Record<string, number | null>
+  rawCasesQuantity?: number | null
+  rawUnitsQuantity?: number | null
+  rawSizeText?: string | null
+  extractedCasePackCount?: number | null
+  extractedUnitSize?: number | null
+  extractedUnitMeasure?: string | null
+  quantitySource?: InvoiceQuantitySource
+  normalizedPriceConfidence?: 'high' | 'review'
+  needsReviewReason?: string | null
+  supplierRawText?: string | null
 }
 
 export function normalizeExtractedItems(
@@ -113,11 +125,25 @@ export function normalizeExtractedItems(
         unit_price?: number
         unitPrice?: number
         total?: number
+        original_description?: string | null
+        raw_quantity_columns?: Record<string, number | null>
+        raw_cases_quantity?: number | null
+        raw_units_quantity?: number | null
+        raw_size_text?: string | null
+        extracted_case_pack_count?: number | null
+        extracted_unit_size?: number | null
+        extracted_unit_measure?: string | null
+        quantity_source?: InvoiceQuantitySource
+        normalized_price_confidence?: 'high' | 'review'
+        needs_review_reason?: string | null
+        supplier_raw_text?: string | null
       }
   >
 ): ExtractedInvoiceItem[] {
   return items.map((item) => ({
       description: (item as { description?: string }).description ?? '',
+      originalDescription: (item as { original_description?: string | null }).original_description ?? null,
+      rawQuantityColumns: (item as { raw_quantity_columns?: Record<string, number | null> }).raw_quantity_columns ?? {},
       product_code: (item as { product_code?: string | null }).product_code?.trim() || null,
       brand: (item as { brand?: string | null }).brand?.trim() || null,
       quantity: Number((item as { quantity?: number }).quantity ?? 1) || 1,
@@ -136,6 +162,16 @@ export function normalizeExtractedItems(
           (item as { unitPrice?: number; unit_price?: number }).unit_price ??
           0
       ) || 0,
+    rawCasesQuantity: (item as { raw_cases_quantity?: number | null }).raw_cases_quantity ?? null,
+    rawUnitsQuantity: (item as { raw_units_quantity?: number | null }).raw_units_quantity ?? null,
+    rawSizeText: (item as { raw_size_text?: string | null }).raw_size_text ?? null,
+    extractedCasePackCount: (item as { extracted_case_pack_count?: number | null }).extracted_case_pack_count ?? null,
+    extractedUnitSize: (item as { extracted_unit_size?: number | null }).extracted_unit_size ?? null,
+    extractedUnitMeasure: (item as { extracted_unit_measure?: string | null }).extracted_unit_measure ?? null,
+    quantitySource: (item as { quantity_source?: InvoiceQuantitySource }).quantity_source,
+    normalizedPriceConfidence: (item as { normalized_price_confidence?: 'high' | 'review' }).normalized_price_confidence,
+    needsReviewReason: (item as { needs_review_reason?: string | null }).needs_review_reason ?? null,
+    supplierRawText: (item as { supplier_raw_text?: string | null }).supplier_raw_text ?? null,
     total:
       Number((item as { total?: number }).total ?? 0) ||
       Number(

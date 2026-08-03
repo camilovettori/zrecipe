@@ -1,5 +1,186 @@
 import { expect, test } from 'playwright/test'
-import { resolveInvoiceIngredientPricing, WEIGHT_VOLUME_IN_DESCRIPTION } from '../src/lib/invoices'
+import {
+  resolveHendersonQuantity,
+  resolveInvoiceQuantityEvidence,
+  resolveInvoiceIngredientPricing,
+  WEIGHT_VOLUME_IN_DESCRIPTION,
+} from '../src/lib/invoices'
+
+test.describe('Henderson CASES / UNITS extraction', () => {
+  const examples = [
+    {
+      name: 'full case: 12 x 1kg',
+      rawCasesQuantity: 1,
+      rawUnitsQuantity: null,
+      rawSizeText: '12 X 1KG',
+      value: 132,
+      expectedUnit: 'case',
+      expectedPackageSize: 12,
+      expectedPrice: 11,
+    },
+    {
+      name: 'loose unit: 12 x 1kg',
+      rawCasesQuantity: null,
+      rawUnitsQuantity: 1,
+      rawSizeText: '12 X 1KG',
+      value: 11.09,
+      expectedUnit: 'unit',
+      expectedPackageSize: 1,
+      expectedPrice: 11.09,
+    },
+    {
+      name: 'loose unit: 4 x 2.5kg',
+      rawCasesQuantity: null,
+      rawUnitsQuantity: 1,
+      rawSizeText: '4 X 2.5KG',
+      value: 18.5,
+      expectedUnit: 'unit',
+      expectedPackageSize: 2.5,
+      expectedPrice: 7.4,
+    },
+  ] as const
+
+  for (const example of examples) {
+    test(example.name, () => {
+      const patch = resolveHendersonQuantity(example)
+      expect(patch.unit).toBe(example.expectedUnit)
+      expect(patch.package_size).toBe(example.expectedPackageSize)
+      expect(patch.package_unit).toBe('kg')
+
+      const pricing = resolveInvoiceIngredientPricing({
+        unitPrice: example.value,
+        invoiceUnit: patch.unit,
+        packageSize: patch.package_size,
+        packageUnit: patch.package_unit,
+        targetUnit: 'kg',
+      })
+      expect(pricing.normalizedPrice).toBe(example.expectedPrice)
+    })
+  }
+
+  test('both columns present remains Needs review', () => {
+    const patch = resolveHendersonQuantity({
+      rawCasesQuantity: 1,
+      rawUnitsQuantity: 1,
+      rawSizeText: '12 X 1KG',
+    })
+
+    expect(patch.quantity_source).toBe('MULTIPLE')
+    expect(patch.needs_verification).toBe(true)
+    expect(patch.unit).toBeUndefined()
+  })
+
+  test('parses litre and count-only Henderson pack formats', () => {
+    const litres = resolveHendersonQuantity({
+      rawCasesQuantity: 0,
+      rawUnitsQuantity: 1,
+      rawSizeText: '2 X 2LTR',
+    })
+    const countOnly = resolveHendersonQuantity({
+      rawCasesQuantity: 1,
+      rawUnitsQuantity: null,
+      rawSizeText: '17 X 6',
+    })
+
+    expect(litres.raw_cases_quantity).toBe(0)
+    expect(litres.package_size).toBe(2)
+    expect(litres.package_unit).toBe('L')
+    expect(countOnly.package_size).toBe(102)
+    expect(countOnly.package_unit).toBe('unit')
+  })
+})
+
+test.describe('generic invoice quantity source preservation', () => {
+  const resolvedExamples = [
+    {
+      name: 'CASES uses the complete case size',
+      columns: { CASES: 1, UNITS: null },
+      source: 'CASES',
+      size: '12 X 1KG',
+      total: 132,
+      expectedUnit: 'case',
+      expectedSize: 12,
+      expectedPrice: 11,
+    },
+    {
+      name: 'UNITS uses only the individual unit size',
+      columns: { CASES: null, UNITS: 1 },
+      source: 'UNITS',
+      size: '12 X 1KG',
+      total: 11.09,
+      expectedUnit: 'unit',
+      expectedSize: 1,
+      expectedPrice: 11.09,
+    },
+    {
+      name: 'UNITS preserves 4 x 2.5kg without applying four',
+      columns: { UNITS: 1 },
+      source: 'UNITS',
+      size: '4 X 2.5KG',
+      total: 18.5,
+      expectedUnit: 'unit',
+      expectedSize: 2.5,
+      expectedPrice: 7.4,
+    },
+    {
+      name: 'CASES applies 4 x 2.5kg to the full case',
+      columns: { CASES: 1 },
+      source: 'CASES',
+      size: '4 X 2.5KG',
+      total: 74,
+      expectedUnit: 'case',
+      expectedSize: 10,
+      expectedPrice: 7.4,
+    },
+  ] as const
+
+  for (const example of resolvedExamples) {
+    test(example.name, () => {
+      const patch = resolveInvoiceQuantityEvidence({
+        rawQuantityColumns: example.columns,
+        quantitySource: example.source,
+        rawSizeText: example.size,
+      })
+      const pricing = resolveInvoiceIngredientPricing({
+        unitPrice: 999,
+        lineTotal: example.total,
+        quantity: patch.quantity,
+        invoiceUnit: patch.unit,
+        packageSize: patch.package_size,
+        packageUnit: patch.package_unit,
+        targetUnit: 'kg',
+      })
+
+      expect(patch.unit).toBe(example.expectedUnit)
+      expect(patch.package_size).toBe(example.expectedSize)
+      expect(pricing.normalizedPrice).toBe(example.expectedPrice)
+    })
+  }
+
+  test('generic QTY with a multiplier is not silently treated as a case', () => {
+    const patch = resolveInvoiceQuantityEvidence({
+      rawQuantityColumns: { QTY: 1 },
+      quantitySource: 'QTY',
+      rawSizeText: '12 X 1KG',
+    })
+
+    expect(patch.quantity_source).toBe('QTY')
+    expect(patch.needs_verification).toBe(true)
+    expect(patch.package_size).toBeNull()
+  })
+
+  test('multiple populated columns preserve both and require review', () => {
+    const patch = resolveInvoiceQuantityEvidence({
+      rawQuantityColumns: { CASES: 1, UNITS: 2 },
+      quantitySource: 'CASES',
+      rawSizeText: '12 X 1KG',
+    })
+
+    expect(patch.raw_quantity_columns).toEqual({ CASES: 1, UNITS: 2 })
+    expect(patch.quantity_source).toBe('MULTIPLE')
+    expect(patch.needs_verification).toBe(true)
+  })
+})
 
 test.describe('invoice ingredient price normalization', () => {
   test('normalizes package and direct-unit prices without changing families', () => {

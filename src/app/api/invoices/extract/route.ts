@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import Papa from 'papaparse'
-import { autoDetectCsvColumns } from '@/lib/invoices'
+import { autoDetectCsvColumns, resolveInvoiceQuantityEvidence } from '@/lib/invoices'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
 import { getEffectiveSubscriptionStatus } from '@/lib/tenant'
@@ -52,17 +52,32 @@ Return ONLY valid JSON, no markdown, no backticks, no explanation. The JSON must
       "description": "string",
       "product_code": "string or null",
       "brand": "string or null",
+      "original_description": "string - exact original description",
       "quantity": number,
       "unit": "string",
       "package_size": number or null,
       "package_unit": "string or null",
       "unit_price": number,
-      "total": number
+      "total": number,
+      "raw_cases_quantity": "number or null - literal value from CASES column",
+      "raw_units_quantity": "number or null - literal value from UNITS column",
+      "raw_quantity_columns": { "EXACT COLUMN HEADER": "number or null" },
+      "quantity_source": "CASES, UNITS, QTY, EACH, KG, LTR, PACKS, OUTERS, ORDERED, DELIVERED, or UNKNOWN",
+      "raw_size_text": "string or null - literal pack format, e.g. 12 X 1KG",
+      "supplier_raw_text": "string or null - exact source row text"
     }
   ]
 }
 
 FIELD RULES:
+
+RAW INVOICE TRUTH (do this before any normalization):
+- Preserve every detected quantity column and its literal value in raw_quantity_columns.
+- quantity_source must be the exact header containing the purchased quantity, normalized only to one of the allowed labels above.
+- Never infer CASES from size text or from a pack multiplier.
+- Keep raw_size_text, unit_price, and total exactly as printed.
+- If the source column cannot be identified confidently, use quantity_source="UNKNOWN" and append " (verify)" to the description.
+- A format such as "12 X 1KG" becomes 12kg only when quantity_source is CASES/OUTERS. For UNITS/EACH it represents a 1kg individual unit.
 
 SUPPLIER NAME FALLBACK RULES:
 If the supplier name is not obvious from a header line, look for it in:
@@ -228,10 +243,16 @@ CORRECT: description="COCONUT OIL PURE KTC 500ML" (literal), quantity=2, unit="c
 
 CASE + UNIT SPLIT COLUMNS (Henderson-style invoices):
 
+PRESERVE SOURCE EVIDENCE:
+- Copy the literal CASES column to raw_cases_quantity (null only when blank).
+- Copy the literal UNITS column to raw_units_quantity (null only when blank).
+- Copy the printed size/pack format to raw_size_text (for example "12 X 1KG").
+- Never infer one quantity column from the other.
+- Never default an unclear quantity source to "case".
+
 Some invoices split the quantity across TWO columns: "Case" and
-"Unit". The actual quantity purchased is Case × items_per_case + Unit
-— but for costing purposes, the PURCHASE UNIT is different depending
-on which was ordered.
+"Unit". Keep each column as documentary evidence. Do not combine them;
+the costing interpretation depends on which source column was populated.
 
 Rule:
 - If Case > 0 AND Unit = 0: this is a full-case purchase.
@@ -243,8 +264,8 @@ Rule:
   → unit = the individual purchase unit (bottle, bag, etc.)
   → package_size = individual pack size only
 - If both Case > 0 AND Unit > 0: multi-part purchase, uncommon.
-  Treat as two logical line items OR sum as quantity = (Case ×
-  items_per_case) + Unit with unit = individual unit.
+  Preserve both raw values, append " (verify)" to the description, and do
+  not silently combine the quantities.
 
 MULTI-PACK DESCRIPTION NOTATION:
 
@@ -270,8 +291,8 @@ EXAMPLE — Henderson-style invoice line:
 CORRECT extraction:
   - description: "Water Still 6x2L" (literal — do not strip the pack notation)
   - quantity: 1        (from Unit column)
-  - unit: "pack"       (a single 6-bottle pack)
-  - package_size: 12   (6 bottles × 2L = 12L total)
+  - unit: "unit"       (one loose unit from the case format)
+  - package_size: 2    (individual unit size; do NOT multiply by 6)
   - package_unit: "L"
   - unit_price: 8.00
   - total: 8.00
@@ -280,6 +301,14 @@ WRONG extraction (this is the bug we're fixing):
   - This would make quantity × unit_price = 6 × 8 = 48, but total is 8 — the validation should catch this
 
 UNCERTAINTY RULES (very important — reliability over completeness):
+
+HENDERSON OVERRIDE (takes precedence over every earlier multi-pack example):
+- CASES only: package_size = pack count x individual size.
+  Example: CASES=1, UNITS blank, SIZE=12 X 1KG -> case, package_size=12kg.
+- UNITS only: package_size = individual size only. Do NOT multiply by pack count.
+  Example: CASES blank, UNITS=1, SIZE=12 X 1KG -> unit, package_size=1kg.
+- Both CASES and UNITS: preserve both raw fields and append " (verify)".
+- Unknown source: preserve null raw fields and append " (verify)". Never use case by default.
 
 For every field, prefer NULL / empty over a guess. Do NOT invent
 values. Specifically:
@@ -412,19 +441,6 @@ async function resolveTenantSupplier(
   return aliasMatches.length === 1 ? aliasMatches[0] : null
 }
 
-// ── Multi-pack notation detection ────────────────────────────────────────
-// Catches descriptions like "Water 6x2L" or "12 x 500ml" where the AI may
-// have mistaken the pack-contents count for the order quantity.
-function detectMultiPackNotation(description: string): { count: number, size: number, unit: string } | null {
-  const match = description.match(/(\d+)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*(l|ml|g|kg)\b/i)
-  if (!match) return null
-  return {
-    count: Number(match[1]),
-    size: Number(match[2]),
-    unit: match[3].toLowerCase(),
-  }
-}
-
 function validateSupplierFromText(aiSupplierName: string, rawText?: string): string {
   const aiName = aiSupplierName?.trim()
   const rawMatches = rawText ? knownSuppliersIn(rawText) : []
@@ -485,6 +501,7 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage, sourceT
     total?: number | null
     items?: Array<{
       description?: string
+      original_description?: string | null
       product_code?: string | null
       brand?: string | null
       quantity?: number
@@ -494,10 +511,23 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage, sourceT
       unit_price?: number | null
       total?: number | null
       needs_verification?: boolean
+      raw_cases_quantity?: number | null
+      raw_units_quantity?: number | null
+      raw_size_text?: string | null
+      raw_quantity_columns?: Record<string, number | null>
+      supplier_raw_text?: string | null
+      extracted_case_pack_count?: number | null
+      extracted_unit_size?: number | null
+      extracted_unit_measure?: string | null
+      quantity_source?: string | null
+      normalized_price_confidence?: 'high' | 'review'
+      needs_review_reason?: string | null
     }>
   }
 
-  // Validate and auto-correct item prices before returning.
+  const supplierName = validateSupplierFromText(parsed.supplier_name ?? '', sourceText)
+  // Validate extracted evidence before returning. Documentary price/total
+  // values are never rewritten here.
   // Skip entirely when the AI explicitly signaled uncertainty (null
   // unit_price/total, per UNCERTAINTY RULES) — forcing a computed value
   // here would silently reintroduce the very fabrication we're avoiding.
@@ -510,8 +540,19 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage, sourceT
         item.needs_verification = true
         item.description = item.description.replace(VERIFY_SUFFIX, '').trim()
       } else {
-        item.needs_verification = false
+        item.needs_verification = item.needs_verification ?? false
       }
+
+      const rawQuantityColumns = item.raw_quantity_columns ?? {
+        cases: item.raw_cases_quantity ?? null,
+        units: item.raw_units_quantity ?? null,
+      }
+      Object.assign(item, resolveInvoiceQuantityEvidence({
+          rawQuantityColumns,
+          quantitySource: item.quantity_source,
+          rawSizeText: item.raw_size_text,
+          needsVerification: item.needs_verification,
+      }))
 
       if (item.unit_price == null || item.total == null) continue
 
@@ -520,31 +561,11 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage, sourceT
       const total = Number(item.total ?? 0)
       const calculatedTotal = qty * price
 
-      // Fix zero totals when price and quantity are both valid
-      if (total === 0 && price > 0) {
-        item.total = Number((calculatedTotal).toFixed(2))
-        console.warn(`[extract] Fixed zero total for "${item.description}": ${item.total}`)
-      }
-
-      // If qty × price is off from the reported total by >10%, correct unit_price from total/qty
-      const reportedTotal = Number(item.total ?? 0)
-      if (reportedTotal > 0 && Math.abs(calculatedTotal - reportedTotal) / reportedTotal > 0.1) {
-        const corrected = Number((reportedTotal / qty).toFixed(4))
-        console.warn(
-          `[extract] Price mismatch for "${item.description}": ` +
-          `${qty} × ${price} = ${calculatedTotal.toFixed(2)}, total = ${reportedTotal} → correcting unit_price to ${corrected}`
-        )
-        item.unit_price = corrected
-      }
-
-      // Detect multi-pack notation ("6x2L") misread as order quantity
-      const pack = detectMultiPackNotation(item.description ?? '')
-      if (pack && Math.abs(qty - pack.count) < 0.01 && reportedTotal > 0 && Math.abs(calculatedTotal - reportedTotal) / reportedTotal > 0.1) {
-        console.warn(`[extract] Suspected multi-pack misparse for "${item.description}": qty=${qty} matches pack count. Correcting to qty=1.`)
-        item.quantity = 1
-        item.package_size = pack.count * pack.size
-        item.package_unit = pack.unit
-        item.unit_price = Number((reportedTotal / 1).toFixed(4))
+      // Price/value columns are documentary evidence for every supplier.
+      // Arithmetic disagreement creates review work; it never rewrites them.
+      if (total <= 0 || (total > 0 && Math.abs(calculatedTotal - total) / total > 0.1)) {
+        item.needs_verification = true
+        item.needs_review_reason ??= 'Invoice quantity, price, and line total do not reconcile. Confirm the source columns.'
       }
     }
 
@@ -558,7 +579,7 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage, sourceT
 
   return {
     usage,
-    supplier_name:   validateSupplierFromText(parsed.supplier_name ?? '', sourceText),
+    supplier_name:   supplierName,
     invoice_number:  parsed.invoice_number ?? null,
     invoice_date:    normaliseDateForInput(parsed.invoice_date),
     vat_rate:        parsed.vat_rate ?? null,
@@ -567,6 +588,7 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage, sourceT
     total_amount:    parsed.total ?? null,
     items: (parsed.items ?? []).map((item) => ({
       description:  item.description ?? '',
+      original_description: item.original_description?.trim() || item.description || '',
       product_code: item.product_code?.trim() || null,
       brand:        item.brand?.trim() || null,
       quantity:     Number(item.quantity ?? 1) || 1,
@@ -576,6 +598,17 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage, sourceT
       unit_price:   item.unit_price == null ? null : (Number(item.unit_price) || 0),
       total:        item.total == null ? null : (Number(item.total) || 0),
       needs_verification: item.needs_verification ?? false,
+      raw_cases_quantity: item.raw_cases_quantity ?? null,
+      raw_units_quantity: item.raw_units_quantity ?? null,
+      raw_size_text: item.raw_size_text?.trim() || null,
+      raw_quantity_columns: item.raw_quantity_columns ?? {},
+      supplier_raw_text: item.supplier_raw_text?.trim() || null,
+      extracted_case_pack_count: item.extracted_case_pack_count ?? null,
+      extracted_unit_size: item.extracted_unit_size ?? null,
+      extracted_unit_measure: item.extracted_unit_measure ?? null,
+      quantity_source: item.quantity_source ?? null,
+      normalized_price_confidence: item.normalized_price_confidence ?? 'review',
+      needs_review_reason: item.needs_review_reason ?? null,
     })),
   }
 }
