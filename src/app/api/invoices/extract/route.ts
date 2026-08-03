@@ -315,6 +315,23 @@ Invoice text:
 
 type ClaudeUsage = { inputTokens: number; outputTokens: number }
 
+const KNOWN_SUPPLIERS: Array<{ patterns: RegExp[]; name: string }> = [
+  {
+    patterns: [/henderson/i, /henderson\s*(wholesale|foodservice)/i, /\bHFL\b/i],
+    name: 'Henderson Foodservice',
+  },
+  { patterns: [/musgrave/i, /musgrave\s*cash/i], name: 'Musgrave' },
+  { patterns: [/sysco\s*ireland/i], name: 'Sysco Ireland' },
+  { patterns: [/pallas\s*foods/i], name: 'Pallas Foods' },
+  { patterns: [/la\s*rousse/i], name: 'La Rousse Foods' },
+  { patterns: [/elliotts/i], name: 'Elliotts' },
+  { patterns: [/bwg\s*foods/i], name: 'BWG Foods' },
+  { patterns: [/keelings/i], name: 'Keelings' },
+  { patterns: [/total\s*produce/i], name: 'Total Produce' },
+  { patterns: [/kerry\s*food/i], name: 'Kerry Foodservice' },
+  { patterns: [/brakes/i], name: 'Brakes Ireland' },
+]
+
 // ── Supplier name salvage ────────────────────────────────────────────────
 // Runs against the ORIGINAL invoice text (not Claude's output) when the AI
 // still returns "Unknown Supplier" — catches letterhead-as-logo invoices
@@ -355,6 +372,32 @@ function detectMultiPackNotation(description: string): { count: number, size: nu
     size: Number(match[2]),
     unit: match[3].toLowerCase(),
   }
+}
+
+function validateSupplierFromText(aiSupplierName: string, rawText?: string): string {
+  const aiName = aiSupplierName?.trim()
+  if (!rawText) return aiName || 'Unknown Supplier'
+
+  const found = KNOWN_SUPPLIERS.filter((supplier) =>
+    supplier.patterns.some((pattern) => pattern.test(rawText))
+  )
+
+  if (found.length === 0) {
+    return aiName && aiName !== 'Unknown Supplier'
+      ? aiName
+      : (inferSupplierFromRaw(rawText) ?? 'Unknown Supplier')
+  }
+
+  const aiMatch = found.find((supplier) =>
+    supplier.name.toLowerCase() === aiName?.toLowerCase() ||
+    supplier.patterns.some((pattern) => pattern.test(aiName ?? ''))
+  )
+  if (aiMatch) return aiMatch.name
+
+  console.warn(
+    `[supplier-validate] AI returned "${aiName || 'Unknown Supplier'}" but raw text contains "${found[0].name}" - overriding`
+  )
+  return found[0].name
 }
 
 // ── "(verify)" suffix → needs_verification flag ─────────────────────────────
@@ -453,9 +496,7 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage, sourceT
 
   return {
     usage,
-    supplier_name:   parsed.supplier_name && parsed.supplier_name !== 'Unknown Supplier'
-      ? parsed.supplier_name
-      : (inferSupplierFromRaw(sourceText) ?? 'Unknown Supplier'),
+    supplier_name:   validateSupplierFromText(parsed.supplier_name ?? '', sourceText),
     invoice_number:  parsed.invoice_number ?? null,
     invoice_date:    normaliseDateForInput(parsed.invoice_date),
     vat_rate:        parsed.vat_rate ?? null,

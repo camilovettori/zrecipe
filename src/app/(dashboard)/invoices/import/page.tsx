@@ -1007,7 +1007,11 @@ export default function ImportInvoicesPage() {
                         height: `${100 / zoom}%`,
                       }}
                     >
-                      <iframe src={filePreview} className="h-full w-full" title="PDF preview" />
+                      <iframe
+                        src={`${filePreview}#toolbar=1&navpanes=0&view=FitH`}
+                        className="block h-full w-full border-0"
+                        title="PDF preview"
+                      />
                     </div>
                   ) : fileKind === 'image' && filePreview ? (
                     // Blob preview of a locally-selected file — next/image optimisation
@@ -1033,7 +1037,7 @@ export default function ImportInvoicesPage() {
           </div>
 
           {/* ── Review form ───────────────────────────────────────────────── */}
-          <div className="space-y-5 lg:col-span-7">
+          <div className="min-w-0 space-y-5 overflow-visible lg:col-span-7">
 
           {/* ── CSV column mapping (only for CSV uploads) ────────────────── */}
           {csvData && (
