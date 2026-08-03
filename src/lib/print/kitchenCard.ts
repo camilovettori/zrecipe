@@ -93,7 +93,7 @@ function collageLayout(count: number): { cols: number; rows: number; spanFirstRo
   switch (count) {
     case 1: return { cols: 1, rows: 1 }
     case 2: return { cols: 1, rows: 2 }
-    case 3: return { cols: 2, rows: 2, spanFirstRow: true } // first image spans both rows (tall, col 1); 2 & 3 stack in col 2
+    case 3: return { cols: 1, rows: 3 } // all 3 stacked vertically, each full-width landscape
     case 4: return { cols: 2, rows: 2 }
     case 5: return { cols: 2, rows: 3, spanLastCol: true } // last image spans both columns (full-width bottom row)
     case 6: return { cols: 2, rows: 3 }

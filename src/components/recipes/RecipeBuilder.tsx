@@ -1902,7 +1902,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                 onDragLeave={() => setIsDragging(false)}
                 onDropCapture={() => setIsDragging(false)}
                 className={cn(
-                  'relative flex h-56 flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed transition lg:min-h-[240px] lg:flex-1',
+                  'relative flex h-64 flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed transition lg:h-72 lg:min-h-[240px] lg:flex-1',
                   isDragging ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-slate-50 hover:border-emerald-300 hover:bg-emerald-50/40'
                 )}
               >
