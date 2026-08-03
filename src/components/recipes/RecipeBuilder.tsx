@@ -66,6 +66,7 @@ import { YieldFactorModal } from './YieldFactorModal'
 import { findYieldFactor } from '@/lib/data/yield-factors'
 import { compressImage } from '@/lib/utils/image-compress'
 import { isConvertible } from '@/lib/utils/unit-converter'
+import { normalizeBrand } from '@/lib/utils/normalizeBrand'
 import CostBreakdown from './CostBreakdown'
 import LaborConfigModal from './LaborConfigModal'
 import NewIngredientModal, { type NewIngredientFormData } from './NewIngredientModal'
@@ -1227,6 +1228,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
           tenant_id: tenantId,
           price: formData.pricePerUnit,
           unit: formData.unit,
+          brand: normalizeBrand(formData.brand),
           invoice_id: null,
           recorded_at: new Date().toISOString().slice(0, 10),
         })

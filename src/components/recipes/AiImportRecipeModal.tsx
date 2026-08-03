@@ -560,6 +560,10 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
       const tid = tenantId ?? (await resolveTenantId())
       const importedIngredients: ImportedRecipePayload['ingredients'] = []
       let createdCount = 0
+      // Rows sharing the same tokenKey (e.g. "Butter" in two sections of the
+      // recipe) must reuse the ingredient created earlier in THIS save,
+      // instead of each independently inserting a duplicate.
+      const createdDuringSave = new Map<string, { kind: 'ingredient'; id: string; name: string; current_price: number | null; price_unit: string | null }>()
 
       for (const row of rows) {
         if (row.match?.kind === 'sub-recipe') {
@@ -582,30 +586,38 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
         let ingredient = row.match?.kind === 'ingredient' ? row.match : null
 
         if (!ingredient) {
-          const { data, error: insertError } = await supabase
-            .from('ingredients')
-            .insert({
-              tenant_id: tid,
-              name: row.name.trim(),
-              category: null,
-              current_price: null,
-              price_unit: null,
-              package_size: null,
-              package_unit: null,
-            })
-            .select('id, name, current_price, price_unit')
-            .single()
+          const key = tokenKey(row.name)
+          const existing = createdDuringSave.get(key)
 
-          if (insertError) throw insertError
-          const created = data as { id: string; name: string; current_price: number | null; price_unit: string | null }
-          ingredient = {
-            kind: 'ingredient',
-            id: created.id,
-            name: created.name,
-            current_price: created.current_price,
-            price_unit: created.price_unit,
+          if (existing) {
+            ingredient = existing
+          } else {
+            const { data, error: insertError } = await supabase
+              .from('ingredients')
+              .insert({
+                tenant_id: tid,
+                name: row.name.trim(),
+                category: null,
+                current_price: null,
+                price_unit: normalizeUnit(row.unit) || null,
+                package_size: null,
+                package_unit: null,
+              })
+              .select('id, name, current_price, price_unit')
+              .single()
+
+            if (insertError) throw insertError
+            const created = data as { id: string; name: string; current_price: number | null; price_unit: string | null }
+            ingredient = {
+              kind: 'ingredient',
+              id: created.id,
+              name: created.name,
+              current_price: created.current_price,
+              price_unit: created.price_unit,
+            }
+            createdCount += 1
+            createdDuringSave.set(key, ingredient)
           }
-          createdCount += 1
         }
 
         importedIngredients.push({

@@ -43,6 +43,8 @@ export type GroupOccurrence = {
   total: number
   quantity: number
   unit: string
+  packageSize: number | null
+  packageUnit: string | null
   skip: boolean
 }
 
@@ -54,22 +56,24 @@ export type ConsolidatedGroup = {
   packageUnit: string | null
   category: string
   ingredientMatch: IngredientMatch
+  supplierId: string | null
   skip: boolean
   occurrences: GroupOccurrence[]
 }
 
-function buildInitialGroups(
+export function buildInitialGroups(
   drafts: BulkInvoiceDraft[],
   ingredients: IngredientLookup[]
 ): ConsolidatedGroup[] {
   const groups: ConsolidatedGroup[] = []
-  const groupByNormalizedName = new Map<string, ConsolidatedGroup>()
+  const groupByKey = new Map<string, ConsolidatedGroup>()
 
   for (const draft of drafts) {
     for (const item of draft.items) {
       if (!item.description.trim()) continue
       const normalized = normalizeText(item.description)
-      let group = groupByNormalizedName.get(normalized)
+      const key = `${draft.meta.supplierId ?? ''}::${normalized}`
+      let group = groupByKey.get(key)
 
       if (!group) {
         const best = ingredients
@@ -87,11 +91,12 @@ function buildInitialGroups(
           ingredientMatch: best
             ? { type: 'existing', id: best.id, name: best.name }
             : { type: 'create', name: item.description.trim() },
+          supplierId: draft.meta.supplierId,
           skip: false,
           occurrences: [],
         }
         groups.push(group)
-        groupByNormalizedName.set(normalized, group)
+        groupByKey.set(key, group)
       }
 
       group.occurrences.push({
@@ -104,6 +109,8 @@ function buildInitialGroups(
         total: item.total,
         quantity: item.quantity,
         unit: item.unit,
+        packageSize: item.packageSize ?? null,
+        packageUnit: item.packageUnit ?? null,
         skip: false,
       })
     }
@@ -181,6 +188,7 @@ export default function BulkInvoiceReview({
             packageUnit: null,
             category: 'Other',
             ingredientMatch: { type: 'create', name: occ.fileName.replace(/\.[^.]+$/, '') },
+            supplierId: fromGroup.supplierId,
             skip: false,
             occurrences: [occ],
           },

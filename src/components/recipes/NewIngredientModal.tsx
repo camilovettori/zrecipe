@@ -6,6 +6,8 @@ import { AlertTriangle, Check, Loader2, Pencil, X } from 'lucide-react'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 import { useIngredientCategories } from '@/hooks/useIngredientCategories'
 import { useSuppliers } from '@/hooks/useSuppliers'
+import { createClient } from '@/lib/supabase/client'
+import { resolveTenantId } from '@/hooks/useTenant'
 import {
   calculateNormalizedIngredientPrice,
   buildCostExamples,
@@ -190,6 +192,23 @@ export default function NewIngredientModal({
     setSupplierError(null)
 
     if (!trimmedName || !pricingValid || parsedRecipeQuantity == null) return
+
+    const supabase = createClient()
+    const tenantId = await resolveTenantId()
+    const { data: existing } = await supabase
+      .from('ingredients')
+      .select('id, name')
+      .eq('tenant_id', tenantId)
+      .ilike('name', trimmedName)
+      .limit(1)
+      .maybeSingle()
+
+    if (existing) {
+      const confirmed = window.confirm(
+        `An ingredient named "${existing.name}" already exists. Create a duplicate anyway?`
+      )
+      if (!confirmed) return
+    }
 
     const trimmedSupplierQuery = supplierQuery.trim()
     let resolvedSupplierId: string | null = supplierId

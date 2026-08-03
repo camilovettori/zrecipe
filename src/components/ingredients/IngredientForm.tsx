@@ -25,6 +25,7 @@ import {
   hasMeaningfulPriceChange,
   type IngredientPricingResult,
 } from '@/lib/utils/ingredient-pricing'
+import { normalizeBrand } from '@/lib/utils/normalizeBrand'
 
 export const UNITS = [
   'kg',
@@ -432,6 +433,7 @@ export default function IngredientForm({
                   tenant_id: tenantId,
                   price: payload.current_price,
                   unit: data.base_unit,
+                  brand: normalizeBrand(data.brand),
                   recorded_at: new Date().toISOString().slice(0, 10),
                 })
               } catch {
@@ -467,6 +469,7 @@ export default function IngredientForm({
               tenant_id: tenantId,
               price: payload.current_price,
               unit: data.base_unit,
+              brand: normalizeBrand(data.brand),
               recorded_at: new Date().toISOString().slice(0, 10),
             })
           } catch {

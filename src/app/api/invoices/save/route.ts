@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { normalizeText, resolveInvoiceIngredientPricing } from '@/lib/invoices'
+import { normalizeMemoryKey } from '@/lib/utils/normalizeMemoryKey'
 import {
   createIngredientAllergenRows,
   normalizeIngredientAllergenSelection,
@@ -309,7 +310,7 @@ export async function POST(request: NextRequest) {
         .from('suppliers')
         .select('id')
         .eq('tenant_id', tenantId)
-        .eq('name', normalizedSupplierName)
+        .ilike('name', normalizedSupplierName)
         .limit(1)
         .maybeSingle()
       const existingSupplier = existingSupplierData as { id: string } | null
@@ -323,27 +324,61 @@ export async function POST(request: NextRequest) {
     }
 
     if (!supplierId) {
-      const supplierCreatePayload = {
-        tenant_id: tenantId,
-        name: normalizedSupplierName,
-        notes: null,
-      }
-      const { data: createdSupplierData, error: createSupplierError } = await admin
+      // Re-check for a case-variant match right before creating — guards the
+      // race between the lookup above and here, and covers the supplierMatch
+      // 'create' path which skipped the lookup entirely.
+      const { data: recheckSupplierData } = await admin
         .from('suppliers')
-        .insert(supplierCreatePayload)
-        .select('id, tenant_id, name')
-        .single()
-      const createdSupplier = createdSupplierData as { id: string } | null
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .ilike('name', normalizedSupplierName)
+        .limit(1)
+        .maybeSingle()
+      const recheckSupplier = recheckSupplierData as { id: string } | null
 
-      if (createSupplierError || !createdSupplier) {
-        console.error('[/api/invoices/save] supplier create failed:', createSupplierError)
+      if (recheckSupplier?.id) {
+        supplierId = recheckSupplier.id
+      } else {
+        const supplierCreatePayload = {
+          tenant_id: tenantId,
+          name: normalizedSupplierName,
+          notes: null,
+        }
+        const { data: createdSupplierData, error: createSupplierError } = await admin
+          .from('suppliers')
+          .insert(supplierCreatePayload)
+          .select('id, tenant_id, name')
+          .single()
+        const createdSupplier = createdSupplierData as { id: string } | null
+
+        if (createSupplierError || !createdSupplier) {
+          console.error('[/api/invoices/save] supplier create failed:', createSupplierError)
+          return NextResponse.json(
+            { error: createSupplierError?.message ?? 'Unable to create supplier' },
+            { status: 500 }
+          )
+        }
+
+        supplierId = createdSupplier.id
+      }
+    }
+
+    if (invoiceNumber && supplierId) {
+      const { data: existing } = await admin
+        .from('invoices')
+        .select('id, invoice_number')
+        .eq('tenant_id', tenantId)
+        .eq('supplier_id', supplierId)
+        .eq('invoice_number', invoiceNumber)
+        .neq('id', invoiceId)
+        .maybeSingle()
+
+      if (existing) {
         return NextResponse.json(
-          { error: createSupplierError?.message ?? 'Unable to create supplier' },
-          { status: 500 }
+          { error: `Invoice ${invoiceNumber} from this supplier already exists. Delete the existing one first or use a different invoice number.` },
+          { status: 409 }
         )
       }
-
-      supplierId = createdSupplier.id
     }
 
     let fileUrl = initialFileUrl
@@ -702,7 +737,7 @@ export async function POST(request: NextRequest) {
           const finalIngredientId = createdItem?.ingredient_id ?? null
           if (!original || !finalIngredientId) continue
 
-          const key = original.toLowerCase()
+          const key = normalizeMemoryKey(original)
           const { error: memoryError } = await admin
             .from('invoice_item_memory')
             .upsert(

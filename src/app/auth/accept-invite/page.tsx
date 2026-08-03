@@ -21,25 +21,19 @@ export default function AcceptInvitePage() {
         return
       }
 
-      const tenantId = user.user_metadata?.tenant_id as string | undefined
-      const role = (user.user_metadata?.role as string | undefined) ?? 'staff'
-
-      if (tenantId) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (supabase.from('tenant_users') as any).upsert(
-          { tenant_id: tenantId, user_id: user.id, role },
-          { onConflict: 'tenant_id,user_id' }
-        )
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (supabase.from('tenant_invites') as any)
-          .update({ status: 'accepted', accepted_at: new Date().toISOString() })
-          .eq('tenant_id', tenantId)
-          .eq('email', user.email!)
+      // The invite is looked up and applied server-side against the
+      // tenant_invites table — this page must never write tenant_id/role
+      // into tenant_users itself, since user_metadata is self-writable and
+      // not a valid authorization source.
+      const res = await fetch('/api/team/accept', { method: 'POST' })
+      if (!res.ok) {
+        throw new Error('Something went wrong finishing your account setup.')
       }
+      const data = await res.json() as { redirect?: string }
 
       // Clear tenant cookie so middleware re-checks on next navigation
       document.cookie = 'has-tenant=; max-age=0; path=/'
-      router.push('/')
+      router.push(data.redirect ?? '/')
     }
 
     run().catch((e) => setError(e instanceof Error ? e.message : 'Something went wrong'))

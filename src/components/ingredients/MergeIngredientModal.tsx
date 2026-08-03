@@ -57,6 +57,7 @@ export default function MergeIngredientModal({ open, keeper, onMerged, onClose }
   const [loserAllergens, setLoserAllergens] = useState<IngredientAllergen[]>([])
   const [priceHistoryCount, setPriceHistoryCount] = useState(0)
   const [recipeCount, setRecipeCount] = useState(0)
+  const [supplierCodesCount, setSupplierCodesCount] = useState(0)
   const [countsLoading, setCountsLoading] = useState(false)
 
   const [photoChoice, setPhotoChoice] = useState<'keeper' | 'loser'>('keeper')
@@ -76,6 +77,7 @@ export default function MergeIngredientModal({ open, keeper, onMerged, onClose }
     setLoserAllergens([])
     setPriceHistoryCount(0)
     setRecipeCount(0)
+    setSupplierCodesCount(0)
     setPhotoChoice('keeper')
     setCategoryChoice('keeper')
     setMergeAllergens(true)
@@ -131,7 +133,11 @@ export default function MergeIngredientModal({ open, keeper, onMerged, onClose }
         .from('recipe_ingredients')
         .select('recipe_id')
         .eq('ingredient_id', loser.id),
-    ]).then(([allergenRes, priceHistRes, recipeIngRes]) => {
+      supabase
+        .from('ingredient_supplier_codes')
+        .select('id', { count: 'exact', head: true })
+        .eq('ingredient_id', loser.id),
+    ]).then(([allergenRes, priceHistRes, recipeIngRes, supplierCodesRes]) => {
       if (!active) return
       setLoserAllergens((allergenRes?.[loser.id] ?? []) as IngredientAllergen[])
       setPriceHistoryCount(priceHistRes.count ?? 0)
@@ -139,6 +145,7 @@ export default function MergeIngredientModal({ open, keeper, onMerged, onClose }
         (recipeIngRes.data ?? []).map((r: { recipe_id: string }) => r.recipe_id)
       )
       setRecipeCount(distinctRecipeIds.size)
+      setSupplierCodesCount(supplierCodesRes.count ?? 0)
       setCountsLoading(false)
     })
 
@@ -387,6 +394,11 @@ export default function MergeIngredientModal({ open, keeper, onMerged, onClose }
                         {recipeCount} recipe{recipeCount === 1 ? '' : 's'} using &ldquo;{loser.name}&rdquo; will now use
                         &ldquo;{keeper.name}&rdquo;
                       </li>
+                      {supplierCodesCount > 0 && (
+                        <li>
+                          {supplierCodesCount} supplier code{supplierCodesCount === 1 ? '' : 's'} will be transferred
+                        </li>
+                      )}
                       <li>&ldquo;{loser.name}&rdquo; will be deleted</li>
                     </ul>
                   )}

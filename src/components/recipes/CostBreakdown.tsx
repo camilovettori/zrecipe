@@ -13,6 +13,18 @@ function clampMargin(v: number) {
   return Math.max(0, Math.min(95, v))
 }
 
+export function getMarginBand(rawMargin: number): {
+  band: 'loss' | 'low' | 'good' | 'excellent'
+  label: string
+  colorClass: string
+} {
+  const m = Number.isFinite(rawMargin) ? rawMargin : 0
+  if (m < 0) return { band: 'loss', label: 'Loss', colorClass: 'text-red-500' }
+  if (m < 15) return { band: 'low', label: 'Low', colorClass: 'text-orange-500' }
+  if (m < 30) return { band: 'good', label: 'Good', colorClass: 'text-amber-500' }
+  return { band: 'excellent', label: 'Excellent', colorClass: 'text-emerald-600' }
+}
+
 function sellingPriceFromMargin(costPerUnit: number, margin: number) {
   if (costPerUnit <= 0) return 0
   const d = 1 - margin / 100
@@ -110,9 +122,15 @@ export default function CostBreakdown({
   const [vatEnabled, setVatEnabled] = useState(true)
   const [vatRate, setVatRate] = useState(13.5)
 
-  const activeMargin = lastEdited === 'margin' && targetMargin != null
-    ? clampMargin(targetMargin)
-    : clampMargin(cost.marginPercent)
+  // rawMargin can go negative (selling below cost) and must be shown as-is.
+  // The slider/bar can't represent a negative target, so it gets a clamped
+  // view of the same value.
+  const rawMarginSource = lastEdited === 'margin' && targetMargin != null
+    ? targetMargin
+    : cost.marginPercent
+  const rawMargin = Number.isFinite(rawMarginSource) ? rawMarginSource : 0
+  const sliderMargin = clampMargin(rawMargin)
+  const marginBand = getMarginBand(rawMargin)
 
   useEffect(() => {
     if (lastEdited !== 'margin' || targetMargin == null || cost.costPerUnit <= 0) return

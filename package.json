@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "node --import tsx --test src/lib/utils/normalizeBrand.test.ts tests/priceHistoryBrandFix.test.ts tests/bulkInvoiceReviewGrouping.test.ts tests/aiImportRecipeDedupe.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.0",
@@ -52,6 +53,7 @@
     "playwright": "^1.60.0",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
+    "tsx": "^4.23.5",
     "typescript": "^5"
   }
 }

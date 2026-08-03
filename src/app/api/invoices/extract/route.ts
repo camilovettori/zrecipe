@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import Papa from 'papaparse'
 import { autoDetectCsvColumns, resolveInvoiceQuantityEvidence } from '@/lib/invoices'
+import { normalizeMemoryKey } from '@/lib/utils/normalizeMemoryKey'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
 import { getEffectiveSubscriptionStatus } from '@/lib/tenant'
@@ -804,7 +805,7 @@ async function applyItemMemory<
         }
       }
 
-      const key = (item.description ?? '').toLowerCase().trim()
+      const key = normalizeMemoryKey(item.description ?? '')
       const match = memoryMap.get(key)
       if (!match) return item
 
