@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { AlertTriangle, ArrowDownRight, ArrowLeft, ArrowUpRight, Calculator, Camera, Check, ChefHat, Loader2, Merge, Minus, Repeat, Save, Trash2, X, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, ArrowDownRight, ArrowLeft, ArrowUpRight, Calculator, Camera, Check, ChefHat, Loader2, Merge, Minus, Repeat, Save, Tag, Trash2, X, type LucideIcon } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
+import { resolveTenantId } from '@/hooks/useTenant'
+import { useSuppliers, type SupplierRecord } from '@/hooks/useSuppliers'
 import IngredientForm, {
   type AutoSaveStatus,
   type IngredientCostPreview,
@@ -65,6 +67,32 @@ type RecipeIngredientUsageRow = {
         category: string | null
       }[]
     | null
+}
+
+type SupplierCode = {
+  id: string
+  supplier_id: string
+  product_code: string
+  supplier_name: string
+}
+
+type SupplierCodeRow = {
+  id: string
+  supplier_id: string
+  product_code: string
+  suppliers: { name: string } | { name: string }[] | null
+}
+
+function normalizeSupplierCodes(rows: SupplierCodeRow[] | null): SupplierCode[] {
+  return (rows ?? []).map((row) => {
+    const supplier = Array.isArray(row.suppliers) ? row.suppliers[0] : row.suppliers
+    return {
+      id: row.id,
+      supplier_id: row.supplier_id,
+      product_code: row.product_code,
+      supplier_name: supplier?.name ?? 'Unknown supplier',
+    }
+  })
 }
 
 function resolveHistorySupplierName(point: PricePoint | null) {
@@ -182,6 +210,60 @@ function IconButtonWithTooltip({
   )
 }
 
+function SupplierCodeAutocomplete({
+  suppliers,
+  selectedId,
+  onSelect,
+}: {
+  suppliers: SupplierRecord[]
+  selectedId: string | null
+  onSelect: (id: string, name: string) => void
+}) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const selectedName = suppliers.find((s) => s.id === selectedId)?.name ?? ''
+  const q = query.trim().toLowerCase()
+  const filtered = suppliers.filter((s) => !q || s.name.toLowerCase().includes(q)).slice(0, 6)
+
+  return (
+    <div ref={rootRef} className="relative">
+      <input
+        type="text"
+        value={open ? query : selectedName}
+        onFocus={() => { setOpen(true); setQuery('') }}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search suppliers…"
+        className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-600 dark:bg-slate-800"
+      />
+      {open && filtered.length > 0 && (
+        <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-48 overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
+          {filtered.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { onSelect(s.id, s.name); setOpen(false); setQuery('') }}
+              className="block w-full truncate px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700"
+            >
+              {s.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function IngredientDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
@@ -207,6 +289,12 @@ export default function IngredientDetailPage() {
   const [formCanSave, setFormCanSave] = useState(false)
   const [costPreview, setCostPreview] = useState<IngredientCostPreview | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [supplierCodes, setSupplierCodes] = useState<SupplierCode[]>([])
+  const [showAddCode, setShowAddCode] = useState(false)
+  const [newCodeSupplierId, setNewCodeSupplierId] = useState<string | null>(null)
+  const [newCodeValue, setNewCodeValue] = useState('')
+  const [savingCode, setSavingCode] = useState(false)
+  const { suppliers: allSuppliers } = useSuppliers()
 
   type IngredientDbRow = IngredientRow & { price_unit?: string | null }
 
@@ -250,7 +338,12 @@ export default function IngredientDetailPage() {
         .eq('ingredient_id', id)
         .order('recorded_at', { ascending: true }),
       fetch(`/api/ingredients/allergens?id=${id}`).then((r) => r.json()).catch(() => ({})),
-    ]).then(([ingRes, histRes, allergenRes]) => {
+      supabase
+        .from('ingredient_supplier_codes')
+        .select('id, supplier_id, product_code, suppliers(name)')
+        .eq('ingredient_id', id)
+        .order('created_at', { ascending: true }),
+    ]).then(([ingRes, histRes, allergenRes, codesRes]) => {
       if (ingRes.error) {
         toast.error('Ingredient not found')
         router.replace('/ingredients')
@@ -267,6 +360,8 @@ export default function IngredientDetailPage() {
       const map: Record<number, AllergenStatus> = {}
       for (const { allergenId, status } of ingAllergens) map[allergenId] = status
       setAllergenMap(map)
+
+      setSupplierCodes(normalizeSupplierCodes(codesRes.data as SupplierCodeRow[] | null))
 
       setLoading(false)
     })
@@ -437,6 +532,78 @@ export default function IngredientDetailPage() {
     setIngredient((prev) => prev ? { ...prev, image_url: null } : prev)
     findIngredientImage(ingredient.name).then(setManifestImageUrl)
   }, [ingredient])
+
+  const toggleAddCodeForm = useCallback(() => {
+    setShowAddCode((prev) => {
+      const next = !prev
+      if (!next) {
+        setNewCodeSupplierId(null)
+        setNewCodeValue('')
+      }
+      return next
+    })
+  }, [])
+
+  const handleDeleteCode = useCallback(async (codeId: string) => {
+    const supabase = createClient()
+    const { error } = await supabase.from('ingredient_supplier_codes').delete().eq('id', codeId)
+
+    if (error) {
+      toast.error('Failed to delete supplier code')
+      return
+    }
+
+    setSupplierCodes((prev) => prev.filter((sc) => sc.id !== codeId))
+    toast.success('Supplier code removed')
+  }, [])
+
+  const handleSaveCode = useCallback(async () => {
+    if (!ingredient) return
+
+    const trimmedCode = newCodeValue.trim()
+    if (!newCodeSupplierId) {
+      toast.error('Select a supplier first')
+      return
+    }
+    if (!trimmedCode) {
+      toast.error('Enter a product code')
+      return
+    }
+
+    setSavingCode(true)
+    try {
+      const supabase = createClient()
+      const tenantId = await resolveTenantId()
+      const { data, error } = await supabase
+        .from('ingredient_supplier_codes')
+        .insert({
+          tenant_id: tenantId,
+          supplier_id: newCodeSupplierId,
+          ingredient_id: ingredient.id,
+          product_code: trimmedCode,
+        })
+        .select('id, supplier_id, product_code, suppliers(name)')
+        .single()
+
+      if (error || !data) {
+        if (error?.code === '23505') {
+          toast.error('This supplier already has that product code linked to an ingredient')
+        } else {
+          toast.error(error?.message ?? 'Failed to save supplier code')
+        }
+        return
+      }
+
+      const [normalized] = normalizeSupplierCodes([data as SupplierCodeRow])
+      setSupplierCodes((prev) => [...prev, normalized])
+      setShowAddCode(false)
+      setNewCodeSupplierId(null)
+      setNewCodeValue('')
+      toast.success('Supplier code added')
+    } finally {
+      setSavingCode(false)
+    }
+  }, [ingredient, newCodeSupplierId, newCodeValue])
 
   if (loading) return <PageSkeleton />
 
@@ -874,6 +1041,97 @@ export default function IngredientDetailPage() {
                   </p>
                   </div>
                 )}
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-800">
+                    <div className="mb-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Tag className="h-4 w-4 text-slate-400" />
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                          Supplier codes
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={toggleAddCodeForm}
+                        className="text-xs font-medium text-emerald-600 hover:text-emerald-500"
+                      >
+                        + Add
+                      </button>
+                    </div>
+
+                    {supplierCodes.length === 0 && !showAddCode ? (
+                      <p className="text-xs italic text-slate-400">
+                        No supplier codes linked yet. Codes are added automatically when importing invoices.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {supplierCodes.map((sc) => (
+                          <div
+                            key={sc.id}
+                            className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-900/40"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">
+                                {sc.product_code}
+                              </p>
+                              <p className="truncate text-xs text-slate-400">{sc.supplier_name}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCode(sc.id)}
+                              className="shrink-0 rounded p-1 text-slate-300 transition hover:bg-red-50 hover:text-red-500"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {showAddCode && (
+                      <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40">
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                            Supplier
+                          </label>
+                          <SupplierCodeAutocomplete
+                            suppliers={allSuppliers}
+                            selectedId={newCodeSupplierId}
+                            onSelect={(supplierId) => setNewCodeSupplierId(supplierId)}
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                            Product code
+                          </label>
+                          <input
+                            type="text"
+                            value={newCodeValue}
+                            onChange={(e) => setNewCodeValue(e.target.value)}
+                            placeholder="e.g. BUT-SAL-250"
+                            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-600 dark:bg-slate-800"
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={handleSaveCode}
+                            disabled={savingCode}
+                            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {savingCode ? 'Saving…' : 'Save'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowAddCode(false)}
+                            className="text-xs text-slate-500 hover:text-slate-700"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   {priceHistory.length > 0 && (
                     <div>
