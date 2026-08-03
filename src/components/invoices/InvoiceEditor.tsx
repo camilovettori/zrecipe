@@ -4,6 +4,7 @@ import { AlertTriangle, Check, CircleAlert, Plus, Search, Trash2, X } from 'luci
 import {
   INVOICE_UNITS,
   PACKAGE_UNIT_OPTIONS,
+  WEIGHT_VOLUME_IN_DESCRIPTION,
   createEmptyInvoiceItem,
   getDefaultIngredientPriceUnit,
   resolveInvoiceIngredientPricing,
@@ -919,6 +920,15 @@ export default function InvoiceEditor({
                         className="w-[80px]"
                       />
                     </div>
+                    {item.packageSize == null && WEIGHT_VOLUME_IN_DESCRIPTION.test(item.description) && (
+                      <p
+                        className="mt-1 flex items-center gap-1 text-[10px] font-medium text-amber-600"
+                        title="The description looks like it includes a pack weight/volume — if package size is left empty, the price will be treated as per whole unit instead of per kg/L."
+                      >
+                        <AlertTriangle className="h-3 w-3 shrink-0" />
+                        This description mentions a weight — check if package size is set.
+                      </p>
+                    )}
                   </td>
 
                   <td className="border-b border-slate-100 px-3 py-2">

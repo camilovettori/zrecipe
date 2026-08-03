@@ -1,5 +1,11 @@
 export type InvoiceFileType = 'pdf' | 'csv' | 'image'
 
+// Catches a weight/volume figure anywhere in a product description (e.g.
+// "2KG", "500ml", "10 L") — used to hint that package_size/package_unit may
+// have been missed (by AI extraction or manual entry) even when unit itself
+// looks fine, since the description weight should normally end up there.
+export const WEIGHT_VOLUME_IN_DESCRIPTION = /\b\d+\.?\d*\s*(kg|g|ml|l|ltr|litre|liter)\b/i
+
 export type InvoiceLineItem = {
   id: string
   description: string

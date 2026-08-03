@@ -128,19 +128,51 @@ quantity:
 - Example: if invoice says "Ordered: 4" for muffin cases → quantity = 4
 
 unit:
-- The PURCHASE unit: case, bag, pack, box, tub, bottle, carton, tray, block, unit, kg, L
+- The PURCHASE unit — the discrete, countable container being ordered: case, bag, pack, box, tub, bottle, carton, tray, block, unit
 - This is how the supplier sells it, NOT the individual items inside
+- CRITICAL — "kg"/"g"/"L"/"ml" are ALMOST NEVER correct here. Only use a
+  weight/volume word for "unit" when the invoice line has NO discrete
+  package at all — e.g. a butcher/counter item sold literally by loose
+  weight ("Chicken Breast, Qty: 4.5, Unit: kg, Price: 6.50") where the
+  quantity column itself IS a weight, not a count of bags/boxes. If the
+  quantity column is a whole-number COUNT of items (1, 2, 3, 4 bags/boxes/
+  bottles), "unit" must be that container word, never the weight/volume
+  unit — even if the only container word you can infer is "bag" or "unit".
 
-package_size:
-- The NET WEIGHT or NET VOLUME contained in ONE purchase unit
+package_size / package_unit:
+- The NET WEIGHT or NET VOLUME contained in ONE purchase unit (one bag, one
+  box, one bottle) — this is where a weight/volume figure printed in the
+  product DESCRIPTION belongs. It never overrides or becomes the "unit" field.
 - If the invoice shows "250G" and pack contains 40 blocks: package_size = 10 (40 × 250g = 10kg), package_unit = "kg"
 - If the invoice shows "500ML" and pack contains 6 bottles: package_size = 3000 or 3, package_unit = "ml" or "L"
 - If the invoice shows "10KG" for a single bag: package_size = 10, package_unit = "kg"
 - For countable non-weight items (muffin cases, cups, lids): package_size = count per pack (e.g., 480), package_unit = "unit"
+- package_unit is one of: kg, g, L, ml, or unit. Use "unit" for countable items without weight (cases, cups, napkins, etc.)
 
-package_unit:
-- kg, g, L, ml, or unit
-- Use "unit" for countable items without weight (cases, cups, napkins, etc.)
+WEIGHT/VOLUME IN THE DESCRIPTION vs THE unit FIELD (a common mistake — read carefully):
+
+A number+unit token in the product description (e.g. "2KG", "500ML", "10KG")
+describes the SIZE of one purchased package. It is package_size +
+package_unit. It must NEVER be copied into the "unit" field on its own,
+even though "kg" or "ml" might look like a tempting one-word answer for
+"unit". Before finalizing "unit", check: does the description contain a
+number immediately followed by a weight/volume word? If yes, and the
+quantity column is a small whole-number count (not itself a weight), that
+number+word pair is package_size/package_unit — "unit" must instead be the
+container being counted (bag, box, bottle, pack), inferred from context
+(a bag of ice, a box of flour, a bottle of vanilla).
+
+Examples:
+  "Ice Bags 2KG"  | Qty: 3 | Price: 0.96 | Value: 2.88
+    → unit="bag", package_size=2, package_unit="kg", quantity=3, unit_price=0.96
+    (WRONG: unit="kg", package_size=null — this makes 0.96 look like the
+    price per kg, when it is actually the price per 2kg bag, i.e. €0.48/kg)
+
+  "Flour 10KG" | Qty: 1 | Price: 8.50
+    → unit="bag", package_size=10, package_unit="kg", quantity=1, unit_price=8.50
+
+  "Vanilla 500ML" | Qty: 2 | Price: 3.20
+    → unit="bottle", package_size=500, package_unit="ml", quantity=2, unit_price=3.20
 
 unit_price:
 - CRITICAL: This is ALWAYS the price for ONE PURCHASE UNIT (one case, one bag, one pack)
