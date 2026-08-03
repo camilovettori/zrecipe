@@ -881,7 +881,11 @@ export default function ImportInvoicesPage() {
       }
 
       toast.success('Invoice saved')
-      router.push('/invoices?success=1')
+      const savedInvoiceParams = new URLSearchParams({
+        success: '1',
+        invoiceDate: draft.invoiceDate,
+      })
+      router.push(`/invoices?${savedInvoiceParams.toString()}`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to save invoice')
     } finally {

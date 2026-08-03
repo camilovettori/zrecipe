@@ -332,7 +332,57 @@ export default function InvoicesPage() {
   const [toPickerOpen, setToPickerOpen] = useState(false)
   const fromPickerRef = useRef<HTMLDivElement>(null)
   const toPickerRef = useRef<HTMLDivElement>(null)
+  const savedInvoicePeriodAppliedRef = useRef(false)
   const [ingredientCount, setIngredientCount] = useState<number | null>(null)
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('success') !== '1') return
+
+    const savedInvoiceDate = params.get('invoiceDate')
+
+    if (!savedInvoiceDate || !/^\d{4}-\d{2}-\d{2}$/.test(savedInvoiceDate)) return
+
+    const savedDate = parseInputDate(savedInvoiceDate)
+    if (Number.isNaN(savedDate.getTime())) return
+
+    savedInvoicePeriodAppliedRef.current = true
+    const currentMonth = getPresetRange('this-month')
+    if (savedInvoiceDate >= currentMonth.from && savedInvoiceDate <= currentMonth.to) return
+
+    setPeriodPreset('custom')
+    setPeriodFrom(toDateInputValue(new Date(savedDate.getFullYear(), savedDate.getMonth(), 1)))
+    setPeriodTo(toDateInputValue(new Date(savedDate.getFullYear(), savedDate.getMonth() + 1, 0)))
+  }, [])
+
+  useEffect(() => {
+    if (loading || savedInvoicePeriodAppliedRef.current) return
+
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('success') !== '1' || params.has('invoiceDate')) return
+
+    savedInvoicePeriodAppliedRef.current = true
+    const latestSavedInvoice = [...invoices].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    )[0]
+
+    if (!latestSavedInvoice) return
+
+    const currentMonth = getPresetRange('this-month')
+    if (
+      latestSavedInvoice.invoiceDate >= currentMonth.from &&
+      latestSavedInvoice.invoiceDate <= currentMonth.to
+    ) {
+      return
+    }
+
+    const savedDate = parseInputDate(latestSavedInvoice.invoiceDate)
+    if (Number.isNaN(savedDate.getTime())) return
+
+    setPeriodPreset('custom')
+    setPeriodFrom(toDateInputValue(new Date(savedDate.getFullYear(), savedDate.getMonth(), 1)))
+    setPeriodTo(toDateInputValue(new Date(savedDate.getFullYear(), savedDate.getMonth() + 1, 0)))
+  }, [invoices, loading])
 
   useEffect(() => {
     let cancelled = false
