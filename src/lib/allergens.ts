@@ -12,6 +12,41 @@ export interface IngredientAllergen {
   status: AllergenStatus
 }
 
+export interface IngredientAllergenRow {
+  ingredient_id: string
+  allergen_id: number
+  status: AllergenStatus
+  tenant_id: string
+}
+
+export function normalizeIngredientAllergenSelection(
+  items: IngredientAllergen[] | undefined
+): IngredientAllergen[] {
+  const validStatuses = new Set<AllergenStatus>(['contains', 'may_contain'])
+  const byId = new Map<number, IngredientAllergen>()
+
+  for (const item of items ?? []) {
+    if (!Number.isInteger(item.allergenId) || item.allergenId <= 0) continue
+    if (!validStatuses.has(item.status)) continue
+    byId.set(item.allergenId, item)
+  }
+
+  return Array.from(byId.values())
+}
+
+export function createIngredientAllergenRows(
+  ingredientId: string,
+  tenantId: string,
+  items: IngredientAllergen[] | undefined
+): IngredientAllergenRow[] {
+  return normalizeIngredientAllergenSelection(items).map((item) => ({
+    ingredient_id: ingredientId,
+    allergen_id: item.allergenId,
+    status: item.status,
+    tenant_id: tenantId,
+  }))
+}
+
 export interface RecipeAllergenSummary {
   contains: Allergen[]
   mayContain: Allergen[]

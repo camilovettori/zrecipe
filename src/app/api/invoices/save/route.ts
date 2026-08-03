@@ -4,7 +4,11 @@ import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { normalizeText, resolveInvoiceIngredientPricing } from '@/lib/invoices'
-import type { AllergenStatus, IngredientAllergen } from '@/lib/allergens'
+import {
+  createIngredientAllergenRows,
+  normalizeIngredientAllergenSelection,
+  type IngredientAllergen,
+} from '@/lib/allergens'
 
 type SaveItem = {
   id?: string
@@ -61,17 +65,59 @@ function guessIngredientCategory(description: string) {
   return 'Other'
 }
 
-function normalizeAllergenSelection(items: IngredientAllergen[] | undefined): IngredientAllergen[] {
-  const validStatuses = new Set<AllergenStatus>(['contains', 'may_contain'])
-  const byId = new Map<number, IngredientAllergen>()
+async function replaceIngredientAllergens(
+  admin: AdminClient,
+  tenantId: string,
+  ingredientId: string,
+  selection: IngredientAllergen[]
+): Promise<{ message: string } | null> {
+  if (selection.length === 0) {
+    const { error } = await admin
+      .from('ingredient_allergens')
+      .delete()
+      .eq('ingredient_id', ingredientId)
 
-  for (const item of items ?? []) {
-    if (!Number.isInteger(item.allergenId) || item.allergenId <= 0) continue
-    if (!validStatuses.has(item.status)) continue
-    byId.set(item.allergenId, item)
+    return error ? { message: error.message ?? 'Unable to clear allergens' } : null
   }
 
-  return Array.from(byId.values())
+  // Write the complete reviewed selection first. If this fails, existing
+  // declarations remain intact instead of being deleted before a failed insert.
+  const rows = createIngredientAllergenRows(ingredientId, tenantId, selection)
+  const { error: upsertError } = await admin
+    .from('ingredient_allergens')
+    .upsert(rows, { onConflict: 'ingredient_id,allergen_id' })
+
+  if (upsertError) {
+    return { message: upsertError.message ?? 'Unable to save allergens' }
+  }
+
+  const selectedIds = new Set(rows.map((row) => row.allergen_id))
+  const { data: existingRows, error: lookupError } = await admin
+    .from('ingredient_allergens')
+    .select('allergen_id')
+    .eq('ingredient_id', ingredientId)
+
+  if (lookupError) {
+    return { message: lookupError.message ?? 'Unable to verify allergens' }
+  }
+
+  const staleIds = (existingRows ?? [])
+    .map((row: { allergen_id: number }) => row.allergen_id)
+    .filter((allergenId: number) => !selectedIds.has(allergenId))
+
+  if (staleIds.length > 0) {
+    const { error: deleteError } = await admin
+      .from('ingredient_allergens')
+      .delete()
+      .eq('ingredient_id', ingredientId)
+      .in('allergen_id', staleIds)
+
+    if (deleteError) {
+      return { message: deleteError.message ?? 'Unable to remove old allergens' }
+    }
+  }
+
+  return null
 }
 
 export async function POST(request: NextRequest) {
@@ -512,35 +558,22 @@ export async function POST(request: NextRequest) {
         ingredientId &&
         (item.allergensChanged || (item.newIngredientAllergens?.length ?? 0) > 0)
       ) {
-        const selection = normalizeAllergenSelection(
+        const selection = normalizeIngredientAllergenSelection(
           item.reviewAllergens ?? item.newIngredientAllergens?.map((allergenId) => ({
             allergenId,
             status: 'contains' as const,
           }))
         )
-        const { error: deleteAllergensError } = await admin
-          .from('ingredient_allergens')
-          .delete()
-          .eq('ingredient_id', ingredientId)
+        const allergenError = await replaceIngredientAllergens(
+          admin,
+          tenantId,
+          ingredientId,
+          selection
+        )
 
-        if (deleteAllergensError) {
-          console.error('[/api/invoices/save] allergen replace failed:', deleteAllergensError)
+        if (allergenError) {
+          console.error('[/api/invoices/save] allergen replace failed:', allergenError.message)
           return NextResponse.json({ error: 'Unable to update ingredient allergens' }, { status: 500 })
-        }
-
-        if (selection.length > 0) {
-          const { error: insertAllergensError } = await admin
-            .from('ingredient_allergens')
-            .insert(selection.map((allergen) => ({
-              ingredient_id: ingredientId,
-              allergen_id: allergen.allergenId,
-              status: allergen.status,
-            })))
-
-          if (insertAllergensError) {
-            console.error('[/api/invoices/save] allergen replace failed:', insertAllergensError)
-            return NextResponse.json({ error: 'Unable to update ingredient allergens' }, { status: 500 })
-          }
         }
       }
 

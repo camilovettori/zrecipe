@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
-import type { AllergenStatus, IngredientAllergen } from '@/lib/allergens'
+import {
+  createIngredientAllergenRows,
+  type AllergenStatus,
+  type IngredientAllergen,
+} from '@/lib/allergens'
 
 export const runtime = 'nodejs'
 
@@ -118,12 +122,11 @@ export async function PUT(request: NextRequest) {
     }
 
     if (body.allergens.length > 0) {
-      const rows = body.allergens.map((a) => ({
-        ingredient_id: body.ingredientId,
-        allergen_id:   a.allergenId,
-        status:        a.status,
-        tenant_id:     ing.tenant_id,
-      }))
+      const rows = createIngredientAllergenRows(
+        body.ingredientId,
+        ing.tenant_id,
+        body.allergens
+      )
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error: insertError } = await (admin.from('ingredient_allergens') as any).insert(rows)
