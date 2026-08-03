@@ -14,10 +14,41 @@ import PrimaryCTALink from '@/components/landing/PrimaryCTALink'
 import HeroDemoVideo from '@/components/landing/HeroDemoVideo'
 
 export const metadata: Metadata = {
-  title: 'ZRecipe — Recipe Costing for Food Businesses',
+  title: {
+    absolute: 'ZRecipe | Food Costing Software for Bakeries & Restaurants',
+  },
   description:
-    'Turn supplier invoices into accurate recipe costs, real margins, and EU-compliant allergen labels. 14-day free trial.',
-  alternates: { canonical: '/' },
+    'AI-powered food costing software for bakeries, cafes, restaurants, and food businesses. Import invoices, track ingredient prices, calculate recipe margins, and print kitchen cards.',
+  alternates: { canonical: 'https://www.zrecipe.ie' },
+  openGraph: {
+    title: 'ZRecipe | Food Costing Software for Bakeries & Restaurants',
+    description:
+      'AI-powered food costing software for bakeries, cafes, restaurants, and food businesses. Import invoices, track ingredient prices, calculate recipe margins, and print kitchen cards.',
+    url: 'https://www.zrecipe.ie',
+    siteName: 'ZRecipe',
+    type: 'website',
+    locale: 'en_IE',
+    images: [
+      {
+        url: '/images/og-image.jpg',
+        width: 1200,
+        height: 630,
+        alt: 'ZRecipe food costing software dashboard preview',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'ZRecipe | Food Costing Software for Bakeries & Restaurants',
+    description:
+      'AI-powered food costing software for bakeries, cafes, restaurants, and food businesses. Import invoices, track ingredient prices, calculate recipe margins, and print kitchen cards.',
+    images: [
+      {
+        url: '/images/og-image.jpg',
+        alt: 'ZRecipe food costing software dashboard preview',
+      },
+    ],
+  },
 }
 
 const STATS = [
@@ -112,7 +143,9 @@ const FAQ_ITEMS: FAQItem[] = [
   },
 ]
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://zrecipe.ie'
+const siteUrl = 'https://www.zrecipe.ie'
+const seoDescription =
+  'AI-powered food costing software for bakeries, cafes, restaurants, and food businesses. Import invoices, track ingredient prices, calculate recipe margins, and print kitchen cards.'
 
 const softwareApplicationJsonLd = {
   '@context': 'https://schema.org',
@@ -120,34 +153,37 @@ const softwareApplicationJsonLd = {
   name: 'ZRecipe',
   applicationCategory: 'BusinessApplication',
   operatingSystem: 'Web',
-  description:
-    'Recipe costing software for independent bakeries, cafés, and restaurants in Ireland and the EU. Turn supplier invoices into accurate costs, margins, and EU-compliant allergen labels.',
+  description: seoDescription,
   url: siteUrl,
-  provider: {
+  image: `${siteUrl}/images/og-image.jpg`,
+  offers: {
+    '@type': 'Offer',
+    price: '25',
+    priceCurrency: 'EUR',
+    availability: 'https://schema.org/InStock',
+  },
+  creator: {
     '@type': 'Organization',
     name: 'Ziffera',
-    url: 'https://ziffera.ie',
+    url: siteUrl,
   },
-  offers: [
-    {
-      '@type': 'Offer',
-      name: 'ZRecipe Free',
-      price: '0',
-      priceCurrency: 'EUR',
-    },
-    {
-      '@type': 'Offer',
-      name: 'ZRecipe Pro',
-      price: '25',
-      priceCurrency: 'EUR',
-      priceSpecification: {
-        '@type': 'UnitPriceSpecification',
-        price: '25',
-        priceCurrency: 'EUR',
-        unitText: 'MONTH',
-      },
-    },
-  ],
+  publisher: {
+    '@type': 'Organization',
+    name: 'Ziffera',
+    url: siteUrl,
+  },
+}
+
+const organizationJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Organization',
+  name: 'Ziffera',
+  url: siteUrl,
+  logo: `${siteUrl}/images/fundobranco2.png`,
+  brand: {
+    '@type': 'Brand',
+    name: 'ZRecipe',
+  },
 }
 
 const faqPageJsonLd = {
@@ -169,6 +205,10 @@ export default function LandingPage() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareApplicationJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
       />
       <script
         type="application/ld+json"
@@ -195,9 +235,9 @@ export default function LandingPage() {
               </h1>
 
               <p className="mt-5 max-w-xl text-base leading-relaxed text-slate-600 sm:text-lg">
-                ZRecipe turns supplier invoices into accurate recipe costs, real margins, and
-                EU-compliant allergen labels — built for bakeries, cafés, and restaurants across
-                Ireland and the EU.
+                ZRecipe is food costing software that turns supplier invoices into accurate
+                recipe costs, tracks ingredient prices, and shows real margins — built for
+                bakeries, cafés, and restaurants across Ireland and the EU.
               </p>
 
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">

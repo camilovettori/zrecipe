@@ -319,7 +319,12 @@ type ClaudeUsage = { inputTokens: number; outputTokens: number }
 
 const KNOWN_SUPPLIERS: Array<{ patterns: RegExp[]; name: string }> = [
   {
-    patterns: [/henderson/i, /henderson\s*(wholesale|foodservice)/i, /\bHFL\b/i],
+    patterns: [
+      /\bhenderson\b/i,
+      /\bhenderson\s+foodservice(?:\s+(?:ltd|limited))?\b/i,
+      /\bhenderson\s+wholesale(?:\s+(?:ltd|limited))?\b/i,
+      /\bHFL\b/i,
+    ],
     name: 'Henderson Foodservice',
   },
   { patterns: [/musgrave/i, /musgrave\s*cash/i], name: 'Musgrave' },
@@ -342,7 +347,7 @@ function inferSupplierFromRaw(rawText: string): string | null {
   if (!rawText) return null
   const t = rawText.toLowerCase()
   // Ordered by specificity — most specific patterns first
-  if (t.includes('henderson wholesale') || t.includes('henderson foodservice')) return 'Henderson Wholesale'
+  if (t.includes('henderson wholesale') || t.includes('henderson foodservice')) return 'Henderson Foodservice'
   if (t.includes('musgrave')) return 'Musgrave'
   if (t.includes('bwg foods')) return 'BWG Foods'
   if (t.includes('elliotts cash')) return 'Elliotts Cash & Carry'
@@ -363,6 +368,50 @@ function inferSupplierFromRaw(rawText: string): string | null {
   return null
 }
 
+function knownSuppliersIn(value: string) {
+  return KNOWN_SUPPLIERS.filter((supplier) =>
+    supplier.patterns.some((pattern) => pattern.test(value))
+  )
+}
+
+function normalizeSupplierName(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+function normalizeProductCode(value: string | null | undefined) {
+  return (value ?? '').trim().toUpperCase().replace(/\s+/g, '')
+}
+
+async function resolveTenantSupplier(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  admin: any,
+  tenantId: string,
+  supplierName: string
+): Promise<{ id: string; name: string } | null> {
+  const { data } = await admin
+    .from('suppliers')
+    .select('id, name')
+    .eq('tenant_id', tenantId)
+
+  const suppliers = (data ?? []) as Array<{ id: string; name: string }>
+  const normalizedCandidate = normalizeSupplierName(supplierName)
+  const exact = suppliers.filter(
+    (supplier) => normalizeSupplierName(supplier.name) === normalizedCandidate
+  )
+  if (exact.length === 1) return exact[0]
+  if (exact.length > 1) return null
+
+  const knownCandidate = knownSuppliersIn(supplierName)
+  if (knownCandidate.length !== 1) return null
+
+  const aliasMatches = suppliers.filter((supplier) => {
+    const knownStored = knownSuppliersIn(supplier.name)
+    return knownStored.length === 1 && knownStored[0].name === knownCandidate[0].name
+  })
+
+  return aliasMatches.length === 1 ? aliasMatches[0] : null
+}
+
 // ── Multi-pack notation detection ────────────────────────────────────────
 // Catches descriptions like "Water 6x2L" or "12 x 500ml" where the AI may
 // have mistaken the pack-contents count for the order quantity.
@@ -378,28 +427,39 @@ function detectMultiPackNotation(description: string): { count: number, size: nu
 
 function validateSupplierFromText(aiSupplierName: string, rawText?: string): string {
   const aiName = aiSupplierName?.trim()
-  if (!rawText) return aiName || 'Unknown Supplier'
+  const rawMatches = rawText ? knownSuppliersIn(rawText) : []
+  const aiMatches = aiName ? knownSuppliersIn(aiName) : []
 
-  const found = KNOWN_SUPPLIERS.filter((supplier) =>
-    supplier.patterns.some((pattern) => pattern.test(rawText))
-  )
+  let finalSupplier = 'Unknown Supplier'
+  let matchedAlias: string | null = null
 
-  if (found.length === 0) {
-    return aiName && aiName !== 'Unknown Supplier'
-      ? aiName
-      : (inferSupplierFromRaw(rawText) ?? 'Unknown Supplier')
+  if (rawMatches.length === 1) {
+    finalSupplier = rawMatches[0].name
+    matchedAlias = rawMatches[0].name
+  } else if (rawMatches.length > 1) {
+    const aiConfirmed = aiMatches.find((candidate) =>
+      rawMatches.some((rawCandidate) => rawCandidate.name === candidate.name)
+    )
+    finalSupplier = aiConfirmed?.name ?? 'Unknown Supplier'
+    matchedAlias = aiConfirmed?.name ?? null
+  } else if (aiMatches.length === 1) {
+    finalSupplier = aiMatches[0].name
+    matchedAlias = aiMatches[0].name
+  } else if (aiName && aiName !== 'Unknown Supplier') {
+    finalSupplier = aiName
+  } else if (rawText) {
+    finalSupplier = inferSupplierFromRaw(rawText) ?? 'Unknown Supplier'
   }
 
-  const aiMatch = found.find((supplier) =>
-    supplier.name.toLowerCase() === aiName?.toLowerCase() ||
-    supplier.patterns.some((pattern) => pattern.test(aiName ?? ''))
-  )
-  if (aiMatch) return aiMatch.name
+  if (process.env.NODE_ENV === 'development') {
+    console.info('[supplier-validate]', {
+      aiSupplierCandidate: aiName || 'Unknown Supplier',
+      matchedSupplierAlias: matchedAlias,
+      finalSupplier,
+    })
+  }
 
-  console.warn(
-    `[supplier-validate] AI returned "${aiName || 'Unknown Supplier'}" but raw text contains "${found[0].name}" - overriding`
-  )
-  return found[0].name
+  return finalSupplier
 }
 
 // ── "(verify)" suffix → needs_verification flag ─────────────────────────────
@@ -569,47 +629,135 @@ async function extractInvoiceWithVision(imageBase64: string, mimeType: string) {
   return parseAndValidateExtraction(content.text, usage)
 }
 
+async function extractPdfWithHeaderVision(text: string, firstPageImageBase64: string) {
+  const anthropic = getAnthropic()
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 4000,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text:
+              `${EXTRACTION_PROMPT}${text}\n\n` +
+              'The attached image is the first page of the same PDF. Use it only to read visual evidence that may be missing from the PDF text layer, especially the issuing supplier logo or header. Do not invent fields that are not visible in either source.',
+          },
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/jpeg',
+              data: firstPageImageBase64,
+            },
+          },
+        ],
+      },
+    ],
+  })
+
+  const usage = {
+    inputTokens: response.usage.input_tokens,
+    outputTokens: response.usage.output_tokens,
+  }
+  const content = response.content[0]
+  if (content.type !== 'text') throw new Error('Claude returned no text content')
+
+  // The original PDF text remains authoritative for deterministic alias
+  // validation; the page image is only the fallback for graphical headers.
+  return parseAndValidateExtraction(content.text, usage, text)
+}
+
 // ── Supplier-aware ingredient name memory ───────────────────────────────────
 // Looks up (tenant, supplier, extracted description) memories recorded by
 // previous saves (see /api/invoices/save) and attaches a suggested match to
 // each item. Applied silently — the client pre-selects the match and shows
 // the remembered ingredient name instead of the raw extraction. Best-effort:
 // any failure here just returns the extraction unchanged, never blocks it.
-async function applyItemMemory<T extends { supplier_name: string; items: Array<{ description: string }> }>(
+async function applyItemMemory<
+  T extends {
+    supplier_name: string
+    items: Array<{
+      description: string
+      product_code?: string | null
+      needs_verification?: boolean
+    }>
+  }
+>(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   admin: any,
   tenantId: string,
   result: T
-): Promise<T> {
+): Promise<T & { supplier_id?: string | null }> {
   try {
     const supplierName = result.supplier_name?.trim()
-    if (!supplierName || supplierName === 'Unknown Supplier') return result
+    if (!supplierName || supplierName === 'Unknown Supplier') {
+      return { ...result, supplier_id: null }
+    }
 
-    const { data: supplierRow } = await admin
-      .from('suppliers')
-      .select('id')
-      .eq('tenant_id', tenantId)
-      .ilike('name', supplierName)
-      .maybeSingle()
+    const supplier = await resolveTenantSupplier(admin, tenantId, supplierName)
+    if (!supplier) return { ...result, supplier_id: null }
 
-    const supplierId = supplierRow?.id as string | undefined
-    if (!supplierId) return result
-
-    const { data: memories } = await admin
-      .from('invoice_item_memory')
-      .select('extracted_description_key, ingredient_id, ingredients(id, name)')
-      .eq('tenant_id', tenantId)
-      .eq('supplier_id', supplierId)
-
-    if (!memories || memories.length === 0) return result
+    const [{ data: memories }, { data: supplierCodes }] = await Promise.all([
+      admin
+        .from('invoice_item_memory')
+        .select('extracted_description_key, ingredient_id, ingredients(id, name)')
+        .eq('tenant_id', tenantId)
+        .eq('supplier_id', supplier.id),
+      admin
+        .from('ingredient_supplier_codes')
+        .select('product_code, ingredient_id, ingredients(id, name)')
+        .eq('tenant_id', tenantId)
+        .eq('supplier_id', supplier.id),
+    ])
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const memoryMap = new Map<string, any>(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      memories.map((m: any) => [m.extracted_description_key, m])
+      (memories ?? []).map((m: any) => [m.extracted_description_key, m])
     )
 
+    // Product codes are compared through a normalized key so harmless case or
+    // spacing differences do not defeat a learned mapping. A normalized code
+    // that points to multiple ingredients is intentionally treated as unsafe.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const codeMap = new Map<string, any[]>()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const codeRow of (supplierCodes ?? []) as any[]) {
+      const key = normalizeProductCode(codeRow.product_code)
+      if (!key) continue
+      codeMap.set(key, [...(codeMap.get(key) ?? []), codeRow])
+    }
+
     const itemsWithMemory = result.items.map((item) => {
+      const codeKey = normalizeProductCode(item.product_code)
+      if (codeKey) {
+        const codeMatches = codeMap.get(codeKey) ?? []
+        const ingredientIds = Array.from(
+          new Set(codeMatches.map((match) => match.ingredient_id))
+        )
+
+        if (ingredientIds.length === 1) {
+          const match = codeMatches[0]
+          const ing = Array.isArray(match.ingredients) ? match.ingredients[0] : match.ingredients
+          return {
+            ...item,
+            memory_ingredient_id: match.ingredient_id ?? null,
+            memory_ingredient_name: ing?.name ?? null,
+          }
+        }
+
+        if (ingredientIds.length > 1) {
+          return {
+            ...item,
+            needs_verification: true,
+            memory_ingredient_id: null,
+            memory_ingredient_name: null,
+          }
+        }
+      }
+
       const key = (item.description ?? '').toLowerCase().trim()
       const match = memoryMap.get(key)
       if (!match) return item
@@ -622,10 +770,10 @@ async function applyItemMemory<T extends { supplier_name: string; items: Array<{
       }
     })
 
-    return { ...result, items: itemsWithMemory }
+    return { ...result, supplier_id: supplier.id, items: itemsWithMemory }
   } catch (err) {
     console.error('[extract] memory lookup failed:', err)
-    return result
+    return { ...result, supplier_id: null }
   }
 }
 
@@ -782,10 +930,14 @@ export async function POST(request: NextRequest) {
       runExtraction = () => extractInvoiceWithVision(imageBase64, mimeType)
     } else {
       const text = typeof body?.text === 'string' ? body.text : ''
-      if (!text.trim()) {
-        return NextResponse.json({ error: 'Missing text content' }, { status: 400 })
+      const firstPageImageBase64 =
+        typeof body?.firstPageImageBase64 === 'string' ? body.firstPageImageBase64 : ''
+      if (!text.trim() && !firstPageImageBase64.trim()) {
+        return NextResponse.json({ error: 'Missing PDF content' }, { status: 400 })
       }
-      runExtraction = () => extractWithClaude(text)
+      runExtraction = firstPageImageBase64.trim()
+        ? () => extractPdfWithHeaderVision(text, firstPageImageBase64)
+        : () => extractWithClaude(text)
     }
 
     // Auth

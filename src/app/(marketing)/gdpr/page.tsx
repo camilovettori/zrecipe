@@ -8,8 +8,9 @@ import LegalPageShell, {
 } from '@/components/legal/LegalPageShell'
 
 export const metadata: Metadata = {
-  title: 'GDPR Compliance — ZRecipe',
-  description: 'How ZRecipe complies with GDPR and how to exercise your rights.',
+  title: { absolute: 'GDPR Compliance | ZRecipe' },
+  description: 'Learn how ZRecipe supports GDPR compliance, protects EU customer data, and enables you to exercise your data rights.',
+  alternates: { canonical: 'https://www.zrecipe.ie/gdpr' },
 }
 
 const DATA_TABLE = [

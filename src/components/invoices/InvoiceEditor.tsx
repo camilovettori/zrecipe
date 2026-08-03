@@ -650,7 +650,7 @@ function ReviewItemCard({
         </label>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-5">
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <label className="block">
           <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Qty</span>
           <input
@@ -676,9 +676,9 @@ function ReviewItemCard({
             size="sm"
           />
         </label>
-        <div>
+        <div className="min-w-0 sm:col-span-2 xl:col-span-2">
           <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Package size</span>
-          <div className="grid grid-cols-[minmax(70px,1fr)_80px] gap-2">
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(96px,0.75fr)] gap-2">
             <input
               type="number"
               step="0.001"
@@ -687,7 +687,7 @@ function ReviewItemCard({
                 packageSize: event.target.value === '' ? null : Number.parseFloat(event.target.value || '0'),
               })}
               placeholder="Size"
-              className="h-10 min-w-0 rounded-xl border border-slate-200 bg-white px-2 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+              className="h-10 min-w-0 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
             />
             <CustomSelect
               value={item.packageUnit ?? ''}
@@ -699,6 +699,7 @@ function ReviewItemCard({
                 { value: '', label: 'Unit?' },
                 ...PACKAGE_UNIT_OPTIONS.map((unit) => ({ value: unit, label: unit })),
               ]}
+              className="min-w-0"
               size="sm"
             />
           </div>

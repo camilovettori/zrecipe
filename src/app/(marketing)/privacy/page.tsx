@@ -8,8 +8,9 @@ import LegalPageShell, {
 } from '@/components/legal/LegalPageShell'
 
 export const metadata: Metadata = {
-  title: 'Privacy Policy — ZRecipe',
-  description: 'How ZRecipe collects, uses, and protects your data.',
+  title: { absolute: 'Privacy Policy | ZRecipe' },
+  description: 'Learn how ZRecipe collects, uses, stores, and protects personal and business data under Irish and EU privacy law.',
+  alternates: { canonical: 'https://www.zrecipe.ie/privacy' },
 }
 
 export default function PrivacyPolicyPage() {

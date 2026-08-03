@@ -19,31 +19,36 @@ const playfairDisplay = Playfair_Display({
   variable: '--font-playfair',
 })
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://zrecipe.ie'
+const siteUrl = 'https://www.zrecipe.ie'
+const siteTitle = 'ZRecipe | Food Costing Software for Bakeries & Restaurants'
+const siteDescription =
+  'AI-powered food costing software for bakeries, cafes, restaurants, and food businesses. Import invoices, track ingredient prices, calculate recipe margins, and print kitchen cards.'
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: 'ZRecipe — Recipe Costing for Food Businesses',
+    default: siteTitle,
     template: '%s | ZRecipe',
   },
-  description:
-    'Recipe costing software for bakeries, cafés, and restaurants. AI invoice import, real margins, EU allergen labels.',
+  description: siteDescription,
   keywords: [
-    'recipe costing',
-    'food cost software',
-    'recipe cost calculator',
-    'allergen labelling software',
-    'EU allergen compliance',
-    'invoice import AI',
-    'kitchen management software',
-    'restaurant costing',
+    'food costing software',
+    'recipe costing software',
     'bakery costing software',
+    'restaurant food costing software',
+    'invoice import food costing',
+    'allergen label software',
+    'kitchen card software',
+    'bakery recipe costing',
+    'food cost calculator',
+    'recipe margin calculator',
+    'food costing software Ireland',
+    'bakery software Ireland',
+    'restaurant costing software Ireland',
   ],
   openGraph: {
-    title: 'ZRecipe — Recipe Costing for Food Businesses',
-    description:
-      'Recipe costing software for bakeries, cafés, and restaurants. AI invoice import, real margins, EU allergen labels.',
+    title: siteTitle,
+    description: siteDescription,
     url: siteUrl,
     siteName: 'ZRecipe',
     locale: 'en_IE',
@@ -53,20 +58,24 @@ export const metadata: Metadata = {
         url: '/images/og-image.jpg',
         width: 1200,
         height: 630,
-        alt: 'ZRecipe — Recipe Costing for Independent Food Businesses',
+        alt: 'ZRecipe food costing software dashboard preview',
         type: 'image/jpeg',
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'ZRecipe — Recipe Costing for Food Businesses',
-    description:
-      'Recipe costing software for bakeries, cafés, and restaurants. AI invoice import, real margins, EU allergen labels.',
-    images: ['/images/og-image.jpg'],
+    title: siteTitle,
+    description: siteDescription,
+    images: [
+      {
+        url: '/images/og-image.jpg',
+        alt: 'ZRecipe food costing software dashboard preview',
+      },
+    ],
   },
   alternates: {
-    canonical: '/',
+    canonical: siteUrl,
   },
   robots: {
     index: true,

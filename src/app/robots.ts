@@ -1,12 +1,12 @@
 import type { MetadataRoute } from 'next'
 
-const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://zrecipe.ie'
+const baseUrl = 'https://www.zrecipe.ie'
 
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: {
       userAgent: '*',
-      allow: ['/', '/login', '/register'],
+      allow: '/',
       disallow: [
         '/dashboard',
         '/recipes',
@@ -17,8 +17,15 @@ export default function robots(): MetadataRoute.Robots {
         '/reports',
         '/ai-ideas',
         '/settings',
+        '/support',
         '/api',
         '/adminziffera',
+        '/login',
+        '/register',
+        '/signup',
+        '/forgot-password',
+        '/reset-password',
+        '/auth',
         '/workspace',
         '/suspended',
       ],

@@ -13,56 +13,80 @@ export function bytesToSize(size: number) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export async function extractPdfText(file: File) {
+export async function extractPdfContent(file: File) {
   const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs')
   pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
 
   const arrayBuffer = await file.arrayBuffer()
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
   const pageTexts: string[] = []
+  let firstPageImageBase64 = ''
 
-  for (let pageIndex = 1; pageIndex <= pdf.numPages; pageIndex += 1) {
-    const page = await pdf.getPage(pageIndex)
-    const content = await page.getTextContent()
-    const items = content.items as Array<{ str?: string; transform?: number[] }>
-    const lines = items
-      .map((item, index) => ({
-        text: item.str ?? '',
-        x: item.transform?.[4] ?? index,
-        y: item.transform?.[5] ?? 0,
-      }))
-      .filter((item) => item.text.trim())
-      .sort((a, b) => b.y - a.y || a.x - b.x)
+  try {
+    for (let pageIndex = 1; pageIndex <= pdf.numPages; pageIndex += 1) {
+      const page = await pdf.getPage(pageIndex)
 
-    const pageLines: string[] = []
-    let currentY: number | null = null
-    let currentLine: string[] = []
+      if (pageIndex === 1) {
+        const baseViewport = page.getViewport({ scale: 1 })
+        const scale = Math.min(2, 1400 / Math.max(baseViewport.width, 1))
+        const previewViewport = page.getViewport({ scale })
+        const canvas = document.createElement('canvas')
+        const context = canvas.getContext('2d')
 
-    for (const item of lines) {
-      const lineY = Math.round(item.y)
-      if (currentY === null || Math.abs(lineY - currentY) <= 2) {
-        currentLine.push(item.text)
-      } else {
-        const text = currentLine.join(' ').replace(/\s+/g, ' ').trim()
-        if (text) {
-          pageLines.push(text)
+        if (context) {
+          canvas.width = Math.ceil(previewViewport.width)
+          canvas.height = Math.ceil(previewViewport.height)
+          await page.render({ canvas, canvasContext: context, viewport: previewViewport }).promise
+          firstPageImageBase64 = canvas.toDataURL('image/jpeg', 0.82).split(',')[1] ?? ''
+          canvas.width = 0
+          canvas.height = 0
         }
-        currentLine = [item.text]
       }
-      currentY = lineY
-    }
 
-    const finalLine = currentLine.join(' ').replace(/\s+/g, ' ').trim()
-    if (finalLine) {
-      pageLines.push(finalLine)
-    }
+      const content = await page.getTextContent()
+      const items = content.items as Array<{ str?: string; transform?: number[] }>
+      const lines = items
+        .map((item, index) => ({
+          text: item.str ?? '',
+          x: item.transform?.[4] ?? index,
+          y: item.transform?.[5] ?? 0,
+        }))
+        .filter((item) => item.text.trim())
+        .sort((a, b) => b.y - a.y || a.x - b.x)
 
-    if (pageLines.length > 0) {
-      pageTexts.push(pageLines.join('\n'))
+      const pageLines: string[] = []
+      let currentY: number | null = null
+      let currentLine: string[] = []
+
+      for (const item of lines) {
+        const lineY = Math.round(item.y)
+        if (currentY === null || Math.abs(lineY - currentY) <= 2) {
+          currentLine.push(item.text)
+        } else {
+          const text = currentLine.join(' ').replace(/\s+/g, ' ').trim()
+          if (text) pageLines.push(text)
+          currentLine = [item.text]
+        }
+        currentY = lineY
+      }
+
+      const finalLine = currentLine.join(' ').replace(/\s+/g, ' ').trim()
+      if (finalLine) pageLines.push(finalLine)
+      if (pageLines.length > 0) pageTexts.push(pageLines.join('\n'))
     }
+  } finally {
+    await pdf.destroy()
   }
 
-  return pageTexts.join('\n')
+  return {
+    text: pageTexts.join('\n'),
+    firstPageImageBase64,
+  }
+}
+
+export async function extractPdfText(file: File) {
+  const result = await extractPdfContent(file)
+  return result.text
 }
 
 export type ExtractedInvoiceItem = {

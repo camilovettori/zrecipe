@@ -202,7 +202,7 @@ export default function InvoicePdfPreview({ file, zoom, onZoomChange }: Props) {
         </div>
       )}
       {!error && pageCount > 0 && (
-        <div className="flex min-w-full flex-col items-center gap-4 p-4">
+        <div className="flex w-max min-w-full flex-col items-center gap-4 p-4">
           {Array.from({ length: pageCount }, (_, index) => (
             <canvas
               key={index}

@@ -34,7 +34,7 @@ import {
 } from '@/lib/invoices'
 import {
   bytesToSize,
-  extractPdfText,
+  extractPdfContent,
   fileTypeFromName,
   normalizeExtractedItems,
   type ExtractedInvoiceItem,
@@ -199,10 +199,19 @@ function matchDraftItems(
       .filter(({ score }) => score >= 70)
       .sort((a, b) => b.score - a.score)
 
-    const best = matches[0]?.ingredient
-    if (!best) {
+    const bestMatch = matches[0]
+    const secondMatch = matches[1]
+    const isConfident = Boolean(
+      bestMatch &&
+      (bestMatch.score === 100 ||
+        (bestMatch.score >= 85 && (!secondMatch || bestMatch.score - secondMatch.score >= 15)))
+    )
+
+    if (!bestMatch || !isConfident) {
       return item
     }
+
+    const best = bestMatch.ingredient
 
     return {
       ...item,
@@ -245,6 +254,19 @@ function buildMatchedDraft(
   return {
     ...draft,
     items: matchDraftItems(draft.items, ingredients),
+  }
+}
+
+function attachResolvedSupplier(draft: InvoiceFormState, supplierId?: string | null) {
+  if (!supplierId || !draft.supplierName.trim()) return draft
+  return {
+    ...draft,
+    supplierId,
+    supplierMatch: {
+      type: 'existing' as const,
+      id: supplierId,
+      name: draft.supplierName,
+    },
   }
 }
 
@@ -479,9 +501,9 @@ export default function ImportInvoicesPage() {
       }
 
       if (fileKind === 'pdf') {
-        const text = await extractPdfText(file)
+        const { text, firstPageImageBase64 } = await extractPdfContent(file)
 
-        if (!text.trim()) {
+        if (!text.trim() && !firstPageImageBase64) {
           toast.info('This PDF appears to be scanned. Please enter items manually.')
           setDraft(
             buildMatchedDraft(
@@ -512,12 +534,18 @@ export default function ImportInvoicesPage() {
         const response = await fetch('/api/invoices/extract', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ kind: 'pdf', text, fileName: file.name }),
+          body: JSON.stringify({
+            kind: 'pdf',
+            text,
+            firstPageImageBase64,
+            fileName: file.name,
+          }),
         })
 
         const payload = (await response.json().catch(() => ({}))) as {
           error?: string
           supplier_name?: string
+          supplier_id?: string | null
           invoice_number?: string | null
           invoice_date?: string
           total_amount?: number | null
@@ -567,7 +595,7 @@ export default function ImportInvoicesPage() {
           needs_verification: rawItems[i]?.needs_verification ?? false,
         }))
         setDraft(
-          buildMatchedDraft(
+          attachResolvedSupplier(buildMatchedDraft(
             payload.supplier_name ?? '',
             payload.invoice_number,
             payload.invoice_date,
@@ -593,7 +621,7 @@ export default function ImportInvoicesPage() {
               vatAmount: payload.vat_amount ?? null,
               vatRate: payload.vat_rate ?? null,
             }
-          )
+          ), payload.supplier_id)
         )
         if (extractedItems.length === 0) {
           toast.info("We couldn't extract all data. Please fill in the missing fields.")
@@ -628,6 +656,7 @@ export default function ImportInvoicesPage() {
         const payload = (await response.json().catch(() => ({}))) as {
           error?: string
           supplier_name?: string
+          supplier_id?: string | null
           invoice_number?: string | null
           invoice_date?: string
           total_amount?: number | null
@@ -677,7 +706,7 @@ export default function ImportInvoicesPage() {
           needs_verification: rawItems[i]?.needs_verification ?? false,
         }))
         setDraft(
-          buildMatchedDraft(
+          attachResolvedSupplier(buildMatchedDraft(
             payload.supplier_name ?? '',
             payload.invoice_number,
             payload.invoice_date,
@@ -703,7 +732,7 @@ export default function ImportInvoicesPage() {
               vatAmount: payload.vat_amount ?? null,
               vatRate: payload.vat_rate ?? null,
             }
-          )
+          ), payload.supplier_id)
         )
         if (extractedItems.length === 0) {
           toast.info("We couldn't extract all data. Please fill in the missing fields.")
@@ -746,8 +775,8 @@ export default function ImportInvoicesPage() {
   }
 
   const handleContinue = () => {
-    if (!draft.supplierName.trim()) {
-      toast.error('Supplier name is required.')
+    if (!draft.supplierName.trim() || draft.supplierName === 'Unknown Supplier') {
+      toast.error('Review and select the supplier before continuing.')
       return
     }
     if (draft.items.length === 0) {
