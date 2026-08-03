@@ -19,6 +19,9 @@ import { cn } from '@/lib/utils'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
+import { useIngredientCategories } from '@/hooks/useIngredientCategories'
+import { DEFAULT_INGREDIENT_CATEGORIES } from '@/lib/constants/ingredient-categories'
+import { EU_ALLERGENS } from '@/lib/allergens'
 
 type Props = {
   title: string
@@ -189,10 +192,12 @@ export function DescriptionCombobox({
   item,
   ingredients,
   onUpdate,
+  categories = DEFAULT_INGREDIENT_CATEGORIES,
 }: {
   item: InvoiceLineItem
   ingredients: IngredientLookup[]
   onUpdate: (patch: Partial<InvoiceLineItem>) => void
+  categories?: string[]
 }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -280,6 +285,7 @@ export function DescriptionCombobox({
           item.packageSize && item.packageUnit ? item.packageUnit : item.unit
         ) ??
         item.unit,
+      newIngredientAllergens: [],
     }
     onUpdate(patch)
     setOpen(false)
@@ -391,6 +397,52 @@ export function DescriptionCombobox({
           onChange={(e) => onUpdate({ newIngredientBrand: e.target.value })}
           className="mt-1 h-7 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10"
         />
+      )}
+
+      {item.createIngredient && (
+        <div className="mt-1.5">
+          <CustomSelect
+            value={item.newIngredientCategory ?? 'Other'}
+            onChange={(v) => onUpdate({ newIngredientCategory: v })}
+            options={categories.map((c) => ({ value: c, label: c }))}
+            placeholder="Category"
+            size="sm"
+          />
+        </div>
+      )}
+
+      {item.createIngredient && (
+        <div className="mt-1.5">
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Allergens
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {EU_ALLERGENS.map((a) => {
+              const isSelected = (item.newIngredientAllergens ?? []).includes(a.id)
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => {
+                    const current = item.newIngredientAllergens ?? []
+                    const updated = isSelected
+                      ? current.filter((id) => id !== a.id)
+                      : [...current, a.id]
+                    onUpdate({ newIngredientAllergens: updated })
+                  }}
+                  className={cn(
+                    'rounded-full px-2 py-0.5 text-[10px] font-medium transition',
+                    isSelected
+                      ? 'bg-red-100 text-red-700 ring-1 ring-red-300'
+                      : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                  )}
+                >
+                  {a.shortName}
+                </button>
+              )
+            })}
+          </div>
+        </div>
       )}
 
       {open &&
@@ -521,6 +573,7 @@ export default function InvoiceEditor({
   showItemsTable = true,
   className,
 }: Props) {
+  const { categories } = useIngredientCategories()
   const totals = recalculateInvoiceTotals(draft.items, draft.totalAmount)
   const effectiveSubtotal =
     Number.isFinite(draft.subtotalAmount ?? NaN) && draft.subtotalAmount != null
@@ -854,6 +907,7 @@ export default function InvoiceEditor({
                       item={item}
                       ingredients={ingredients}
                       onUpdate={(patch) => updateItem(item.id, patch)}
+                      categories={categories}
                     />
                     {item.product_code && (
                       <p className="mt-0.5 text-xs text-slate-400 truncate">

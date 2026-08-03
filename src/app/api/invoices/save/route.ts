@@ -21,6 +21,7 @@ type SaveItem = {
   newIngredientBrand?: string | null
   newIngredientCategory?: string | null
   newIngredientUnit?: string | null
+  newIngredientAllergens?: number[]
   ingredientMatch?:
     | { type: 'existing'; id: string; name: string }
     | { type: 'create'; name: string }
@@ -419,6 +420,21 @@ export async function POST(request: NextRequest) {
 
           ingredientId = createdIngredient.id
           ingredientIdByNormalizedName.set(normalizedName, ingredientId)
+
+          if (item.newIngredientAllergens?.length && ingredientId) {
+            const allergenRows = item.newIngredientAllergens.map((allergenId) => ({
+              ingredient_id: ingredientId,
+              allergen_id: allergenId,
+              status: 'contains',
+            }))
+            const { error: allergenError } = await admin
+              .from('ingredient_allergens')
+              .insert(allergenRows)
+
+            if (allergenError) {
+              console.error('[/api/invoices/save] allergen insert failed:', allergenError)
+            }
+          }
         }
 
         // Image is now resolved client-side from the local manifest — no auto-fetch needed here.

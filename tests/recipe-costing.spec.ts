@@ -223,4 +223,40 @@ test.describe('live sub-recipe cost', () => {
     expect(result.source).toBe('live_incomplete')
     expect(result.costPerUnit).toBe(5) // only the priced ingredient counted
   })
+
+  test('sub-recipe cost-per-unit includes labor and overhead, not just ingredients', () => {
+    // Ingredients €5 + labor €3 + overhead €2 = €10 total, yield 1 unit.
+    const row: SubRecipeCostRow = {
+      id: 'sub-5',
+      sub_ingredient_cost_per_unit: null,
+      sub_ingredient_unit: 'unit',
+      yield_quantity: 1,
+      yield_unit: 'unit',
+      labor_enabled: true,
+      labor_mode: 'fixed',
+      labor_cost: 3,
+      overhead_enabled: true,
+      overhead_mode: 'fixed',
+      overhead_cost: 2,
+      recipe_ingredients: [
+        { id: 'ri-1', quantity: 500, unit: 'g', ingredient: { current_price: 0.01, price_unit: 'g' } }, // €5
+      ],
+    }
+
+    const result = computeLiveSubRecipeCost(row)
+    expect(result.source).toBe('live')
+    expect(result.costPerUnit).toBe(10) // NOT €5 (ingredients-only)
+
+    // A parent recipe line using 2 units of this sub-recipe must cost €20,
+    // not €10 — i.e. the full €10/unit (incl. labor+overhead) carries through.
+    const parentLine = calculateIngredientCost({
+      quantity: 2,
+      unit: 'unit',
+      name: 'Sub-recipe line',
+      current_price: result.costPerUnit,
+      price_unit: result.unit ?? 'unit',
+    })
+    expect(parentLine.status).toBe('ok')
+    expect(parentLine.cost).toBe(20)
+  })
 })

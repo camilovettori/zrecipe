@@ -27,6 +27,7 @@ export type InvoiceLineItem = {
   newIngredientBrand?: string
   newIngredientCategory?: string
   newIngredientUnit?: string
+  newIngredientAllergens?: number[]
   /** Immutable snapshot of the AI-extracted description, captured when the
    *  extraction result is normalized into the draft. Used as the lookup key
    *  for supplier-aware ingredient name memory — never touched by later
@@ -84,6 +85,7 @@ export function createEmptyInvoiceItem(): InvoiceLineItem {
     newIngredientName: '',
     newIngredientCategory: 'Other',
     newIngredientUnit: 'unit',
+    newIngredientAllergens: [],
   }
 }
 
