@@ -3,6 +3,7 @@ export type InvoiceFileType = 'pdf' | 'csv' | 'image'
 export type InvoiceLineItem = {
   id: string
   description: string
+  product_code?: string | null
   quantity: number
   unit: string
   packageSize: number | null
@@ -63,6 +64,7 @@ export function createEmptyInvoiceItem(): InvoiceLineItem {
   return {
     id: crypto.randomUUID(),
     description: '',
+    product_code: null,
     quantity: 1,
     unit: 'unit',
     packageSize: null,

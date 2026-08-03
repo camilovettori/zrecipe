@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Info, Pencil } from 'lucide-react'
+import { AlertTriangle, Info, Pencil } from 'lucide-react'
 import type { RecipeCostSummary } from '@/hooks/useRecipes'
 import { cn } from '@/lib/utils'
 import { convertUnit } from '@/lib/utils/unit-converter'
@@ -186,16 +186,38 @@ export default function CostBreakdown({
           <div className="flex items-center gap-1">
             <span className={cn(
               'rounded-full px-2.5 py-1 text-xs font-semibold',
-              foodCostPct < 25 ? 'bg-emerald-100 text-emerald-700'
+              cost.incompleteCost
+                ? 'bg-slate-100 text-slate-500'
+                : foodCostPct < 25 ? 'bg-emerald-100 text-emerald-700'
                 : foodCostPct < 35 ? 'bg-amber-100 text-amber-700'
                 : 'bg-red-100 text-red-600'
             )}>
-              Food cost {foodCostPct.toFixed(1)}%
+              {cost.incompleteCost ? 'Food cost incomplete' : `Food cost ${foodCostPct.toFixed(1)}%`}
             </span>
-            <InfoTooltip text="Percentage of selling price that goes to costs. Industry target: under 35%." />
+            <InfoTooltip text={cost.incompleteCost
+              ? 'Some ingredients are missing a price or have a unit mismatch — this percentage is not reliable yet.'
+              : 'Percentage of selling price that goes to costs. Industry target: under 35%.'} />
           </div>
         )}
       </div>
+
+      {cost.incompleteCost && (
+        <div className="mb-3 flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-700">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            <strong className="font-semibold">Cost incomplete</strong> — {cost.affectedIngredientIds.length} ingredient{cost.affectedIngredientIds.length === 1 ? '' : 's'}{' '}
+            {cost.hasMissingPrices && cost.hasUnitMismatches
+              ? 'need a price or a unit fix'
+              : cost.hasMissingPrices ? 'need a price' : 'need a unit fix'}. Margin and profit below aren&apos;t reliable until this is fixed.
+          </span>
+        </div>
+      )}
+      {!cost.incompleteCost && cost.hasStaleSubRecipeCosts && (
+        <div className="mb-3 flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-700">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>A sub-recipe&apos;s cost couldn&apos;t be fully recalculated live and may be out of date.</span>
+        </div>
+      )}
 
       <div>
         {/* Ingredient cost */}
@@ -422,11 +444,16 @@ export default function CostBreakdown({
 
         {/* LEFT — Total cost */}
         <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-          <div className="mb-2 flex items-center">
+          <div className="mb-2 flex items-center gap-1.5">
             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
               {batchMultiplier > 1 ? `Batch total cost ×${batchMultiplier}` : 'Total cost'}
             </p>
             <InfoTooltip text="Sum of ingredients + labor + overhead + waste. This is what it costs you to produce this recipe." />
+            {cost.incompleteCost && (
+              <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700">
+                Incomplete
+              </span>
+            )}
           </div>
           <p className="mb-1 text-2xl font-black text-gray-800">
             €{(cost.totalCost * batchMultiplier).toFixed(2)}
@@ -532,9 +559,11 @@ export default function CostBreakdown({
         <>
         <div className={cn(
           'mb-4 rounded-2xl border p-5',
-          profitPerUnit >= 0
-            ? 'border-emerald-100 bg-gradient-to-b from-emerald-50/80 to-white'
-            : 'border-red-100 bg-gradient-to-b from-red-50/80 to-white'
+          cost.incompleteCost
+            ? 'border-slate-200 bg-gradient-to-b from-slate-50/80 to-white'
+            : profitPerUnit >= 0
+              ? 'border-emerald-100 bg-gradient-to-b from-emerald-50/80 to-white'
+              : 'border-red-100 bg-gradient-to-b from-red-50/80 to-white'
         )}>
 
         {/* Margin + Slider */}
@@ -543,10 +572,16 @@ export default function CostBreakdown({
             <div className="flex items-center">
               <span className="text-sm font-semibold text-gray-600">Margin</span>
               <InfoTooltip text="Profit as a percentage of selling price. Above 60% is excellent for most food businesses." />
+              {cost.incompleteCost && (
+                <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700">
+                  Incomplete
+                </span>
+              )}
             </div>
             <span className={cn(
               'text-3xl font-black',
-              activeMargin < 20 ? 'text-red-500'
+              cost.incompleteCost ? 'text-slate-400'
+                : activeMargin < 20 ? 'text-red-500'
                 : activeMargin < 40 ? 'text-amber-500'
                 : activeMargin < 60 ? 'text-emerald-500'
                 : 'text-emerald-600'
@@ -582,7 +617,7 @@ export default function CostBreakdown({
           </div>
           <span className={cn(
             'text-lg font-bold',
-            profitPerUnit >= 0 ? 'text-emerald-600' : 'text-red-500'
+            cost.incompleteCost ? 'text-slate-400' : profitPerUnit >= 0 ? 'text-emerald-600' : 'text-red-500'
           )}>
             {profitPerUnit >= 0 ? '+' : ''}€{profitPerUnit.toFixed(2)}
           </span>
@@ -608,7 +643,7 @@ export default function CostBreakdown({
               </div>
               <span className={cn(
                 'text-sm font-semibold',
-                profitPerUnit >= 0 ? 'text-emerald-600' : 'text-red-500'
+                cost.incompleteCost ? 'text-slate-400' : profitPerUnit >= 0 ? 'text-emerald-600' : 'text-red-500'
               )}>
                 {profitPerUnit >= 0 ? '+' : ''}€{(profitPerUnit * batchMultiplier).toFixed(2)}
               </span>
@@ -633,7 +668,7 @@ export default function CostBreakdown({
               </div>
               <span className={cn(
                 'text-sm font-semibold',
-                profitPerUnit >= 0 ? 'text-emerald-600' : 'text-red-500'
+                cost.incompleteCost ? 'text-slate-400' : profitPerUnit >= 0 ? 'text-emerald-600' : 'text-red-500'
               )}>
                 {profitPerUnit >= 0 ? '+' : ''}€{(profitPerUnit * yieldQty).toFixed(2)}
               </span>
@@ -641,8 +676,9 @@ export default function CostBreakdown({
           </>
         )}
 
-        {/* Loss warning */}
-        {profitPerUnit < 0 && (
+        {/* Loss warning — suppressed when cost is incomplete: a confident
+            "selling below cost" claim isn't warranted off an understated cost. */}
+        {!cost.incompleteCost && profitPerUnit < 0 && (
           <div className="mt-3 rounded-xl bg-red-100 p-2.5">
             <p className="text-center text-xs font-medium text-red-600">
               Selling below cost — increase price or reduce costs

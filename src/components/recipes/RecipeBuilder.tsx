@@ -41,12 +41,14 @@ import { cn } from '@/lib/utils'
 import {
   calculateRecipeCost,
   calculateLineCost,
+  calculateLineCostDetailed,
   type RecipeEditorData,
   type RecipeIngredientDraft,
   type RecipeRecord,
   type RecipeStepDraft,
   useRecipes,
 } from '@/hooks/useRecipes'
+import type { IngredientCostStatus } from '@/lib/utils/cost-calculator'
 import { useRecipeCategories } from '@/hooks/useRecipeCategories'
 import DeleteCategoryModal from '@/components/ingredients/DeleteCategoryModal'
 import RenameCategoryModal from '@/components/shared/RenameCategoryModal'
@@ -221,7 +223,8 @@ function FieldHint({ text }: { text: string }) {
 function IngredientRow({
   item,
   lineCost,
-  hasMismatch,
+  costStatus,
+  isZeroPrice,
   batchMultiplier,
   onUpdate,
   onRemove,
@@ -230,7 +233,8 @@ function IngredientRow({
 }: {
   item: RecipeIngredientDraft
   lineCost: number
-  hasMismatch: boolean
+  costStatus: IngredientCostStatus
+  isZeroPrice: boolean
   batchMultiplier: number
   onUpdate: (patch: Partial<RecipeIngredientDraft>) => void
   onRemove: () => void
@@ -288,7 +292,14 @@ function IngredientRow({
       dragControls={controls}
       className="group"
     >
-      <div className="rounded-xl border border-slate-100 bg-white transition hover:border-slate-200 hover:shadow-sm">
+      <div
+        className={cn(
+          'rounded-xl border transition hover:shadow-sm',
+          costStatus !== 'ok'
+            ? 'border-amber-200 bg-amber-50/40 hover:border-amber-300'
+            : 'border-slate-100 bg-white hover:border-slate-200'
+        )}
+      >
         <div className="grid grid-cols-[28px_1fr_36px_70px_70px_60px_80px_65px_28px] items-center gap-1.5 px-2 py-1.5">
           <div
             className="cursor-grab touch-none text-slate-300 transition hover:text-slate-500 active:cursor-grabbing"
@@ -324,6 +335,17 @@ function IngredientRow({
               >
                 <RefreshCw className="h-3.5 w-3.5" />
               </button>
+              {costStatus === 'missing_price' && (
+                <Link
+                  href={`/recipes/${item.subRecipeId}`}
+                  target="_blank"
+                  title="This sub-recipe has no cost yet — open it and add ingredient prices"
+                  className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 transition hover:border-amber-300 hover:bg-amber-100"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  Needs price
+                </Link>
+              )}
             </div>
           ) : item.ingredientId ? (
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -338,7 +360,7 @@ function IngredientRow({
                   <span className="mt-0.5 block text-[11px] font-normal text-slate-400">{item.ingredientBrand}</span>
                 )}
               </Link>
-              {item.currentPrice == null && (
+              {costStatus === 'missing_price' && (
                 <Link
                   href={`/ingredients/${item.ingredientId}`}
                   target="_blank"
@@ -346,8 +368,16 @@ function IngredientRow({
                   className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 transition hover:border-amber-300 hover:bg-amber-100"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  New - add price
+                  Needs price
                 </Link>
+              )}
+              {isZeroPrice && (
+                <span
+                  title="Priced at €0 — confirm this is intentional"
+                  className="shrink-0 rounded-full p-0.5 text-slate-300"
+                >
+                  <Info className="h-3 w-3" />
+                </span>
               )}
             </div>
           ) : (
@@ -468,9 +498,9 @@ function IngredientRow({
 
           {/* Cost */}
           <span className="flex items-center justify-end gap-1 text-right text-sm font-medium tabular-nums text-slate-700">
-            {hasMismatch && (
+            {costStatus === 'unit_mismatch' && (
               <span
-                title={`Unit mismatch: recipe uses ${item.unit} but price is per ${item.priceUnit ?? item.unit} — cost excluded`}
+                title={`Unit mismatch: recipe uses ${item.unit} but price is per ${item.priceUnit ?? item.unit} — cost excluded, needs review`}
                 className="shrink-0 text-amber-500"
               >
                 <AlertTriangle className="h-3.5 w-3.5" />
@@ -788,11 +818,15 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   // ── Computed values ────────────────────────────────────────────────────────
 
   const computedIngredients = useMemo(
-    () => recipe.ingredients.map((item) => ({
-      ...item,
-      lineCost: calculateLineCost(item),
-      hasMismatch: !!item.currentPrice && !isConvertible(item.unit, item.priceUnit ?? item.unit),
-    })),
+    () => recipe.ingredients.map((item) => {
+      const detailed = calculateLineCostDetailed(item)
+      return {
+        ...item,
+        lineCost: detailed.cost,
+        costStatus: detailed.status,
+        isZeroPrice: detailed.isZeroPrice ?? false,
+      }
+    }),
     [recipe.ingredients]
   )
 
@@ -2377,7 +2411,8 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                     key={item.id}
                     item={item}
                     lineCost={computedIngredients[idx]?.lineCost ?? 0}
-                    hasMismatch={computedIngredients[idx]?.hasMismatch ?? false}
+                    costStatus={computedIngredients[idx]?.costStatus ?? 'ok'}
+                    isZeroPrice={computedIngredients[idx]?.isZeroPrice ?? false}
                     batchMultiplier={effectiveN}
                     onUpdate={(patch) => updateIngredient(item.id, patch)}
                     onRemove={() => removeIngredient(item.id)}

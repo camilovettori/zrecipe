@@ -16,6 +16,8 @@ import {
 import type { IngredientLookup, SupplierLookup } from '@/hooks/useInvoices'
 import { cn } from '@/lib/utils'
 import { CustomSelect } from '@/components/ui/CustomSelect'
+import { createClient } from '@/lib/supabase/client'
+import { resolveTenantId } from '@/hooks/useTenant'
 
 type Props = {
   title: string
@@ -535,6 +537,82 @@ export default function InvoiceEditor({
 
   const updateDraft = (patch: Partial<InvoiceFormState>) => onChange({ ...draft, ...patch })
 
+  // ── Supplier product-code lookup ──────────────────────────────────────
+  // A (supplier, product_code) match is definitive — stronger than any name
+  // match — so it's loaded once per tenant and applied whenever the item's
+  // code or the selected supplier changes, ahead of/overriding fuzzy name
+  // matching done elsewhere in the invoice pipeline.
+  const supplierCodesRef = useRef<
+    Array<{ ingredient_id: string; supplier_id: string; product_code: string }>
+  >([])
+  const [supplierCodesLoaded, setSupplierCodesLoaded] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadSupplierCodes = async () => {
+      try {
+        const supabase = createClient()
+        const tenantId = await resolveTenantId()
+        const { data } = await supabase
+          .from('ingredient_supplier_codes')
+          .select('ingredient_id, supplier_id, product_code')
+          .eq('tenant_id', tenantId)
+
+        if (!cancelled) {
+          supplierCodesRef.current = data ?? []
+          setSupplierCodesLoaded(true)
+        }
+      } catch (error) {
+        console.error('[InvoiceEditor] supplier code lookup failed:', error)
+      }
+    }
+
+    loadSupplierCodes()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const itemCodeSignature = draft.items.map((item) => `${item.id}:${item.product_code ?? ''}`).join('|')
+
+  useEffect(() => {
+    if (!draft.supplierId || !supplierCodesLoaded) return
+    const codes = supplierCodesRef.current
+    if (codes.length === 0) return
+
+    let changed = false
+    const nextItems = draft.items.map((item) => {
+      if (!item.product_code) return item
+
+      const codeMatch = codes.find(
+        (sc) => sc.supplier_id === draft.supplierId && sc.product_code === item.product_code
+      )
+      if (!codeMatch || item.ingredientId === codeMatch.ingredient_id) return item
+
+      changed = true
+      const matchedIngredientName =
+        ingredients.find((ing) => ing.id === codeMatch.ingredient_id)?.name ?? item.description
+
+      return {
+        ...item,
+        ingredientId: codeMatch.ingredient_id,
+        ingredientMatch: {
+          type: 'existing' as const,
+          id: codeMatch.ingredient_id,
+          name: matchedIngredientName,
+        },
+        ingredientQuery: matchedIngredientName,
+        createIngredient: false,
+      }
+    })
+
+    if (changed) {
+      updateDraft({ items: nextItems, totalAmount: recalculateInvoiceTotals(nextItems).subtotal })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.supplierId, supplierCodesLoaded, itemCodeSignature, ingredients])
+
   const updateItem = (itemId: string, patch: Partial<InvoiceLineItem>) => {
     const items = draft.items.map((item) => {
       if (item.id !== itemId) return item
@@ -776,6 +854,11 @@ export default function InvoiceEditor({
                       ingredients={ingredients}
                       onUpdate={(patch) => updateItem(item.id, patch)}
                     />
+                    {item.product_code && (
+                      <p className="mt-0.5 text-xs text-slate-400 truncate">
+                        Code: {item.product_code}
+                      </p>
+                    )}
                   </td>
 
                   <td className="border-b border-slate-100 px-3 py-2">

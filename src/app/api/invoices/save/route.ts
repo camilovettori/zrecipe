@@ -8,6 +8,7 @@ import { normalizeText, resolveInvoiceIngredientPricing } from '@/lib/invoices'
 type SaveItem = {
   id?: string
   description: string
+  product_code?: string | null
   quantity: number
   unit: string
   packageSize?: number | null
@@ -452,6 +453,37 @@ export async function POST(request: NextRequest) {
       }
 
       createdItems.push(createdItem)
+
+      // Supplier product-code memory: a (supplier, code) pair is a
+      // DEFINITIVE match for future invoices — stronger than name matching —
+      // so remember it whenever this line item carries a code and resolved
+      // to an ingredient. Best-effort: never fails the (already-succeeded)
+      // item save.
+      if (item.product_code && supplierId && ingredientId) {
+        try {
+          const { error: codeUpsertError } = await admin
+            .from('ingredient_supplier_codes')
+            .upsert(
+              {
+                tenant_id: tenantId,
+                supplier_id: supplierId,
+                ingredient_id: ingredientId,
+                product_code: item.product_code,
+                updated_at: new Date().toISOString(),
+              },
+              {
+                onConflict: 'tenant_id,supplier_id,product_code',
+                ignoreDuplicates: false,
+              }
+            )
+
+          if (codeUpsertError) {
+            console.error('[/api/invoices/save] supplier code upsert failed:', codeUpsertError)
+          }
+        } catch (codeErr) {
+          console.error('[/api/invoices/save] supplier code upsert failed:', codeErr)
+        }
+      }
 
       if (ingredientId) {
         const { data: latestHistoryData } = await admin

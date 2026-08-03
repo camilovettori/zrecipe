@@ -50,6 +50,7 @@ Return ONLY valid JSON, no markdown, no backticks, no explanation. The JSON must
   "items": [
     {
       "description": "string",
+      "product_code": "string or null",
       "brand": "string or null",
       "quantity": number,
       "unit": "string",
@@ -108,6 +109,14 @@ When to append " (verify)" to the description:
 
 When NOT to append " (verify)":
 - You can read the description clearly, even if it looks unusual or long. "Bottles of Egg White 1ltr (Ireland)" is a valid description; do NOT flag it just because it isn't a "clean" product name.
+
+product_code:
+- The supplier's product code, SKU, item number, or article code for this line item
+- Usually appears in a "Code", "Item No", "SKU", "Product Code", "Article", or "Ref" column
+- Common formats: numeric (12345), alphanumeric (BUT-SAL-250), with dashes/slashes
+- Return the EXACT code as printed, preserving case and formatting
+- Return null if no product code is visible on this line
+- Do NOT confuse with invoice number, batch number, or barcode
 
 brand:
 - Product manufacturer or brand shown on the line (e.g., "KTC", "Callebaut", "Newforge", "Lakeland")
@@ -339,6 +348,7 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage, sourceT
     total?: number | null
     items?: Array<{
       description?: string
+      product_code?: string | null
       brand?: string | null
       quantity?: number
       unit?: string
@@ -422,6 +432,7 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage, sourceT
     total_amount:    parsed.total ?? null,
     items: (parsed.items ?? []).map((item) => ({
       description:  item.description ?? '',
+      product_code: item.product_code?.trim() || null,
       brand:        item.brand?.trim() || null,
       quantity:     Number(item.quantity ?? 1) || 1,
       unit:         item.unit ?? 'unit',

@@ -92,6 +92,7 @@ function buildDraftFromItems(
   fileUrl: string | null,
   items: Array<{
     description: string
+    product_code?: string | null
     brand?: string | null
     quantity: number
     unit: string
@@ -124,6 +125,7 @@ function buildDraftFromItems(
         return {
           id: crypto.randomUUID(),
           description,
+          product_code: item.product_code ?? null,
           extractedDescriptionOriginal: item.extractedDescriptionOriginal ?? item.description,
           needs_verification: item.needs_verification ?? false,
           newIngredientBrand: item.brand?.trim() || '',
@@ -503,6 +505,7 @@ export default function ImportInvoicesPage() {
           vat_rate?: number | null
             items?: Array<{
               description: string
+              product_code?: string | null
               brand?: string | null
               quantity: number
               unit: string
@@ -612,6 +615,7 @@ export default function ImportInvoicesPage() {
           vat_rate?: number | null
           items?: Array<{
             description: string
+            product_code?: string | null
             brand?: string | null
             quantity: number
             unit: string

@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { convertUnit } from '@/lib/utils/unit-converter'
-import { calculateCost, calculateIngredientCost } from '@/lib/utils/cost-calculator'
+import { calculateCost, calculateIngredientCost, type IngredientCostLine } from '@/lib/utils/cost-calculator'
 import { type IngredientLookup } from '@/hooks/useInvoices'
 import { resolveTenantId } from '@/hooks/useTenant'
 import { type IngredientAllergen, type AllergenStatus } from '@/lib/allergens'
 import { resolveIngredientPrice, type PriceHistoryEntry } from '@/lib/ingredients/resolveIngredientPrice'
+import { computeLiveSubRecipeCost, type SubRecipeCostRow } from '@/lib/recipes/subRecipeCost'
 
 export interface RecipeStepDraft {
   id: string
@@ -30,6 +31,9 @@ export interface RecipeIngredientDraft {
   yield_percent?: number | null
   yield_override?: boolean | null
   ep_weight_manual?: number | null
+  /** True when this line's sub-recipe price is a fallback snapshot rather
+   *  than a live recalculation from the sub-recipe's current ingredients. */
+  subRecipeCostStale?: boolean
 }
 
 export interface RecipeEditorData {
@@ -72,6 +76,21 @@ export interface RecipeCostSummary {
   sellingPrice: number
   marginPercent: number
   foodCostPercentage: number
+  /** At least one ingredient has never had a price recorded. */
+  hasMissingPrices: boolean
+  /** At least one ingredient's unit can't convert to its price's unit. */
+  hasUnitMismatches: boolean
+  /** At least one sub-recipe ingredient fell back to its stored cost
+   *  snapshot instead of a live recalculation. */
+  hasStaleSubRecipeCosts: boolean
+  /** hasMissingPrices || hasUnitMismatches — totals below aren't fully accurate. */
+  incompleteCost: boolean
+  /** At least one ingredient has an explicit price of exactly €0 — real data,
+   *  not incomplete, just unusual for food. */
+  hasZeroPricedIngredients: boolean
+  /** ids of the recipe_ingredients rows missing a price or unit-mismatched. */
+  affectedIngredientIds: string[]
+  warnings: string[]
 }
 
 export interface RecipeSummary {
@@ -106,11 +125,8 @@ type DBIngredientRow = {
   price_history?: Array<PriceHistoryEntry & { brand?: string | null }> | null
 }
 
-type DBSubRecipeRef = {
-  id: string
+type DBSubRecipeRef = SubRecipeCostRow & {
   name: string
-  sub_ingredient_cost_per_unit?: number | null
-  sub_ingredient_unit?: string | null
 }
 
 type DBRecipeIngredientRow = {
@@ -246,15 +262,29 @@ function serializeInstructions(steps: RecipeStepDraft[]) {
   return JSON.stringify(steps.map((step) => step.text).filter(Boolean))
 }
 
-function ingredientLineCost(item: RecipeIngredientDraft) {
-  return calculateIngredientCost({
+function ingredientCostInput(item: RecipeIngredientDraft) {
+  return {
+    id: item.id,
     quantity: item.quantity,
     unit: item.unit,
     name: item.ingredientName,
     yield_percent: item.yield_percent ?? 100,
-    current_price: item.currentPrice ?? 0,
+    // Preserve null (never priced) instead of collapsing it to 0 (priced at
+    // zero) — calculateIngredientCost needs the distinction to flag a
+    // missing price instead of silently costing the line at €0.
+    current_price: item.currentPrice ?? null,
     price_unit: item.priceUnit ?? item.unit,
-  }).cost
+    staleSubRecipeCost: item.subRecipeCostStale ?? false,
+  }
+}
+
+function ingredientLineCost(item: RecipeIngredientDraft) {
+  return calculateIngredientCost(ingredientCostInput(item)).cost
+}
+
+/** Per-row cost + status (ok / missing_price / unit_mismatch) for UI badges. */
+export function calculateLineCostDetailed(item: RecipeIngredientDraft): IngredientCostLine {
+  return calculateIngredientCost(ingredientCostInput(item))
 }
 
 export function calculateRecipeCost(
@@ -276,13 +306,7 @@ export function calculateRecipeCost(
   }
 ): RecipeCostSummary {
   const costs = calculateCost({
-    ingredients: ingredients.map((item) => ({
-      quantity: item.quantity,
-      unit: item.unit,
-      yield_percent: item.yield_percent ?? 100,
-      current_price: item.currentPrice ?? 0,
-      price_unit: item.priceUnit ?? item.unit,
-    })),
+    ingredients: ingredients.map((item) => ingredientCostInput(item)),
     laborEnabled: opts?.laborEnabled ?? false,
     laborMode: opts?.laborMode ?? 'fixed',
     laborCostFixed: laborCost,
@@ -312,6 +336,13 @@ export function calculateRecipeCost(
     sellingPrice: costs.sellingPrice,
     marginPercent: costs.margin,
     foodCostPercentage: costs.foodCostPercent,
+    hasMissingPrices: costs.hasMissingPrices,
+    hasUnitMismatches: costs.hasUnitMismatches,
+    hasStaleSubRecipeCosts: costs.hasStaleSubRecipeCosts,
+    incompleteCost: costs.incompleteCost,
+    hasZeroPricedIngredients: costs.hasZeroPricedIngredients,
+    affectedIngredientIds: costs.affectedLines.map((l) => l.id).filter((id): id is string => !!id),
+    warnings: costs.warnings,
   }
 }
 
@@ -412,11 +443,23 @@ function mapRecipeRow(row: DBRecipeRow, tenantLaborHourlyRate = 15): RecipeRecor
         : (item.sub_recipe ?? null)
       const ingredientName =
         ingredient?.name ?? subRecipeRef?.name ?? item.notes ?? `Ingredient ${index + 1}`
-      // A sub-recipe line is priced exactly like a regular ingredient: its rate
-      // is the sub-recipe's own cost-per-base-unit (€/g or €/ml), already
-      // computed and stored on save — no reconstruction needed here.
-      const currentPrice = ingredient?.currentPrice ?? subRecipeRef?.sub_ingredient_cost_per_unit ?? null
-      const priceUnit = ingredient?.priceUnit ?? subRecipeRef?.sub_ingredient_unit ?? item.unit
+
+      // A sub-recipe line is priced like a regular ingredient, but its rate is
+      // recalculated LIVE from the sub-recipe's current ingredients whenever
+      // possible, rather than trusting the frozen sub_ingredient_cost_per_unit
+      // snapshot written the last time that sub-recipe was saved. The snapshot
+      // is only used as a fallback (e.g. the sub-recipe has no ingredient rows
+      // in this fetch, or its own yield data is invalid) — subRecipeCostStale
+      // flags whenever that fallback fired so the UI can surface it.
+      const liveSubRecipeCost = !ingredient && subRecipeRef ? computeLiveSubRecipeCost(subRecipeRef) : null
+
+      const currentPrice = ingredient?.currentPrice ?? liveSubRecipeCost?.costPerUnit ?? null
+      const priceUnit =
+        ingredient?.priceUnit ?? liveSubRecipeCost?.unit ?? subRecipeRef?.sub_ingredient_unit ?? item.unit
+      const subRecipeCostStale =
+        liveSubRecipeCost != null &&
+        (liveSubRecipeCost.source === 'snapshot' || liveSubRecipeCost.source === 'live_incomplete')
+
       const line: RecipeIngredientDraft = {
         id: item.id,
         ingredientId: item.ingredient_id ?? ingredient?.id ?? null,
@@ -432,6 +475,7 @@ function mapRecipeRow(row: DBRecipeRow, tenantLaborHourlyRate = 15): RecipeRecor
         allergens,
         yield_percent: item.yield_percent != null ? Number(item.yield_percent) : 100,
         yield_override: item.yield_override ?? false,
+        subRecipeCostStale,
       }
       line.lineCost = calculateLineCost(line)
       return line
@@ -602,7 +646,36 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
                 id,
                 name,
                 sub_ingredient_cost_per_unit,
-                sub_ingredient_unit
+                sub_ingredient_unit,
+                yield_quantity,
+                yield_unit,
+                labor_enabled,
+                labor_cost,
+                labor_mode,
+                labor_hourly_rate,
+                prep_time_minutes,
+                overhead_enabled,
+                overhead_cost,
+                overhead_mode,
+                overhead_percent,
+                waste_percent,
+                recipe_ingredients!recipe_ingredients_recipe_id_fkey (
+                  id,
+                  quantity,
+                  unit,
+                  yield_percent,
+                  ingredient:ingredients (
+                    current_price,
+                    price_unit,
+                    price_history:ingredient_price_history (
+                      id, price, unit, is_selected_price, recorded_at
+                    )
+                  ),
+                  sub_recipe:recipes!sub_recipe_id (
+                    sub_ingredient_cost_per_unit,
+                    sub_ingredient_unit
+                  )
+                )
               )
             ),
             created_at,
@@ -701,7 +774,36 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
               id,
               name,
               sub_ingredient_cost_per_unit,
-              sub_ingredient_unit
+              sub_ingredient_unit,
+              yield_quantity,
+              yield_unit,
+              labor_enabled,
+              labor_cost,
+              labor_mode,
+              labor_hourly_rate,
+              prep_time_minutes,
+              overhead_enabled,
+              overhead_cost,
+              overhead_mode,
+              overhead_percent,
+              waste_percent,
+              recipe_ingredients!recipe_ingredients_recipe_id_fkey (
+                id,
+                quantity,
+                unit,
+                yield_percent,
+                ingredient:ingredients (
+                  current_price,
+                  price_unit,
+                  price_history:ingredient_price_history (
+                    id, price, unit, is_selected_price, recorded_at
+                  )
+                ),
+                sub_recipe:recipes!sub_recipe_id (
+                  sub_ingredient_cost_per_unit,
+                  sub_ingredient_unit
+                )
+              )
             )
           ),
           created_at,
