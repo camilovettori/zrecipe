@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --import tsx --test src/lib/utils/normalizeBrand.test.ts tests/priceHistoryBrandFix.test.ts tests/bulkInvoiceReviewGrouping.test.ts tests/aiImportRecipeDedupe.test.ts"
+    "test": "node --import tsx --test src/lib/utils/normalizeBrand.test.ts src/lib/utils/normalizeMemoryKey.test.ts tests/priceHistoryBrandFix.test.ts tests/bulkInvoiceReviewGrouping.test.ts tests/aiImportRecipeDedupe.test.ts tests/invoiceDuplicateCheck.test.ts tests/invoiceMemoryKeyConsistency.test.ts tests/aiImportRecipePriceUnit.test.ts tests/newIngredientModalDuplicateCheck.test.ts tests/costBreakdownMarginBand.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.0",

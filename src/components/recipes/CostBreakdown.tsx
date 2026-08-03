@@ -598,13 +598,9 @@ export default function CostBreakdown({
             </div>
             <span className={cn(
               'text-3xl font-black',
-              cost.incompleteCost ? 'text-slate-400'
-                : activeMargin < 20 ? 'text-red-500'
-                : activeMargin < 40 ? 'text-amber-500'
-                : activeMargin < 60 ? 'text-emerald-500'
-                : 'text-emerald-600'
+              cost.incompleteCost ? 'text-slate-400' : marginBand.colorClass
             )}>
-              {activeMargin.toFixed(1)}%
+              {rawMargin.toFixed(1)}%
             </span>
           </div>
           <input
@@ -612,14 +608,16 @@ export default function CostBreakdown({
             min={0}
             max={95}
             step={0.5}
-            value={Math.max(0, Math.min(95, activeMargin))}
+            value={sliderMargin}
             onChange={(e) => handleMarginSlider(Number(e.target.value))}
             className="h-2 w-full cursor-pointer appearance-none rounded-full bg-gradient-to-r from-red-400 via-amber-400 to-emerald-500 outline-none [&::-webkit-slider-thumb]:h-[18px] [&::-webkit-slider-thumb]:w-[18px] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-emerald-500 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:transition-transform active:[&::-webkit-slider-thumb]:scale-110 [&::-moz-range-thumb]:h-[18px] [&::-moz-range-thumb]:w-[18px] [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-emerald-500 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-md"
           />
           <div className="mt-1 flex justify-between">
             <span className="text-[10px] text-gray-300">0%</span>
-            {activeMargin >= 55 && (
-              <span className="text-[10px] font-medium text-emerald-500">Excellent</span>
+            {!cost.incompleteCost && (
+              <span className={cn('text-[10px] font-medium', marginBand.colorClass)}>
+                {marginBand.label}
+              </span>
             )}
             <span className="text-[10px] text-gray-300">100%</span>
           </div>
