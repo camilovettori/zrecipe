@@ -49,6 +49,8 @@ import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 import EmptyState from '@/components/shared/EmptyState'
+import type { AllergenStatus } from '@/lib/allergens'
+import InvoicePdfPreview from '@/components/invoices/InvoicePdfPreview'
 
 type Step = 'upload' | 'review' | 'confirm'
 
@@ -148,6 +150,8 @@ function buildDraftFromItems(
             getDefaultIngredientPriceUnit(
               item.packageSize && item.packageUnit ? item.packageUnit : item.unit
             ) ?? item.unit,
+          reviewAllergens: [],
+          allergensChanged: false,
         }
       })
     : [createEmptyInvoiceItem()]
@@ -178,7 +182,14 @@ function matchDraftItems(
   return items.map((item) => {
     // Already resolved by supplier-aware memory — leave it alone rather
     // than letting a fuzzy re-match potentially pick a different ingredient.
-    if (item.ingredientId) return item
+    if (item.ingredientId) {
+      const linked = ingredients.find((ingredient) => ingredient.id === item.ingredientId)
+      return {
+        ...item,
+        reviewAllergens: linked?.allergens ?? [],
+        allergensChanged: false,
+      }
+    }
 
     const matches = ingredients
       .map((ingredient) => ({
@@ -199,6 +210,8 @@ function matchDraftItems(
       ingredientQuery: best.name,
       ingredientMatch: { type: 'existing', id: best.id, name: best.name },
       newIngredientBrand: item.newIngredientBrand || best.brand || '',
+      reviewAllergens: best.allergens ?? [],
+      allergensChanged: false,
     }
   })
 }
@@ -273,7 +286,7 @@ export default function ImportInvoicesPage() {
             .order('name', { ascending: true }),
           supabase
             .from('ingredients')
-            .select('id, name, brand, current_price, price_unit')
+            .select('id, name, brand, current_price, price_unit, ingredient_allergens(allergen_id, status)')
             .eq('tenant_id', currentTenantId)
             .order('name', { ascending: true }),
         ])
@@ -294,6 +307,12 @@ export default function ImportInvoicesPage() {
             brand: item.brand ?? null,
             currentPrice: item.current_price ?? null,
             priceUnit: item.price_unit ?? null,
+            allergens: (item.ingredient_allergens ?? [])
+              .filter((row) => row.status === 'contains' || row.status === 'may_contain')
+              .map((row) => ({
+                allergenId: row.allergen_id,
+                status: row.status as AllergenStatus,
+              })),
           }))
         )
       } catch (error) {
@@ -998,21 +1017,8 @@ export default function ImportInvoicesPage() {
 
                 {/* Body */}
                 <div className="h-[calc(100vh-16rem)] min-h-[36rem] w-full overflow-auto rounded-b-3xl bg-slate-100">
-                  {fileKind === 'pdf' && filePreview ? (
-                    <div
-                      style={{
-                        transform: `scale(${zoom})`,
-                        transformOrigin: 'top left',
-                        width: `${100 / zoom}%`,
-                        height: `${100 / zoom}%`,
-                      }}
-                    >
-                      <iframe
-                        src={`${filePreview}#toolbar=1&navpanes=0&view=FitH`}
-                        className="block h-full w-full border-0"
-                        title="PDF preview"
-                      />
-                    </div>
+                  {fileKind === 'pdf' && file ? (
+                    <InvoicePdfPreview file={file} zoom={zoom} onZoomChange={setZoom} />
                   ) : fileKind === 'image' && filePreview ? (
                     // Blob preview of a locally-selected file — next/image optimisation
                     // doesn't apply, and a plain img lets us pan a zoomed-in scan.
@@ -1158,6 +1164,7 @@ export default function ImportInvoicesPage() {
             saveLabel="Continue to confirm"
             allowEditing
             showSummary
+            itemsLayout="review-cards"
           />
           </div>
         </div>

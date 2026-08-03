@@ -96,7 +96,9 @@ top of the page).
 description:
 - CRITICAL: Extract the description LITERALLY from the invoice. Do NOT interpret, translate, "clean up", or "improve" it. Copy the exact words in the exact order they appear.
 - Preserve casing exactly as printed. Do NOT convert to Title Case. If the invoice says "MC DOUGALLS STD MUFFIN CASE 480S 90G", return exactly that. If the invoice says "Bottles of Egg White 1ltr (Ireland)", return exactly that.
-- Do NOT remove brand names. Do NOT remove weights or volumes. Do NOT remove pack sizes. All of it stays in the description. (Weights and volumes ALSO go into package_size — that's a separate field.)
+- Read only the invoice's description/product-name column for this field. Do not concatenate fragments from adjacent Brand, Code, Pack, or Unit columns into the description.
+- If a brand is printed inside the description itself, preserve it there and also return it in brand when clearly identifiable. If the invoice has a separate brand/manufacturer column, return that value only in brand.
+- Do NOT remove weights or volumes printed inside the description. They stay in the description and ALSO go into package_size/package_unit.
 - Do NOT substitute words. "Egg White" is NOT "White Egg" and is NOT "White Milk". "Butter" is NOT "Margarine". "Flour" is NOT "Bread". If you're tempted to change any word, DO NOT — return the exact source text.
 - Do NOT combine or split lines. Each invoice line becomes exactly one items[] entry with the description as it appears.
 - If the source text is genuinely unclear (poor scan, handwriting, partially obscured), append " (verify)" to the description AS-IS without guessing at the missing letters. Never "reconstruct" a name from context.

@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { normalizeText, resolveInvoiceIngredientPricing } from '@/lib/invoices'
+import type { AllergenStatus, IngredientAllergen } from '@/lib/allergens'
 
 type SaveItem = {
   id?: string
@@ -22,6 +23,8 @@ type SaveItem = {
   newIngredientCategory?: string | null
   newIngredientUnit?: string | null
   newIngredientAllergens?: number[]
+  reviewAllergens?: IngredientAllergen[]
+  allergensChanged?: boolean
   ingredientMatch?:
     | { type: 'existing'; id: string; name: string }
     | { type: 'create'; name: string }
@@ -53,6 +56,19 @@ function guessIngredientCategory(description: string) {
   if (/(oil|vinegar|sauce|ketchup|mustard|mayo|mayonnaise|spice|herb|pepper)/i.test(value))
     return 'Condiments'
   return 'Other'
+}
+
+function normalizeAllergenSelection(items: IngredientAllergen[] | undefined): IngredientAllergen[] {
+  const validStatuses = new Set<AllergenStatus>(['contains', 'may_contain'])
+  const byId = new Map<number, IngredientAllergen>()
+
+  for (const item of items ?? []) {
+    if (!Number.isInteger(item.allergenId) || item.allergenId <= 0) continue
+    if (!validStatuses.has(item.status)) continue
+    byId.set(item.allergenId, item)
+  }
+
+  return Array.from(byId.values())
 }
 
 export async function POST(request: NextRequest) {
@@ -136,6 +152,7 @@ export async function POST(request: NextRequest) {
   const ingredientPriceUnitById = new Map(
     existingIngredients.map((ing) => [ing.id, ing.price_unit])
   )
+  const tenantIngredientIds = new Set(existingIngredients.map((ing) => ing.id))
 
   try {
     let body: any = {}
@@ -192,6 +209,10 @@ export async function POST(request: NextRequest) {
         linkedIngredientId || item.ingredientMatch?.type === 'create' || item.createIngredient
       )
       if (!updatesIngredient) continue
+
+      if (linkedIngredientId && !tenantIngredientIds.has(linkedIngredientId)) {
+        return NextResponse.json({ error: 'Selected ingredient is not available in this workspace' }, { status: 400 })
+      }
 
       const pricing = resolveInvoiceIngredientPricing({
         unitPrice: item.unitPrice,
@@ -420,21 +441,7 @@ export async function POST(request: NextRequest) {
 
           ingredientId = createdIngredient.id
           ingredientIdByNormalizedName.set(normalizedName, ingredientId)
-
-          if (item.newIngredientAllergens?.length && ingredientId) {
-            const allergenRows = item.newIngredientAllergens.map((allergenId) => ({
-              ingredient_id: ingredientId,
-              allergen_id: allergenId,
-              status: 'contains',
-            }))
-            const { error: allergenError } = await admin
-              .from('ingredient_allergens')
-              .insert(allergenRows)
-
-            if (allergenError) {
-              console.error('[/api/invoices/save] allergen insert failed:', allergenError)
-            }
-          }
+          tenantIngredientIds.add(ingredientId)
         }
 
         // Image is now resolved client-side from the local manifest — no auto-fetch needed here.
@@ -469,6 +476,42 @@ export async function POST(request: NextRequest) {
       }
 
       createdItems.push(createdItem)
+
+      if (
+        ingredientId &&
+        (item.allergensChanged || (item.newIngredientAllergens?.length ?? 0) > 0)
+      ) {
+        const selection = normalizeAllergenSelection(
+          item.reviewAllergens ?? item.newIngredientAllergens?.map((allergenId) => ({
+            allergenId,
+            status: 'contains' as const,
+          }))
+        )
+        const { error: deleteAllergensError } = await admin
+          .from('ingredient_allergens')
+          .delete()
+          .eq('ingredient_id', ingredientId)
+
+        if (deleteAllergensError) {
+          console.error('[/api/invoices/save] allergen replace failed:', deleteAllergensError)
+          return NextResponse.json({ error: 'Unable to update ingredient allergens' }, { status: 500 })
+        }
+
+        if (selection.length > 0) {
+          const { error: insertAllergensError } = await admin
+            .from('ingredient_allergens')
+            .insert(selection.map((allergen) => ({
+              ingredient_id: ingredientId,
+              allergen_id: allergen.allergenId,
+              status: allergen.status,
+            })))
+
+          if (insertAllergensError) {
+            console.error('[/api/invoices/save] allergen replace failed:', insertAllergensError)
+            return NextResponse.json({ error: 'Unable to update ingredient allergens' }, { status: 500 })
+          }
+        }
+      }
 
       // Supplier product-code memory: a (supplier, code) pair is a
       // DEFINITIVE match for future invoices — stronger than name matching —

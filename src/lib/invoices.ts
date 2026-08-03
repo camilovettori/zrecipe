@@ -1,3 +1,5 @@
+import type { IngredientAllergen } from '@/lib/allergens'
+
 export type InvoiceFileType = 'pdf' | 'csv' | 'image'
 
 // Catches a weight/volume figure anywhere in a product description (e.g.
@@ -28,6 +30,8 @@ export type InvoiceLineItem = {
   newIngredientCategory?: string
   newIngredientUnit?: string
   newIngredientAllergens?: number[]
+  reviewAllergens?: IngredientAllergen[]
+  allergensChanged?: boolean
   /** Immutable snapshot of the AI-extracted description, captured when the
    *  extraction result is normalized into the draft. Used as the lookup key
    *  for supplier-aware ingredient name memory — never touched by later
@@ -86,6 +90,8 @@ export function createEmptyInvoiceItem(): InvoiceLineItem {
     newIngredientCategory: 'Other',
     newIngredientUnit: 'unit',
     newIngredientAllergens: [],
+    reviewAllergens: [],
+    allergensChanged: false,
   }
 }
 

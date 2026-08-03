@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { AlertTriangle, Check, CircleAlert, Plus, Search, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Check, ChevronDown, CircleAlert, Plus, Search, Trash2, X } from 'lucide-react'
 import {
   INVOICE_UNITS,
   PACKAGE_UNIT_OPTIONS,
@@ -21,7 +21,8 @@ import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
 import { useIngredientCategories } from '@/hooks/useIngredientCategories'
 import { DEFAULT_INGREDIENT_CATEGORIES } from '@/lib/constants/ingredient-categories'
-import { EU_ALLERGENS } from '@/lib/allergens'
+import AllergenPicker from '@/components/ingredients/AllergenPicker'
+import type { AllergenStatus, IngredientAllergen } from '@/lib/allergens'
 
 type Props = {
   title: string
@@ -39,6 +40,7 @@ type Props = {
   showSummary?: boolean
   showHeader?: boolean
   showItemsTable?: boolean
+  itemsLayout?: 'table' | 'review-cards'
   className?: string
 }
 
@@ -172,20 +174,6 @@ function SearchableCombobox({
 }
 
 // ── Brand suggestion extractor ────────────────────────────────────────────────
-const GENERIC_FIRST_WORDS = new Set([
-  'the', 'fresh', 'organic', 'pure', 'premium', 'natural', 'whole', 'raw',
-  'free', 'range', 'best', 'top', 'fine', 'extra', 'super', 'new',
-])
-
-function extractBrandSuggestion(description: string): string {
-  const words = description.trim().split(/\s+/).slice(0, 2)
-  for (const word of words) {
-    const clean = word.toLowerCase().replace(/[^a-z]/g, '')
-    if (clean && !GENERIC_FIRST_WORDS.has(clean)) return word
-  }
-  return ''
-}
-
 // ── Description combobox — merged description + ingredient matching ─────────────
 
 export function DescriptionCombobox({
@@ -285,7 +273,8 @@ export function DescriptionCombobox({
           item.packageSize && item.packageUnit ? item.packageUnit : item.unit
         ) ??
         item.unit,
-      newIngredientAllergens: [],
+      reviewAllergens: ing.allergens ?? [],
+      allergensChanged: false,
     }
     onUpdate(patch)
     setOpen(false)
@@ -299,12 +288,14 @@ export function DescriptionCombobox({
       ingredientMatch:       { type: 'create', name },
       createIngredient:      true,
       newIngredientName:     name,
-      newIngredientBrand:    extractBrandSuggestion(name),
+      newIngredientBrand:    item.newIngredientBrand ?? '',
       newIngredientCategory: item.newIngredientCategory ?? 'Other',
       newIngredientUnit:
         getDefaultIngredientPriceUnit(
           item.packageSize && item.packageUnit ? item.packageUnit : item.unit
         ) ?? item.unit,
+      reviewAllergens:       [],
+      allergensChanged:      false,
     })
     setOpen(false)
   }
@@ -316,6 +307,8 @@ export function DescriptionCombobox({
       createIngredient: false,
       newIngredientName: '',
       ingredientQuery:  '',
+      reviewAllergens:  [],
+      allergensChanged: false,
     })
   }
 
@@ -390,13 +383,21 @@ export function DescriptionCombobox({
 
       {/* Brand for this purchase — captured per line item so price history can track it, even for existing ingredients */}
       {item.description.trim() && (
-        <input
-          type="text"
-          placeholder="Brand (optional, e.g. Lurpak)"
-          value={item.newIngredientBrand ?? ''}
-          onChange={(e) => onUpdate({ newIngredientBrand: e.target.value })}
-          className="mt-1 h-7 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10"
-        />
+        <div className="mt-1 space-y-1">
+          {item.extractedDescriptionOriginal &&
+            item.extractedDescriptionOriginal.trim() !== item.description.trim() && (
+              <p className="truncate px-1 text-[10px] text-slate-500" title={item.extractedDescriptionOriginal}>
+                Invoice text: {item.extractedDescriptionOriginal}
+              </p>
+            )}
+          <input
+            type="text"
+            placeholder="Brand from invoice (optional)"
+            value={item.newIngredientBrand ?? ''}
+            onChange={(e) => onUpdate({ newIngredientBrand: e.target.value })}
+            className="h-7 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10"
+          />
+        </div>
       )}
 
       {item.createIngredient && (
@@ -408,40 +409,6 @@ export function DescriptionCombobox({
             placeholder="Category"
             size="sm"
           />
-        </div>
-      )}
-
-      {item.createIngredient && (
-        <div className="mt-1.5">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Allergens
-          </p>
-          <div className="flex flex-wrap gap-1">
-            {EU_ALLERGENS.map((a) => {
-              const isSelected = (item.newIngredientAllergens ?? []).includes(a.id)
-              return (
-                <button
-                  key={a.id}
-                  type="button"
-                  onClick={() => {
-                    const current = item.newIngredientAllergens ?? []
-                    const updated = isSelected
-                      ? current.filter((id) => id !== a.id)
-                      : [...current, a.id]
-                    onUpdate({ newIngredientAllergens: updated })
-                  }}
-                  className={cn(
-                    'rounded-full px-2 py-0.5 text-[10px] font-medium transition',
-                    isSelected
-                      ? 'bg-red-100 text-red-700 ring-1 ring-red-300'
-                      : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                  )}
-                >
-                  {a.shortName}
-                </button>
-              )
-            })}
-          </div>
         </div>
       )}
 
@@ -545,6 +512,230 @@ function PackageCostLabel({
   )
 }
 
+function AllergenReview({
+  item,
+  onUpdate,
+}: {
+  item: InvoiceLineItem
+  onUpdate: (patch: Partial<InvoiceLineItem>) => void
+}) {
+  const isResolved = Boolean(item.ingredientId || item.ingredientMatch)
+  if (!isResolved) return null
+
+  const selection = item.reviewAllergens ?? []
+  const value = selection.reduce<Record<number, AllergenStatus>>((result, allergen) => {
+    result[allergen.allergenId] = allergen.status
+    return result
+  }, {})
+  const contains = selection.filter((allergen) => allergen.status === 'contains').length
+  const mayContain = selection.filter((allergen) => allergen.status === 'may_contain').length
+
+  return (
+    <details className="group rounded-xl border border-slate-200 bg-slate-50/70">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-medium text-slate-600">
+        <span className="flex items-center gap-2">
+          Allergens
+          {contains > 0 && (
+            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+              {contains} contains
+            </span>
+          )}
+          {mayContain > 0 && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+              {mayContain} may contain
+            </span>
+          )}
+          {selection.length === 0 && <span className="text-slate-400">None declared</span>}
+        </span>
+        <ChevronDown className="h-4 w-4 text-slate-400 transition group-open:rotate-180" />
+      </summary>
+      <div className="border-t border-slate-200 bg-white px-3 py-3">
+        <AllergenPicker
+          value={value}
+          onChange={(next) => {
+            const reviewAllergens: IngredientAllergen[] = Object.entries(next).map(
+              ([allergenId, status]) => ({ allergenId: Number(allergenId), status })
+            )
+            onUpdate({ reviewAllergens, allergensChanged: true })
+          }}
+        />
+        <p className="mt-2 text-[10px] leading-relaxed text-slate-400">
+          Changes apply to the linked ingredient, not to the invoice total.
+        </p>
+      </div>
+    </details>
+  )
+}
+
+function ReviewItemCard({
+  item,
+  index,
+  ingredients,
+  categories,
+  onUpdate,
+  onRemove,
+}: {
+  item: InvoiceLineItem
+  index: number
+  ingredients: IngredientLookup[]
+  categories: string[]
+  onUpdate: (patch: Partial<InvoiceLineItem>) => void
+  onRemove: () => void
+}) {
+  const isMatched = Boolean(item.ingredientId || item.ingredientMatch?.type === 'existing')
+  const isNew = item.ingredientMatch?.type === 'create' || item.createIngredient
+  const needsReview = Boolean(item.needs_verification || (!isMatched && !isNew))
+
+  return (
+    <article
+      className={cn(
+        'rounded-2xl border bg-white p-4 transition-shadow hover:shadow-sm',
+        needsReview ? 'border-amber-200 bg-amber-50/20' : 'border-slate-200'
+      )}
+    >
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+            Item {index + 1}
+          </span>
+          {isMatched && (
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+              Matched
+            </span>
+          )}
+          {isNew && (
+            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+              New ingredient
+            </span>
+          )}
+          {needsReview && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+              <AlertTriangle className="h-3 w-3" />
+              Needs review
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-100 bg-red-50 text-red-600 transition hover:bg-red-100"
+          aria-label={`Delete item ${index + 1}`}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(170px,0.8fr)]">
+        <div>
+          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+            Description / ingredient match
+          </label>
+          <DescriptionCombobox
+            item={item}
+            ingredients={ingredients}
+            onUpdate={onUpdate}
+            categories={categories}
+          />
+        </div>
+        <label className="block">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+            Product code
+          </span>
+          <input
+            value={item.product_code ?? ''}
+            onChange={(event) => onUpdate({ product_code: event.target.value || null })}
+            placeholder="Not shown"
+            className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+          />
+        </label>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-5">
+        <label className="block">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Qty</span>
+          <input
+            type="number"
+            step="0.001"
+            value={item.quantity}
+            onChange={(event) => onUpdate({ quantity: Number.parseFloat(event.target.value || '0') })}
+            className="h-10 w-full min-w-[90px] rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Purchase unit</span>
+          <CustomSelect
+            value={item.unit}
+            onChange={(value) => onUpdate({
+              unit: value,
+              newIngredientUnit:
+                item.packageSize && item.packageUnit
+                  ? item.newIngredientUnit
+                  : getDefaultIngredientPriceUnit(value) ?? item.newIngredientUnit,
+            })}
+            options={INVOICE_UNITS.map((unit) => ({ value: unit, label: unit }))}
+            size="sm"
+          />
+        </label>
+        <div>
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Package size</span>
+          <div className="grid grid-cols-[minmax(70px,1fr)_80px] gap-2">
+            <input
+              type="number"
+              step="0.001"
+              value={item.packageSize ?? ''}
+              onChange={(event) => onUpdate({
+                packageSize: event.target.value === '' ? null : Number.parseFloat(event.target.value || '0'),
+              })}
+              placeholder="Size"
+              className="h-10 min-w-0 rounded-xl border border-slate-200 bg-white px-2 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+            />
+            <CustomSelect
+              value={item.packageUnit ?? ''}
+              onChange={(value) => onUpdate({
+                packageUnit: value || null,
+                newIngredientUnit: getDefaultIngredientPriceUnit(value) ?? item.newIngredientUnit,
+              })}
+              options={[
+                { value: '', label: 'Unit?' },
+                ...PACKAGE_UNIT_OPTIONS.map((unit) => ({ value: unit, label: unit })),
+              ]}
+              size="sm"
+            />
+          </div>
+        </div>
+        <label className="block">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Invoice price</span>
+          <input
+            type="number"
+            step="0.01"
+            value={item.unitPrice}
+            onChange={(event) => onUpdate({ unitPrice: Number.parseFloat(event.target.value || '0') })}
+            className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+          />
+          <div className="mt-1"><PackageCostLabel item={item} ingredients={ingredients} /></div>
+        </label>
+        <div>
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">Line total</span>
+          <div className="flex h-10 items-center rounded-xl bg-slate-50 px-3 text-sm font-semibold text-slate-900">
+            {formatCurrency(item.total)}
+          </div>
+        </div>
+      </div>
+
+      {item.packageSize == null && WEIGHT_VOLUME_IN_DESCRIPTION.test(item.description) && (
+        <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-700">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          The invoice description mentions a weight or volume. Confirm the package size before saving.
+        </p>
+      )}
+
+      <div className="mt-3">
+        <AllergenReview item={item} onUpdate={onUpdate} />
+      </div>
+    </article>
+  )
+}
+
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('en-IE', {
     style: 'currency',
@@ -571,6 +762,7 @@ export default function InvoiceEditor({
   showSummary = true,
   showHeader = true,
   showItemsTable = true,
+  itemsLayout = 'table',
   className,
 }: Props) {
   const { categories } = useIngredientCategories()
@@ -645,8 +837,8 @@ export default function InvoiceEditor({
       if (!codeMatch || item.ingredientId === codeMatch.ingredient_id) return item
 
       changed = true
-      const matchedIngredientName =
-        ingredients.find((ing) => ing.id === codeMatch.ingredient_id)?.name ?? item.description
+      const matchedIngredient = ingredients.find((ing) => ing.id === codeMatch.ingredient_id)
+      const matchedIngredientName = matchedIngredient?.name ?? item.description
 
       return {
         ...item,
@@ -658,6 +850,8 @@ export default function InvoiceEditor({
         },
         ingredientQuery: matchedIngredientName,
         createIngredient: false,
+        reviewAllergens: matchedIngredient?.allergens ?? [],
+        allergensChanged: false,
       }
     })
 
@@ -871,6 +1065,21 @@ export default function InvoiceEditor({
           </div>
         </div>
 
+        {itemsLayout === 'review-cards' ? (
+          <div className="space-y-3 p-4">
+            {draft.items.map((item, index) => (
+              <ReviewItemCard
+                key={item.id}
+                item={item}
+                index={index}
+                ingredients={ingredients}
+                categories={categories}
+                onUpdate={(patch) => updateItem(item.id, patch)}
+                onRemove={() => removeRow(item.id)}
+              />
+            ))}
+          </div>
+        ) : (
         <div className="overflow-x-auto">
           {/* Table is now 820px instead of 1180px — removed Match column */}
           <table className="min-w-[820px] table-fixed border-separate border-spacing-0 text-sm">
@@ -914,6 +1123,12 @@ export default function InvoiceEditor({
                         Code: {item.product_code}
                       </p>
                     )}
+                    <div className="mt-1.5">
+                      <AllergenReview
+                        item={item}
+                        onUpdate={(patch) => updateItem(item.id, patch)}
+                      />
+                    </div>
                   </td>
 
                   <td className="border-b border-slate-100 px-3 py-2">
@@ -1022,6 +1237,7 @@ export default function InvoiceEditor({
             </tbody>
           </table>
         </div>
+        )}
 
         <div className="flex flex-col gap-3 border-t border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <button

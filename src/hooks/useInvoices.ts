@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
+import type { IngredientAllergen } from '@/lib/allergens'
 
 export type InvoiceStatus = 'completed' | 'processing' | 'failed'
 export type InvoiceFileType = 'pdf' | 'csv' | 'image'
@@ -23,6 +24,7 @@ export interface IngredientLookup {
   priceUnit?: string | null
   packageSize?: number | null
   packageUnit?: string | null
+  allergens?: IngredientAllergen[]
 }
 
 export interface InvoiceItemRecord {
