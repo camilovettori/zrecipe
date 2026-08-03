@@ -295,6 +295,10 @@ export default function IngredientDetailPage() {
   const [newCodeSupplierId, setNewCodeSupplierId] = useState<string | null>(null)
   const [newCodeValue, setNewCodeValue] = useState('')
   const [savingCode, setSavingCode] = useState(false)
+  const [brandChangeNotice, setBrandChangeNotice] = useState<{
+    previousBrand: string
+    newBrand: string
+  } | null>(null)
   const { suppliers: allSuppliers } = useSuppliers()
   const handleBack = useSafeBack('/ingredients')
 
@@ -376,6 +380,14 @@ export default function IngredientDetailPage() {
 
   const handleSelectionChange = useCallback(async (historyId: string | null) => {
     if (!ingredient) return
+
+    // Capture the PREVIOUS brand before the optimistic update below — different
+    // brands of the same ingredient can carry different allergens, so a brand
+    // switch (including falling back to "latest price" via deselect) should
+    // prompt the user to re-check the allergen list.
+    const previousSelectedPoint = priceHistory.find((p) => p.is_selected_price)
+    const previousBrand = previousSelectedPoint?.brand ?? null
+
     setPriceHistory((prev) => prev.map((p) => ({ ...p, is_selected_price: p.id === historyId })))
     const result = await setSelectedPrice(ingredient.id, historyId)
     if (!result.ok) {
@@ -391,8 +403,24 @@ export default function IngredientDetailPage() {
         .eq('ingredient_id', ingredient.id)
         .order('recorded_at', { ascending: true })
       setPriceHistory((data ?? []) as PricePoint[])
+      return
     }
-  }, [ingredient])
+
+    // A null historyId means "cleared selection" — falls back to the most
+    // recent purchase (priceHistory is ordered ascending by recorded_at, same
+    // as PriceHistoryChart's own "latest" fallback).
+    const newPoint = historyId
+      ? priceHistory.find((p) => p.id === historyId)
+      : priceHistory[priceHistory.length - 1]
+    const newBrand = newPoint?.brand ?? null
+
+    if (previousBrand !== newBrand && (previousBrand || newBrand)) {
+      setBrandChangeNotice({
+        previousBrand: previousBrand ?? 'unbranded',
+        newBrand: newBrand ?? 'unbranded',
+      })
+    }
+  }, [ingredient, priceHistory])
 
   const refreshUsedRecipes = useCallback(async () => {
     if (isNew) return
@@ -711,7 +739,7 @@ export default function IngredientDetailPage() {
           />
 
           {!isNew && (
-            <div className="mt-6 border-t border-slate-200 pt-6">
+            <div id="allergen-section" className="mt-6 border-t border-slate-200 pt-6">
               <h2 className="mb-1 text-sm font-semibold text-slate-900 dark:text-white">
                 Allergens
               </h2>
@@ -1134,6 +1162,43 @@ export default function IngredientDetailPage() {
                       </div>
                     )}
                   </div>
+
+                  {brandChangeNotice && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-800 dark:bg-amber-950/20">
+                      <div className="flex items-start gap-3">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                            Brand changed — review allergens
+                          </p>
+                          <p className="mt-1 text-xs leading-relaxed text-amber-700 dark:text-amber-400">
+                            You switched from <strong>{brandChangeNotice.previousBrand}</strong> to{' '}
+                            <strong>{brandChangeNotice.newBrand}</strong>. Different brands may contain
+                            different allergens. Please verify the allergens below are still correct.
+                          </p>
+                          <div className="mt-3 flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                document.getElementById('allergen-section')?.scrollIntoView({ behavior: 'smooth' })
+                                setBrandChangeNotice(null)
+                              }}
+                              className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-amber-700"
+                            >
+                              Review allergens
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setBrandChangeNotice(null)}
+                              className="text-xs font-medium text-amber-600 transition hover:text-amber-800"
+                            >
+                              Dismiss
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {priceHistory.length > 0 && (
                     <div>
