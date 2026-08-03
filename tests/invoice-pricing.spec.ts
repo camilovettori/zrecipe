@@ -180,6 +180,42 @@ test.describe('generic invoice quantity source preservation', () => {
     expect(patch.quantity_source).toBe('MULTIPLE')
     expect(patch.needs_verification).toBe(true)
   })
+
+  const readableLitreFormats = [
+    { source: 'UNITS', size: '6 X 2LT', total: 11.41, packageSize: 2 },
+    { source: 'CASES', size: '6 X 2LT', total: 68.46, packageSize: 12 },
+    { source: 'UNITS', size: '6 X 2LTR', total: 11.41, packageSize: 2 },
+    { source: 'UNITS', size: '6 X 2L', total: 11.41, packageSize: 2 },
+  ] as const
+
+  for (const example of readableLitreFormats) {
+    test(`${example.source} parses ${example.size} without a size warning`, () => {
+      const patch = resolveInvoiceQuantityEvidence({
+        rawQuantityColumns: { [example.source]: 1 },
+        quantitySource: example.source,
+        rawSizeText: example.size,
+      })
+      const pricing = resolveInvoiceIngredientPricing({
+        unitPrice: example.total,
+        lineTotal: example.total,
+        quantity: patch.quantity,
+        invoiceUnit: patch.unit,
+        packageSize: patch.package_size,
+        packageUnit: patch.package_unit,
+        targetUnit: 'L',
+      })
+
+      expect(patch.extracted_case_pack_count).toBe(6)
+      expect(patch.extracted_unit_size).toBe(2)
+      expect(patch.extracted_unit_measure).toBe('L')
+      expect(patch.package_size).toBe(example.packageSize)
+      expect(patch.package_unit).toBe('L')
+      expect(patch.needs_verification).toBe(false)
+      expect(patch.normalized_price_confidence).toBe('high')
+      expect(patch.needs_review_reason).toBeNull()
+      expect(pricing.normalizedPrice).toBe(5.705)
+    })
+  }
 })
 
 test.describe('invoice ingredient price normalization', () => {

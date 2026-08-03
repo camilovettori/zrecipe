@@ -536,11 +536,11 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage, sourceT
       // Convert the "(verify)" text signal into a real flag, independent of
       // the price-validation block below (an item can be flagged with or
       // without a usable price).
-      if (item.description && VERIFY_SUFFIX.test(item.description)) {
-        item.needs_verification = true
+      const descriptionNeedsVerification = Boolean(
+        item.description && VERIFY_SUFFIX.test(item.description)
+      )
+      if (descriptionNeedsVerification && item.description) {
         item.description = item.description.replace(VERIFY_SUFFIX, '').trim()
-      } else {
-        item.needs_verification = item.needs_verification ?? false
       }
 
       const rawQuantityColumns = item.raw_quantity_columns ?? {
@@ -551,10 +551,22 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage, sourceT
           rawQuantityColumns,
           quantitySource: item.quantity_source,
           rawSizeText: item.raw_size_text,
-          needsVerification: item.needs_verification,
+          // Recalculate package confidence from the current parsed evidence.
+          needsVerification: false,
       }))
 
-      if (item.unit_price == null || item.total == null) continue
+      if (descriptionNeedsVerification) {
+        item.needs_verification = true
+        item.normalized_price_confidence = 'review'
+        item.needs_review_reason = 'The original invoice description was not fully readable. Confirm this row.'
+      }
+
+      if (item.unit_price == null || item.total == null) {
+        item.needs_verification = true
+        item.normalized_price_confidence = 'review'
+        item.needs_review_reason ??= 'Invoice price or line total could not be read confidently.'
+        continue
+      }
 
       const qty   = Number(item.quantity ?? 1) || 1
       const price = Number(item.unit_price ?? 0)
@@ -565,6 +577,7 @@ function parseAndValidateExtraction(rawText: string, usage: ClaudeUsage, sourceT
       // Arithmetic disagreement creates review work; it never rewrites them.
       if (total <= 0 || (total > 0 && Math.abs(calculatedTotal - total) / total > 0.1)) {
         item.needs_verification = true
+        item.normalized_price_confidence = 'review'
         item.needs_review_reason ??= 'Invoice quantity, price, and line total do not reconcile. Confirm the source columns.'
       }
     }

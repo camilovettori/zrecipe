@@ -150,13 +150,13 @@ export function resolveInvoiceQuantityEvidence({
   const sourceQuantity = sourceEntry?.value ?? null
   const sizeText = rawSizeText?.trim() || null
   const sizeMatch = sizeText?.match(
-    /(\d+(?:\.\d+)?)\s*[xX\u00d7]\s*(\d+(?:\.\d+)?)\s*(kg|g|l|ltr|litre|liter|ml)?\b/i
+    /(\d+(?:\.\d+)?)\s*[xX\u00d7]\s*(\d+(?:\.\d+)?)\s*(litres|litre|liters|liter|ltr|lt|kg|ml|l|g)?\b/i
   )
   const packCount = sizeMatch ? positiveNumber(Number(sizeMatch[1])) : null
   const unitSize = sizeMatch ? positiveNumber(Number(sizeMatch[2])) : null
   const rawMeasure = sizeMatch?.[3]?.toLowerCase() ?? null
   const unitMeasure = rawMeasure
-    ? rawMeasure === 'l' || rawMeasure === 'ltr' || rawMeasure === 'litre' || rawMeasure === 'liter'
+    ? ['l', 'lt', 'ltr', 'litre', 'litres', 'liter', 'liters'].includes(rawMeasure)
       ? 'L'
       : rawMeasure
     : sizeMatch
