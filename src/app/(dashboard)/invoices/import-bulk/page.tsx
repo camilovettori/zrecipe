@@ -16,6 +16,7 @@ import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
 import { useSubscription } from '@/hooks/useSubscription'
 import type { IngredientLookup, SupplierLookup } from '@/hooks/useInvoices'
+import { useSafeBack } from '@/hooks/useSafeBack'
 import { toast } from '@/lib/toast'
 import EmptyState from '@/components/shared/EmptyState'
 
@@ -109,6 +110,7 @@ async function extractFile(file: File, kind: InvoiceFileKind): Promise<ExtractRe
 
 export default function BulkImportInvoicesPage() {
   const router = useRouter()
+  const handleBack = useSafeBack('/invoices')
   const { limits, loading: subLoading } = useSubscription()
   const [step, setStep] = useState<Step>('upload')
   const [files, setFiles] = useState<File[]>([])
@@ -433,7 +435,7 @@ export default function BulkImportInvoicesPage() {
         </div>
         <button
           type="button"
-          onClick={() => router.push('/invoices')}
+          onClick={handleBack}
           className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
         >
           Cancel

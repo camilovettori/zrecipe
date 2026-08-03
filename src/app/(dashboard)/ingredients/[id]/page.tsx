@@ -7,6 +7,7 @@ import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
 import { useSuppliers, type SupplierRecord } from '@/hooks/useSuppliers'
+import { useSafeBack } from '@/hooks/useSafeBack'
 import IngredientForm, {
   type AutoSaveStatus,
   type IngredientCostPreview,
@@ -295,6 +296,7 @@ export default function IngredientDetailPage() {
   const [newCodeValue, setNewCodeValue] = useState('')
   const [savingCode, setSavingCode] = useState(false)
   const { suppliers: allSuppliers } = useSuppliers()
+  const handleBack = useSafeBack('/ingredients')
 
   type IngredientDbRow = IngredientRow & { price_unit?: string | null }
 
@@ -656,7 +658,7 @@ export default function IngredientDetailPage() {
       {/* Top bar */}
       <div className="flex flex-wrap items-center gap-3">
         <button
-          onClick={() => router.push('/ingredients')}
+          onClick={handleBack}
           className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
         >
           <ArrowLeft className="h-4 w-4" />

@@ -44,6 +44,7 @@ import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
 import { useSubscription } from '@/hooks/useSubscription'
 import type { IngredientLookup, SupplierLookup } from '@/hooks/useInvoices'
+import { useSafeBack } from '@/hooks/useSafeBack'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 import { CustomSelect } from '@/components/ui/CustomSelect'
@@ -236,6 +237,7 @@ function buildMatchedDraft(
 
 export default function ImportInvoicesPage() {
   const router = useRouter()
+  const handleBack = useSafeBack('/invoices')
   const { limits, loading: subLoading } = useSubscription()
   const [step, setStep] = useState<Step>('upload')
   const [file, setFile] = useState<File | null>(null)
@@ -816,7 +818,7 @@ export default function ImportInvoicesPage() {
       <div className="flex items-center justify-between gap-3">
         <button
           type="button"
-          onClick={() => router.push('/invoices')}
+          onClick={handleBack}
           className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
         >
           <ArrowLeft className="h-4 w-4" />

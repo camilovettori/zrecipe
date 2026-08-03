@@ -12,6 +12,7 @@ import {
   recalculateInvoiceTotals,
 } from '@/lib/invoices'
 import type { IngredientLookup, SupplierLookup } from '@/hooks/useInvoices'
+import { useSafeBack } from '@/hooks/useSafeBack'
 
 function createInitialDraft(): InvoiceFormState {
   return {
@@ -34,6 +35,7 @@ function createInitialDraft(): InvoiceFormState {
 
 export default function NewInvoicePage() {
   const router = useRouter()
+  const handleBack = useSafeBack('/invoices')
   const [draft, setDraft] = useState<InvoiceFormState>(createInitialDraft)
   const [suppliers, setSuppliers] = useState<SupplierLookup[]>([])
   const [ingredients, setIngredients] = useState<IngredientLookup[]>([])
@@ -141,7 +143,7 @@ export default function NewInvoicePage() {
       suppliers={suppliers}
       ingredients={ingredients}
       onSave={handleSave}
-      onBack={() => router.push('/invoices')}
+      onBack={handleBack}
       saving={saving}
       saveLabel="Save Invoice"
       showSummary

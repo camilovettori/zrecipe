@@ -55,6 +55,7 @@ import RenameCategoryModal from '@/components/shared/RenameCategoryModal'
 import type { IngredientLookup } from '@/hooks/useInvoices'
 import { resolveTenantContext, resolveTenantId } from '@/hooks/useTenant'
 import { useSubscription } from '@/hooks/useSubscription'
+import { useSafeBack } from '@/hooks/useSafeBack'
 import { computeRecipeAllergens, type RecipeAllergenSummary, type IngredientAllergen } from '@/lib/allergens'
 import KitchenCardOptionsModal from '@/components/recipes/KitchenCardOptionsModal'
 import type { KitchenCardData } from '@/lib/print/kitchenCard'
@@ -541,6 +542,7 @@ type LabelData = {
 
 export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const router = useRouter()
+  const handleBack = useSafeBack('/recipes')
   const isNew = recipeId === 'new'
   const { getRecipeWithIngredients, createRecipe, updateRecipe, deleteRecipe } = useRecipes({ autoLoad: false })
   const { hasFullAccess } = useSubscription()
@@ -1785,7 +1787,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       <div className="sticky top-16 z-30 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 px-4 py-2.5 shadow-sm backdrop-blur-sm">
         <button
           type="button"
-          onClick={() => router.push('/recipes')}
+          onClick={handleBack}
           className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
         >
           <ArrowLeft className="h-4 w-4" />

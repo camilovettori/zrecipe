@@ -9,6 +9,7 @@ import { resolveTenantId } from '@/hooks/useTenant'
 import InvoiceEditor from '@/components/invoices/InvoiceEditor'
 import { toast } from '@/lib/toast'
 import { useInvoices, type IngredientLookup, type InvoiceRecord, type SupplierLookup } from '@/hooks/useInvoices'
+import { useSafeBack } from '@/hooks/useSafeBack'
 import {
   createEmptyInvoiceItem,
   getDefaultIngredientPriceUnit,
@@ -197,6 +198,7 @@ function createDraftFromInvoice(invoice: InvoiceRecord | null): InvoiceFormState
 
 export default function InvoiceDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter()
+  const handleBack = useSafeBack('/invoices')
   const { getInvoiceById, deleteInvoice } = useInvoices({ autoLoad: false })
   const [invoice, setInvoice] = useState<InvoiceRecord | null>(null)
   const [draft, setDraft] = useState<InvoiceFormState>(createDraftFromInvoice(null))
@@ -347,7 +349,7 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
         </p>
         <button
           type="button"
-          onClick={() => router.push('/invoices')}
+          onClick={handleBack}
           className="mt-6 inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -412,7 +414,7 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
-          onClick={() => router.push('/invoices')}
+          onClick={handleBack}
           className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
         >
           <ArrowLeft className="h-4 w-4" />
