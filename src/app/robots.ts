@@ -1,6 +1,6 @@
 import type { MetadataRoute } from 'next'
 
-const baseUrl = 'https://www.zrecipe.ie'
+const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.zrecipe.ie'
 
 export default function robots(): MetadataRoute.Robots {
   return {

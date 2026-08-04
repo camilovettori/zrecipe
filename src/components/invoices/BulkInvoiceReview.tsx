@@ -6,6 +6,7 @@ import InvoiceEditor, { DescriptionCombobox } from '@/components/invoices/Invoic
 import {
   INVOICE_UNITS,
   PACKAGE_UNIT_OPTIONS,
+  WEIGHT_VOLUME_IN_DESCRIPTION,
   getDefaultIngredientPriceUnit,
   normalizeText,
   scoreIngredientMatch,
@@ -389,6 +390,11 @@ export default function BulkInvoiceReview({
                       className="w-20"
                     />
                   </div>
+                  {!group.packageSize && WEIGHT_VOLUME_IN_DESCRIPTION.test(group.name) && (
+                    <p className="mt-0.5 text-[10px] text-amber-600">
+                      ⚠ Description mentions a weight — set package size
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-3">

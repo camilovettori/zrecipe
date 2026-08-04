@@ -40,9 +40,14 @@ export function resolveIngredientPrice(
   }
 
   if (priceHistory.length > 0) {
-    const latest = priceHistory.reduce((newest, entry) =>
-      entryTimestamp(entry) > entryTimestamp(newest) ? entry : newest
-    )
+    const latest = priceHistory.reduce((newest, entry) => {
+      const entryTs = entryTimestamp(entry)
+      const newestTs = entryTimestamp(newest)
+      if (entryTs !== newestTs) return entryTs > newestTs ? entry : newest
+      // Deterministic tiebreak when recorded_at ties (or both are unset),
+      // regardless of the order the caller fetched priceHistory in.
+      return entry.id > newest.id ? entry : newest
+    })
     return { price: latest.price, unit: latest.unit, source: 'latest', historyId: latest.id }
   }
 

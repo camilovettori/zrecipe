@@ -422,6 +422,10 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
     !hasAmbiguous
 
   const matchOptions = useMemo(() => rankCandidates(matchQuery, candidates, 8), [candidates, matchQuery])
+  const hasExactMatch = useMemo(
+    () => matchOptions.some((opt) => opt.name.toLowerCase().trim() === matchQuery.toLowerCase().trim()),
+    [matchOptions, matchQuery]
+  )
 
   const updateRow = (id: string, patch: Partial<ImportRow>) => {
     setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)))
@@ -448,7 +452,25 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
   }
 
   const selectMatch = (rowId: string, candidate: MatchCandidate) => {
-    updateRow(rowId, { match: candidate, status: 'matched', suggestions: [] })
+    const row = rows.find((r) => r.id === rowId)
+    if (!row) return
+
+    // Cascade: resolving one row auto-resolves every other still-unresolved
+    // row that shares the same order-independent token key (e.g. picking a
+    // match for "Butter" resolves every other "Butter" row too).
+    const selectedKey = tokenKey(row.name)
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.id === rowId) {
+          return { ...r, match: candidate, status: 'matched', suggestions: [] }
+        }
+        if (r.status !== 'matched' && tokenKey(r.name) === selectedKey) {
+          return { ...r, match: candidate, status: 'matched', suggestions: [] }
+        }
+        return r
+      })
+    )
+
     setEditingMatchId(null)
     setMatchQuery('')
   }
@@ -917,10 +939,23 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
                                       type="button"
                                       onClick={() => handleCreateNew(row.id)}
                                       disabled={creatingIngredient}
-                                      className="mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                      className={cn(
+                                        'mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60',
+                                        hasExactMatch
+                                          ? 'text-amber-700 hover:bg-amber-50'
+                                          : 'text-emerald-700 hover:bg-emerald-50'
+                                      )}
                                     >
-                                      {creatingIngredient ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                                      Create new ingredient: {matchQuery.trim()}
+                                      {creatingIngredient ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : hasExactMatch ? (
+                                        <AlertTriangle className="h-4 w-4" />
+                                      ) : (
+                                        <Plus className="h-4 w-4" />
+                                      )}
+                                      {hasExactMatch
+                                        ? `Create duplicate "${matchQuery.trim()}" (one already exists)`
+                                        : `Create new ingredient: ${matchQuery.trim()}`}
                                     </button>
                                   )}
                                 </div>

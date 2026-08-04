@@ -9,7 +9,7 @@ import { AlertTriangle, ArrowUpRight, Check, Package, Pencil, Plus } from 'lucid
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
-import { cn } from '@/lib/utils'
+import { cn, escapeLike } from '@/lib/utils'
 import type { IngredientRow } from '@/hooks/useIngredients'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 import DeleteCategoryModal from '@/components/ingredients/DeleteCategoryModal'
@@ -570,7 +570,7 @@ export default function IngredientForm({
     const { count } = await supabase
       .from('ingredients')
       .select('id', { count: 'exact', head: true })
-      .ilike('category', categoryName)
+      .ilike('category', escapeLike(categoryName))
 
     if ((count ?? 0) > 0) {
       // Open the reassignment modal instead of deleting immediately
@@ -590,7 +590,7 @@ export default function IngredientForm({
     const { error } = await supabase
       .from('ingredients')
       .update({ category: replacementCategory })
-      .ilike('category', categoryToDelete.name)
+      .ilike('category', escapeLike(categoryToDelete.name))
 
     if (error) {
       toast.error('Unable to move ingredients to the new category')
@@ -619,7 +619,7 @@ export default function IngredientForm({
     const { error } = await supabase
       .from('ingredients')
       .update({ category: trimmed })
-      .ilike('category', oldName)
+      .ilike('category', escapeLike(oldName))
 
     if (error) {
       toast.error('Failed to rename category')

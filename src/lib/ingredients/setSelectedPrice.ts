@@ -5,9 +5,9 @@ import { createClient } from '@/lib/supabase/client'
  * its ingredient, clearing any previous selection first. Pass historyId
  * = null to clear the selection entirely (falls back to "most recent").
  *
- * Two sequential updates, not a DB transaction — soft-enforced per the
- * is_selected_price column comment; a failure between the two leaves at
- * most a transient "nothing selected" state, never a data-integrity issue.
+ * Runs as a single atomic RPC (see set_selected_price migration) so a
+ * failure partway through can never leave a transient "nothing selected"
+ * state — either both the clear and the set apply, or neither does.
  */
 export async function setSelectedPrice(
   ingredientId: string,
@@ -15,19 +15,11 @@ export async function setSelectedPrice(
 ): Promise<{ ok: boolean; error?: string }> {
   const supabase = createClient()
 
-  const { error: clearError } = await supabase
-    .from('ingredient_price_history')
-    .update({ is_selected_price: false })
-    .eq('ingredient_id', ingredientId)
+  const { error } = await supabase.rpc('set_selected_price', {
+    p_ingredient_id: ingredientId,
+    p_history_id: historyId,
+  })
 
-  if (clearError) return { ok: false, error: clearError.message }
-  if (!historyId) return { ok: true }
-
-  const { error: setError } = await supabase
-    .from('ingredient_price_history')
-    .update({ is_selected_price: true })
-    .eq('id', historyId)
-
-  if (setError) return { ok: false, error: setError.message }
+  if (error) return { ok: false, error: error.message }
   return { ok: true }
 }

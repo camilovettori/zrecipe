@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createRequestSupabaseClient } from '@/lib/supabase/request'
 
 type ParsedLineItem = {
   description: string
@@ -141,6 +142,16 @@ function parseLineItems(lines: string[]): ParsedLineItem[] {
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = createRequestSupabaseClient(request)
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser()
+
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body = await request.json()
     const textContent = typeof body?.text === 'string' ? body.text : ''
 

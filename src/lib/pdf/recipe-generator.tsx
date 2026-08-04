@@ -831,11 +831,14 @@ function PhotoStrip({ images }: { images: string[] }) {
 
   // Flat flexWrap container — no per-row Views, so nothing can stretch a lone
   // leftover photo. Each image has an explicit fixed width; the container just
-  // wraps them 4-across and they stay that size regardless of row population.
+  // wraps them COLS-across and they stay that size regardless of row population.
+  //
+  // COLS scales down to the photo count (1–4) so 2-3 photos fill the row
+  // instead of leaving blank space; 4+ photos keep the original 4-across grid.
   //
   // A4 content width = 595 − 64 (32pt padding each side) = 531pt
-  // 4 cols × CELL_W + 3 × GAP(4) = 531  →  CELL_W ≈ 129.75pt
-  const COLS = 4
+  // COLS cols × CELL_W + (COLS-1) × GAP(4) = 531
+  const COLS = Math.min(count, 4)
   const GAP = 4
   const CELL_W = (531 - GAP * (COLS - 1)) / COLS
   const CELL_H = 90

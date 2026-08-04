@@ -644,12 +644,14 @@ export function autoDetectCsvColumns(headers: string[]) {
   }))
 
   const map: Record<string, string> = {}
-  for (const field of ['description', 'quantity', 'unit', 'unitPrice', 'total'] as const) {
+  for (const field of ['description', 'quantity', 'unit', 'unitPrice', 'productCode', 'packSize', 'total'] as const) {
     const match = normalized.find(({ normalized: h }) => {
       if (field === 'description') return /description|item|product|article|name/.test(h)
       if (field === 'quantity')    return /qty|quantity|amount|count/.test(h)
       if (field === 'unit')        return /unit|uom|measure/.test(h)
       if (field === 'unitPrice')   return /unitprice|priceeach|priceperunit|price/.test(h)
+      if (field === 'productCode') return /code|sku|itemno|itemnumber|articleno|partno/.test(h)
+      if (field === 'packSize')    return /packsize|packagesize|packing|package|pack|size/.test(h)
       return /total|amount|lineitemtotal|subtotal/.test(h)
     })
     if (match) map[field] = match.original

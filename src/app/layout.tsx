@@ -19,7 +19,7 @@ const playfairDisplay = Playfair_Display({
   variable: '--font-playfair',
 })
 
-const siteUrl = 'https://www.zrecipe.ie'
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.zrecipe.ie'
 const siteTitle = 'ZRecipe | Food Costing Software for Bakeries & Restaurants'
 const siteDescription =
   'AI-powered food costing software for bakeries, cafes, restaurants, and food businesses. Import invoices, track ingredient prices, calculate recipe margins, and print kitchen cards.'

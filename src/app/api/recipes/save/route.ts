@@ -89,6 +89,8 @@ export async function POST(request: NextRequest) {
       overhead_percent: body.overheadPercent ?? 0,
       waste_percent: body.wastePercent ?? 0,
       selling_price: body.sellingPrice,
+      vat_enabled: body.vatEnabled ?? true,
+      vat_rate: body.vatRate ?? 13.5,
       image_url: body.imageUrls?.[0] ?? body.imageUrl ?? null,
       image_urls: body.imageUrls ?? [],
       is_active: true,

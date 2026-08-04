@@ -37,7 +37,7 @@ import {
 import dynamic from 'next/dynamic'
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
-import { cn } from '@/lib/utils'
+import { cn, escapeLike } from '@/lib/utils'
 import {
   calculateRecipeCost,
   calculateLineCost,
@@ -56,7 +56,7 @@ import type { IngredientLookup } from '@/hooks/useInvoices'
 import { resolveTenantContext, resolveTenantId } from '@/hooks/useTenant'
 import { useSubscription } from '@/hooks/useSubscription'
 import { useSafeBack } from '@/hooks/useSafeBack'
-import { computeRecipeAllergens, type RecipeAllergenSummary, type IngredientAllergen } from '@/lib/allergens'
+import { computeRecipeAllergens, createIngredientAllergenRows, type RecipeAllergenSummary, type IngredientAllergen } from '@/lib/allergens'
 import KitchenCardOptionsModal from '@/components/recipes/KitchenCardOptionsModal'
 import type { KitchenCardData } from '@/lib/print/kitchenCard'
 import IngredientSearch, { type SubRecipeLookup } from './IngredientSearch'
@@ -147,6 +147,8 @@ function blankRecipe(): RecipeEditorData {
     overheadPercent: 0,
     wastePercent: 0,
     sellingPrice: 0,
+    vatEnabled: true,
+    vatRate: 13.5,
     imageUrl: null,
     imageUrls: [],
     isSubIngredient: false,
@@ -177,6 +179,8 @@ function mapRecipeToState(recipe: RecipeRecord): RecipeEditorData {
     overheadPercent: recipe.overheadPercent ?? 0,
     wastePercent: recipe.wastePercent ?? 0,
     sellingPrice: recipe.sellingPrice,
+    vatEnabled: recipe.vatEnabled ?? true,
+    vatRate: recipe.vatRate ?? 13.5,
     imageUrl: recipe.imageUrl,
     imageUrls: recipe.imageUrls ?? (recipe.imageUrl ? [recipe.imageUrl] : []),
     isSubIngredient: recipe.isSubIngredient ?? false,
@@ -347,6 +351,14 @@ function IngredientRow({
                 >
                   Needs price
                 </Link>
+              )}
+              {isZeroPrice && (
+                <span
+                  title="Priced at €0 — confirm this is intentional"
+                  className="shrink-0 rounded-full p-0.5 text-slate-300"
+                >
+                  <Info className="h-3 w-3" />
+                </span>
               )}
             </div>
           ) : item.ingredientId ? (
@@ -975,7 +987,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     const { count } = await supabase
       .from('recipes')
       .select('id', { count: 'exact', head: true })
-      .ilike('category', categoryName)
+      .ilike('category', escapeLike(categoryName))
 
     if ((count ?? 0) > 0) {
       setRecipeCategoryToDelete({ name: categoryName, count: count ?? 0 })
@@ -993,7 +1005,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     const { error } = await supabase
       .from('recipes')
       .update({ category: replacementCategory })
-      .ilike('category', recipeCategoryToDelete.name)
+      .ilike('category', escapeLike(recipeCategoryToDelete.name))
 
     if (error) {
       toast.error('Unable to move recipes to the new category')
@@ -1019,7 +1031,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     const { error } = await supabase
       .from('recipes')
       .update({ category: trimmed })
-      .ilike('category', oldName)
+      .ilike('category', escapeLike(oldName))
 
     if (error) {
       toast.error('Failed to rename category')
@@ -1236,6 +1248,14 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       if (historyInsert.error) {
         await supabase.from('ingredients').delete().eq('id', data.id)
         throw historyInsert.error
+      }
+
+      if (formData.allergens?.length) {
+        const allergenRows = createIngredientAllergenRows(data.id, tenantId, formData.allergens)
+        const allergenInsert = await supabase.from('ingredient_allergens').insert(allergenRows)
+        if (allergenInsert.error) {
+          console.error('[recipe builder] ingredient allergen insert failed:', allergenInsert.error)
+        }
       }
 
       addIngredient(
@@ -2534,6 +2554,8 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
             overheadMode={recipe.overheadMode}
             overheadPercent={recipe.overheadPercent}
             wastePercent={recipe.wastePercent}
+            vatEnabled={recipe.vatEnabled}
+            vatRate={recipe.vatRate}
             batchMultiplier={effectiveN}
             onLaborEnabledChange={(v) => updateRecipeField('laborEnabled', v)}
             onLaborModeChange={(v) => updateRecipeField('laborMode', v)}
@@ -2545,6 +2567,8 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
             onOverheadPercentChange={(v) => updateRecipeField('overheadPercent', v)}
             onWastePercentChange={(v) => updateRecipeField('wastePercent', v)}
             onSellingPriceChange={(v) => updateRecipeField('sellingPrice', v)}
+            onVatEnabledChange={(v) => updateRecipeField('vatEnabled', v)}
+            onVatRateChange={(v) => updateRecipeField('vatRate', v)}
           />
         </div>
       </div>

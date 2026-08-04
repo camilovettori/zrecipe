@@ -19,12 +19,12 @@ export const metadata: Metadata = {
   },
   description:
     'AI-powered food costing software for bakeries, cafes, restaurants, and food businesses. Import invoices, track ingredient prices, calculate recipe margins, and print kitchen cards.',
-  alternates: { canonical: 'https://www.zrecipe.ie' },
+  alternates: { canonical: process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.zrecipe.ie' },
   openGraph: {
     title: 'ZRecipe | Food Costing Software for Bakeries & Restaurants',
     description:
       'AI-powered food costing software for bakeries, cafes, restaurants, and food businesses. Import invoices, track ingredient prices, calculate recipe margins, and print kitchen cards.',
-    url: 'https://www.zrecipe.ie',
+    url: process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.zrecipe.ie',
     siteName: 'ZRecipe',
     type: 'website',
     locale: 'en_IE',
@@ -34,6 +34,7 @@ export const metadata: Metadata = {
         width: 1200,
         height: 630,
         alt: 'ZRecipe food costing software dashboard preview',
+        type: 'image/jpeg',
       },
     ],
   },
@@ -143,7 +144,7 @@ const FAQ_ITEMS: FAQItem[] = [
   },
 ]
 
-const siteUrl = 'https://www.zrecipe.ie'
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.zrecipe.ie'
 const seoDescription =
   'AI-powered food costing software for bakeries, cafes, restaurants, and food businesses. Import invoices, track ingredient prices, calculate recipe margins, and print kitchen cards.'
 

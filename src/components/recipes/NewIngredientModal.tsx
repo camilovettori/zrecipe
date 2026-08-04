@@ -2,12 +2,14 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { AlertTriangle, Check, Loader2, Pencil, X } from 'lucide-react'
+import { AlertTriangle, Check, ChevronDown, Loader2, Pencil, X } from 'lucide-react'
 import { CustomSelect } from '@/components/ui/CustomSelect'
+import AllergenPicker from '@/components/ingredients/AllergenPicker'
 import { useIngredientCategories } from '@/hooks/useIngredientCategories'
 import { useSuppliers } from '@/hooks/useSuppliers'
 import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
+import type { AllergenStatus, IngredientAllergen } from '@/lib/allergens'
 import {
   calculateNormalizedIngredientPrice,
   buildCostExamples,
@@ -28,6 +30,7 @@ export type NewIngredientFormData = {
   recipeUnit: string
   supplierId: string | null
   supplierName?: string
+  allergens?: IngredientAllergen[]
 }
 
 interface NewIngredientModalProps {
@@ -41,11 +44,46 @@ interface NewIngredientModalProps {
 
 const PRICE_UNITS = ['kg', 'g', 'L', 'ml', 'unit']
 const PACKAGE_UNITS = ['kg', 'g', 'L', 'ml', 'unit', 'dozen']
-const RECIPE_UNITS = ['g', 'kg', 'ml', 'L', 'unit']
+const RECIPE_UNITS = ['g', 'kg', 'oz', 'lb', 'ml', 'L', 'unit', 'dozen', 'pack', 'tbsp', 'tsp', 'cup']
 
 function parsePositiveNumber(value: string) {
   const parsed = Number(value)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+function AllergenSection({
+  value,
+  onChange,
+}: {
+  value: Record<number, AllergenStatus>
+  onChange: (value: Record<number, AllergenStatus>) => void
+}) {
+  const contains = Object.values(value).filter((s) => s === 'contains').length
+  const mayContain = Object.values(value).filter((s) => s === 'may_contain').length
+
+  return (
+    <details className="group rounded-xl border border-slate-200 bg-slate-50/70">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-medium text-slate-600">
+        <span className="flex items-center gap-2">
+          Allergens <span className="font-normal text-slate-400">(optional)</span>
+          {contains > 0 && (
+            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+              {contains} contains
+            </span>
+          )}
+          {mayContain > 0 && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+              {mayContain} may contain
+            </span>
+          )}
+        </span>
+        <ChevronDown className="h-4 w-4 text-slate-400 transition group-open:rotate-180" />
+      </summary>
+      <div className="border-t border-slate-200 bg-white px-3 py-3">
+        <AllergenPicker value={value} onChange={onChange} />
+      </div>
+    </details>
+  )
 }
 
 export default function NewIngredientModal({
@@ -80,6 +118,7 @@ export default function NewIngredientModal({
 
   const [recipeQuantity, setRecipeQuantity] = useState('')
   const [recipeUnit, setRecipeUnit] = useState('kg')
+  const [allergenSelection, setAllergenSelection] = useState<Record<number, AllergenStatus>>({})
   const [submitted, setSubmitted] = useState(false)
 
   useEffect(() => {
@@ -101,6 +140,7 @@ export default function NewIngredientModal({
     priceUnitTouchedRef.current = false
     setRecipeQuantity('')
     setRecipeUnit('kg')
+    setAllergenSelection({})
     setSubmitted(false)
     window.setTimeout(() => nameInputRef.current?.focus(), 0)
   }, [initialName, open])
@@ -130,8 +170,10 @@ export default function NewIngredientModal({
       packageUnit !== 'kg' ||
       priceUnit !== 'kg' ||
       Boolean(recipeQuantity) ||
-      recipeUnit !== 'kg',
+      recipeUnit !== 'kg' ||
+      Object.keys(allergenSelection).length > 0,
     [
+      allergenSelection,
       brand,
       category,
       initialName,
@@ -229,6 +271,10 @@ export default function NewIngredientModal({
       resolvedSupplierId = null
     }
 
+    const allergens: IngredientAllergen[] = Object.entries(allergenSelection).map(
+      ([allergenId, status]) => ({ allergenId: Number(allergenId), status })
+    )
+
     await onSave({
       name: trimmedName,
       brand: brand.trim(),
@@ -241,6 +287,7 @@ export default function NewIngredientModal({
       recipeUnit,
       supplierId: resolvedSupplierId,
       supplierName: trimmedSupplierQuery || undefined,
+      allergens: allergens.length ? allergens : undefined,
     })
   }
 
@@ -431,6 +478,8 @@ export default function NewIngredientModal({
                     </p>
                   )}
                 </label>
+
+                <AllergenSection value={allergenSelection} onChange={setAllergenSelection} />
 
                 <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5">
                   <p className="text-xs font-semibold text-slate-700">What did the full package cost?</p>

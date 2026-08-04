@@ -25,7 +25,9 @@ import InvoiceEditor from '@/components/invoices/InvoiceEditor'
 import {
   autoDetectCsvColumns,
   createEmptyInvoiceItem,
+  extractPackageDetails,
   getDefaultIngredientPriceUnit,
+  WEIGHT_VOLUME_IN_DESCRIPTION,
   type InvoiceFileType,
   type InvoiceFormState,
   type InvoiceLineItem,
@@ -66,6 +68,33 @@ type CsvData = {
 // amber accent on uncertain rows is the intended signal, not raw text.
 function stripVerifySuffix(description: string | null | undefined): string {
   return (description ?? '').replace(/\s*\(verify\)\s*$/i, '').trim()
+}
+
+// Derives product_code and package size/unit for one CSV row: a mapped code
+// column goes straight to product_code, a mapped pack-size column is parsed
+// for its trailing weight/volume, and — failing that — the description
+// itself is checked for an embedded weight/volume (e.g. "Ice Bags 2KG").
+function extractCsvItemDetails(
+  row: Record<string, string>,
+  map: Record<string, string>,
+  description: string
+): { product_code: string | null; packageSize: number | null; packageUnit: string | null } {
+  const product_code = (map.productCode ? row[map.productCode] : '')?.trim() || null
+
+  const packSizeRaw = (map.packSize ? row[map.packSize] : '')?.trim()
+  if (packSizeRaw) {
+    const parsed = extractPackageDetails(packSizeRaw)
+    if (parsed.packageSize != null) {
+      return { product_code, packageSize: parsed.packageSize, packageUnit: parsed.packageUnit }
+    }
+  }
+
+  if (WEIGHT_VOLUME_IN_DESCRIPTION.test(description)) {
+    const parsed = extractPackageDetails(description)
+    return { product_code, packageSize: parsed.packageSize, packageUnit: parsed.packageUnit }
+  }
+
+  return { product_code, packageSize: null, packageUnit: null }
 }
 
 function createInitialDraft(): InvoiceFormState {
@@ -428,13 +457,12 @@ export default function ImportInvoicesPage() {
       const quantity = Number.parseFloat(row[map.quantity] ?? row.Quantity ?? '1') || 1
       const unit = row[map.unit] ?? row.Unit ?? 'unit'
       const unitPrice = Number.parseFloat(row[map.unitPrice] ?? row['Unit Price'] ?? '0') || 0
-      const packageSize = null
-      const packageUnit = null
+      const { product_code, packageSize, packageUnit } = extractCsvItemDetails(row, map, description)
       const total =
         Number.parseFloat(row[map.total] ?? row.Total ?? `${quantity * unitPrice}`) ||
         quantity * unitPrice
 
-      return { description, quantity, unit, packageSize, packageUnit, unitPrice, total }
+      return { description, product_code, quantity, unit, packageSize, packageUnit, unitPrice, total }
     })
 
     setDraft(
@@ -1139,11 +1167,14 @@ export default function ImportInvoicesPage() {
               </p>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                {(['description', 'quantity', 'unit', 'unitPrice', 'total'] as const).map(
+                {(['description', 'quantity', 'unit', 'unitPrice', 'total', 'productCode', 'packSize'] as const).map(
                   (field) => (
                     <label key={field} className="block">
                       <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
                         {field}
+                        {(field === 'productCode' || field === 'packSize') && (
+                          <span className="ml-1 font-normal normal-case text-slate-400">(optional)</span>
+                        )}
                       </span>
                       <CustomSelect
                         value={csvColumnMap[field] ?? ''}
@@ -1189,12 +1220,11 @@ export default function ImportInvoicesPage() {
                     const quantity = Number.parseFloat(row[csvColumnMap.quantity] ?? '1') || 1
                     const unit = row[csvColumnMap.unit] ?? 'unit'
                     const unitPrice = Number.parseFloat(row[csvColumnMap.unitPrice] ?? '0') || 0
-                    const packageSize = null
-                    const packageUnit = null
+                    const { product_code, packageSize, packageUnit } = extractCsvItemDetails(row, csvColumnMap, description)
                     const total =
                       Number.parseFloat(row[csvColumnMap.total] ?? `${quantity * unitPrice}`) ||
                       quantity * unitPrice
-                    return { description, quantity, unit, packageSize, packageUnit, unitPrice, total }
+                    return { description, product_code, quantity, unit, packageSize, packageUnit, unitPrice, total }
                   })
                   setDraft(
                     buildDraftFromItems(

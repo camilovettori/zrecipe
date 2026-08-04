@@ -77,6 +77,8 @@ export default function CostBreakdown({
   overheadMode,
   overheadPercent,
   wastePercent,
+  vatEnabled = true,
+  vatRate = 13.5,
   isSubRecipe = false,
   batchMultiplier = 1,
   onLaborEnabledChange,
@@ -89,6 +91,8 @@ export default function CostBreakdown({
   onOverheadPercentChange,
   onWastePercentChange,
   onSellingPriceChange,
+  onVatEnabledChange,
+  onVatRateChange,
 }: {
   cost: RecipeCostSummary
   yieldQuantity?: number
@@ -102,6 +106,8 @@ export default function CostBreakdown({
   overheadMode?: 'fixed' | 'percent'
   overheadPercent?: number
   wastePercent?: number
+  vatEnabled?: boolean
+  vatRate?: number
   isSubRecipe?: boolean
   batchMultiplier?: number
   onLaborEnabledChange: (v: boolean) => void
@@ -114,13 +120,13 @@ export default function CostBreakdown({
   onOverheadPercentChange: (v: number) => void
   onWastePercentChange: (v: number) => void
   onSellingPriceChange: (v: number) => void
+  onVatEnabledChange: (v: boolean) => void
+  onVatRateChange: (v: number) => void
 }) {
   const [lastEdited, setLastEdited] = useState<'price' | 'margin'>('price')
   const [targetMargin, setTargetMargin] = useState<number | null>(null)
   const [sellingPriceFocused, setSellingPriceFocused] = useState(false)
   const [focusedIncVatStr, setFocusedIncVatStr] = useState('')
-  const [vatEnabled, setVatEnabled] = useState(true)
-  const [vatRate, setVatRate] = useState(13.5)
 
   // rawMargin can go negative (selling below cost) and must be shown as-is.
   // The slider/bar can't represent a negative target, so it gets a clamped
@@ -162,7 +168,7 @@ export default function CostBreakdown({
     const currentIncVat = vatEnabled && vatRate > 0
       ? cost.sellingPrice * (1 + vatRate / 100)
       : cost.sellingPrice
-    setVatRate(newRate)
+    onVatRateChange(newRate)
     if (newRate > 0) {
       onSellingPriceChange(currentIncVat / (1 + newRate / 100))
     } else {
@@ -181,6 +187,13 @@ export default function CostBreakdown({
   const yieldUnitLabel = (yieldUnit ?? '').trim()
   const yieldUnitSingular = yieldUnitLabel ? yieldUnitLabel.replace(/s$/i, '') : 'unit'
   const unitsPerYield = Math.max(1, convertUnit(yieldQty, yieldUnitLabel || 'unit', 'unit'))
+  // "Cost per single unit" only makes sense when the yield is counted in
+  // discrete items — for a weight/volume yield (e.g. 1.15 kg) unitsPerYield
+  // is just the leftover kg quantity, not an actual unit count, and the
+  // line would duplicate "Cost per kg" under a misleading label.
+  const isCountYield = ['unit', 'portion', 'serving', 'piece', 'slice', 'loaf', 'dozen'].includes(
+    yieldUnitLabel.toLowerCase()
+  )
   const batchTotalCost = cost.totalCost * batchMultiplier
   const laborIsTime = laborMode === 'time'
   const overheadIsPercent = overheadMode === 'percent'
@@ -248,6 +261,13 @@ export default function CostBreakdown({
             €{(cost.ingredientCost * batchMultiplier).toFixed(2)}
           </span>
         </div>
+
+        {cost.hasZeroPricedIngredients && !cost.incompleteCost && (
+          <div className="mt-1 flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 text-xs text-blue-600 dark:bg-blue-950/30 dark:text-blue-400">
+            <Info className="h-3.5 w-3.5 shrink-0" />
+            <span>Some ingredients have a €0 price — this may be intentional (e.g. water) or need updating.</span>
+          </div>
+        )}
 
         {/* Labor */}
         <div className="flex items-start justify-between border-b border-gray-50 py-2">
@@ -561,7 +581,7 @@ export default function CostBreakdown({
             <div className="space-y-1 text-xs text-slate-500">
               <p>Yield: {yieldQty} {yieldUnitLabel || 'units'}</p>
               <p>Cost per {yieldUnitSingular}: €{cost.costPerUnit.toFixed(2)}</p>
-              {unitsPerYield > 1 && (
+              {isCountYield && unitsPerYield > 1 && (
                 <p>Cost per single unit: €{(cost.totalCost / unitsPerYield).toFixed(2)}</p>
               )}
               {batchMultiplier > 1 && (
@@ -715,7 +735,7 @@ export default function CostBreakdown({
             </div>
             <button
               type="button"
-              onClick={() => setVatEnabled((prev) => !prev)}
+              onClick={() => onVatEnabledChange(!vatEnabled)}
               className={cn(
                 'relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0',
                 vatEnabled ? 'bg-emerald-500' : 'bg-gray-200'

@@ -6,7 +6,7 @@ import { X, UtensilsCrossed, Loader2, Tag, FileText } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
 import type { RecipeRecord } from '@/hooks/useRecipes'
-import { generateRecipePdf, type PrintMode } from '@/lib/pdf/recipe-generator'
+import type { PrintMode } from '@/lib/pdf/recipe-generator'
 import type { RecipeAllergenSummary } from '@/lib/allergens'
 
 type PdfTenant = {
@@ -55,6 +55,9 @@ export default function PrintOptionsModal({
     try {
       setPrinting(mode)
       const tenant = await loadTenantForPdf()
+      // @react-pdf/renderer is a heavy dependency — only pulled in once the
+      // user actually clicks a print/download option, not on modal mount.
+      const { generateRecipePdf } = await import('@/lib/pdf/recipe-generator')
       await generateRecipePdf(recipe, mode, allergens, {
         includesCosts: mode === 'cost',
         tenant,

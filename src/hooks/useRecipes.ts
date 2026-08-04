@@ -55,6 +55,8 @@ export interface RecipeEditorData {
   overheadPercent: number
   wastePercent: number
   sellingPrice: number
+  vatEnabled: boolean
+  vatRate: number
   imageUrl: string | null
   imageUrls: string[]
   isSubIngredient: boolean
@@ -166,6 +168,8 @@ type DBRecipeRow = {
   overhead_percent?: number | null
   waste_percent?: number | null
   selling_price?: number | null
+  vat_enabled?: boolean | null
+  vat_rate?: number | null
   image_url?: string | null
   image_urls?: string[] | null
   is_active?: boolean | null
@@ -401,6 +405,8 @@ function buildRecipeRecordFromInput(
     overheadPercent: input.overheadPercent,
     wastePercent: input.wastePercent,
     sellingPrice: input.sellingPrice,
+    vatEnabled: input.vatEnabled,
+    vatRate: input.vatRate,
     imageUrl: input.imageUrl,
     imageUrls: input.imageUrls,
     isSubIngredient: input.isSubIngredient,
@@ -536,6 +542,8 @@ function mapRecipeRow(row: DBRecipeRow, tenantLaborHourlyRate = 15): RecipeRecor
     overheadPercent,
     wastePercent,
     sellingPrice: Number(row.selling_price ?? 0),
+    vatEnabled: row.vat_enabled ?? true,
+    vatRate: Number(row.vat_rate ?? 13.5),
     imageUrl: row.image_url ?? null,
     imageUrls: row.image_urls?.length ? row.image_urls : (row.image_url ? [row.image_url] : []),
     isSubIngredient: row.is_sub_ingredient ?? false,
@@ -615,6 +623,8 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
             overhead_percent,
             waste_percent,
             selling_price,
+            vat_enabled,
+            vat_rate,
             image_url,
             image_urls,
             is_active,
@@ -742,6 +752,8 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           overhead_percent,
           waste_percent,
           selling_price,
+          vat_enabled,
+          vat_rate,
           image_url,
           image_urls,
           is_active,
@@ -895,6 +907,8 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           overheadPercent: input.overheadPercent,
           wastePercent: input.wastePercent,
           sellingPrice: input.sellingPrice,
+          vatEnabled: input.vatEnabled,
+          vatRate: input.vatRate,
           imageUrl: input.imageUrls[0] ?? input.imageUrl,
           imageUrls: input.imageUrls,
           isSubIngredient: input.isSubIngredient,
