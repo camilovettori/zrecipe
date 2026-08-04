@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "test": "node --import tsx --test src/lib/utils/normalizeBrand.test.ts src/lib/utils/normalizeMemoryKey.test.ts tests/priceHistoryBrandFix.test.ts tests/bulkInvoiceReviewGrouping.test.ts tests/aiImportRecipeDedupe.test.ts tests/invoiceDuplicateCheck.test.ts tests/invoiceMemoryKeyConsistency.test.ts tests/aiImportRecipePriceUnit.test.ts tests/newIngredientModalDuplicateCheck.test.ts tests/costBreakdownMarginBand.test.ts"
   },
   "dependencies": {
@@ -27,7 +27,7 @@
     "date-fns": "^4.1.0",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.14.0",
-    "next": "^15.5.22",
+    "next": "^16.3.0",
     "papaparse": "^5.5.3",
     "pdfjs-dist": "^5.7.284",
     "react": "^19.2.8",
@@ -48,8 +48,8 @@
     "@types/node": "^20",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
-    "eslint": "^8",
-    "eslint-config-next": "^15.5.22",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.0",
     "playwright": "^1.60.0",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
