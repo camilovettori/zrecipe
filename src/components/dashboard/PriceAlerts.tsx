@@ -16,7 +16,7 @@ type HistoryRow = PriceHistoryEntry & {
 
 async function getPriceAlerts(): Promise<IngredientPriceChange[]> {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
 
     // Fetch last 60 days so we can compare to the prior entry even when the
     // most recent change happened right at the 30-day boundary.

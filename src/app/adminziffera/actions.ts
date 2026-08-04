@@ -19,7 +19,7 @@ import { createClient } from '@/lib/supabase/server'
 const SUPER_ADMIN_EMAIL = 'camilovettori@gmail.com'
 
 async function requireSuperAdmin(): Promise<void> {
-  const supabase = createClient()
+  const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || user.email?.toLowerCase() !== SUPER_ADMIN_EMAIL) {
     throw new Error('Unauthorized')

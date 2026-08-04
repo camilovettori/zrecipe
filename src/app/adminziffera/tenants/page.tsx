@@ -6,7 +6,7 @@ import TenantsClient, { TenantRow } from './TenantsClient'
 const SUPER_ADMIN_EMAIL = 'camilovettori@gmail.com'
 
 export default async function AdminTenants() {
-  const supabase = createClient()
+  const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || user.email !== SUPER_ADMIN_EMAIL) redirect('/')
 

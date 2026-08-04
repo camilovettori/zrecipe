@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic'
 
 async function getDisplayName() {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     const { data } = await supabase.auth.getUser()
     const user = data.user
     if (!user) return 'Chef'
@@ -52,7 +52,7 @@ async function getPageContext(): Promise<PageContext> {
   }
 
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     const admin = createAdminClient()
 
     const { data: { user }, error: userError } = await supabase.auth.getUser()

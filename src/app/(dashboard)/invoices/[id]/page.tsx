@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { ArrowLeft, ArrowUpRight, Edit3, FileText, Image as ImageIcon, Trash2 } from 'lucide-react'
@@ -196,7 +196,8 @@ function createDraftFromInvoice(invoice: InvoiceRecord | null): InvoiceFormState
   }
 }
 
-export default function InvoiceDetailPage({ params }: { params: { id: string } }) {
+export default function InvoiceDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const router = useRouter()
   const handleBack = useSafeBack('/invoices')
   const { getInvoiceById, deleteInvoice } = useInvoices({ autoLoad: false })

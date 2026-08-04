@@ -5,7 +5,7 @@ import { SUPER_ADMIN_EMAIL } from '@/lib/auth/admin'
 import InboxClient, { type InboxTicket } from './InboxClient'
 
 export default async function InboxPage() {
-  const supabase = createClient()
+  const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || user.email?.toLowerCase() !== SUPER_ADMIN_EMAIL) redirect('/')
 

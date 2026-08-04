@@ -12,10 +12,8 @@ const schema = z.object({
   message: z.string().min(1, 'Message is required').max(5000, 'Message is too long'),
 })
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { ticketId: string } }
-) {
+export async function POST(request: NextRequest, props: { params: Promise<{ ticketId: string }> }) {
+  const params = await props.params;
   const supabase = createRequestSupabaseClient(request)
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {

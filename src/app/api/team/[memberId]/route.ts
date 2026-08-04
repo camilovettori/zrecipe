@@ -12,9 +12,9 @@ type TenantMemberRow = {
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ memberId: string }> | { memberId: string } }
+  { params }: { params: Promise<{ memberId: string }> }
 ) {
-  const resolvedParams = await Promise.resolve(params)
+  const resolvedParams = await params
   const supabase = createRequestSupabaseClient(request)
   const admin = createAdminClient()
 

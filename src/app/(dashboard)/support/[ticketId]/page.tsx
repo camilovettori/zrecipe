@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, use } from 'react';
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatDistanceToNowStrict } from 'date-fns'
@@ -30,7 +30,8 @@ interface ThreadMessage {
   created_at: string
 }
 
-export default function SupportTicketPage({ params }: { params: { ticketId: string } }) {
+export default function SupportTicketPage(props: { params: Promise<{ ticketId: string }> }) {
+  const params = use(props.params);
   const { ticketId } = params
   const router = useRouter()
   const [ticket, setTicket] = useState<Ticket | null | undefined>(undefined)

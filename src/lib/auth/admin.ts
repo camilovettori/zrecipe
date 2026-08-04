@@ -8,7 +8,7 @@ export const SUPER_ADMIN_EMAIL = 'camilovettori@gmail.com'
  *  server actions and route handlers — pages should keep their existing
  *  redirect('/') pattern instead, since a thrown error isn't a redirect. */
 export async function requireSuperAdmin() {
-  const supabase = createClient()
+  const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || user.email?.toLowerCase() !== SUPER_ADMIN_EMAIL) {
     throw new Error('Unauthorized')

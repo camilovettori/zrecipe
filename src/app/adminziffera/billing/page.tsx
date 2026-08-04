@@ -16,7 +16,7 @@ interface Tenant {
 }
 
 export default async function AdminBilling() {
-  const supabase = createClient()
+  const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || user.email !== SUPER_ADMIN_EMAIL) redirect('/')
 

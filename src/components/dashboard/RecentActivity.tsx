@@ -21,7 +21,7 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
-const ICON: Record<ActivityItem['type'], React.ElementType> = {
+const ICON: Record<ActivityItem['type'], React.ComponentType<{ className?: string }>> = {
   recipe:     ChefHat,
   ingredient: Apple,
   invoice:    FileText,

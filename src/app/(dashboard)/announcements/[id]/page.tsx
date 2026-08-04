@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, use } from 'react';
 import Link from 'next/link'
 import { formatDistanceToNowStrict } from 'date-fns'
 import { ArrowLeft, Loader2, Megaphone } from 'lucide-react'
@@ -17,7 +17,8 @@ interface Announcement {
   sent_at: string
 }
 
-export default function AnnouncementDetailPage({ params }: { params: { id: string } }) {
+export default function AnnouncementDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const { id } = params
   const [announcement, setAnnouncement] = useState<Announcement | null | undefined>(undefined)
   const [viewerFullName, setViewerFullName] = useState<string | null>(null)

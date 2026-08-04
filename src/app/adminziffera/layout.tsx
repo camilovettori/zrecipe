@@ -8,7 +8,7 @@ import AdminNav from './AdminNav'
 const SUPER_ADMIN_EMAIL = 'camilovettori@gmail.com'
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const supabase = createClient()
+  const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || user.email?.toLowerCase() !== SUPER_ADMIN_EMAIL) redirect('/')
 

@@ -54,9 +54,9 @@ export default function LegalPageShell({ title, lastUpdated, children }: LegalPa
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Product</p>
                 <ul className="mt-3 flex flex-col gap-2 text-sm text-slate-400">
-                  <li><a href="/#features" className="transition-colors hover:text-white">Features</a></li>
-                  <li><a href="/#pricing" className="transition-colors hover:text-white">Pricing</a></li>
-                  <li><a href="/#faq" className="transition-colors hover:text-white">FAQ</a></li>
+                  <li><Link href="/#features" className="transition-colors hover:text-white">Features</Link></li>
+                  <li><Link href="/#pricing" className="transition-colors hover:text-white">Pricing</Link></li>
+                  <li><Link href="/#faq" className="transition-colors hover:text-white">FAQ</Link></li>
                 </ul>
               </div>
               <div>

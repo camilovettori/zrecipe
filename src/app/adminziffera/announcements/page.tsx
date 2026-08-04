@@ -6,7 +6,7 @@ import { getAudienceDirectory } from './actions'
 import AnnouncementsClient, { type AnnouncementListRow } from './AnnouncementsClient'
 
 export default async function AnnouncementsPage() {
-  const supabase = createClient()
+  const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || user.email?.toLowerCase() !== SUPER_ADMIN_EMAIL) redirect('/')
 

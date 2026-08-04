@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import {
   Sparkles,
   CheckCircle2,
@@ -483,9 +484,9 @@ export default function AIIdeasPage() {
           ) : (ingredients?.length ?? 0) === 0 ? (
             <p className="text-sm text-slate-500">
               No ingredients yet.{' '}
-              <a href="/ingredients" className="text-emerald-600 hover:underline">
+              <Link href="/ingredients" className="text-emerald-600 hover:underline">
                 Add some ingredients
-              </a>{' '}
+              </Link>{' '}
               first.
             </p>
           ) : (

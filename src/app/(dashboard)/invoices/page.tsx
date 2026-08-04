@@ -133,7 +133,7 @@ function DateFieldPopover({
   onChange: (next: string) => void
   minValue?: string
   maxValue?: string
-  containerRef: RefObject<HTMLDivElement>
+  containerRef: RefObject<HTMLDivElement | null>
 }) {
   const [cursorMonth, setCursorMonth] = useState(() =>
     startOfMonth(value ? parseInputDate(value) : new Date())

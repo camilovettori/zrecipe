@@ -59,8 +59,9 @@ function formatTokens(n: number): string {
   return String(n)
 }
 
-export default async function TenantDetail({ params }: { params: { id: string } }) {
-  const supabase = createClient()
+export default async function TenantDetail(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
+  const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || user.email !== SUPER_ADMIN_EMAIL) redirect('/')
 

@@ -4,8 +4,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { SUPER_ADMIN_EMAIL } from '@/lib/auth/admin'
 import TicketDetailClient from './TicketDetailClient'
 
-export default async function AdminTicketDetail({ params }: { params: { id: string } }) {
-  const supabase = createClient()
+export default async function AdminTicketDetail(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
+  const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || user.email?.toLowerCase() !== SUPER_ADMIN_EMAIL) redirect('/')
 
