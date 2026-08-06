@@ -38,6 +38,88 @@ function normaliseDateForInput(date: string | null | undefined): string {
 
 // ── Claude extraction ──────────────────────────────────────────────────────
 
+// Supplier-specific reading instructions, appended unconditionally to
+// EXTRACTION_PROMPT. Self-gated ("IF this is a Henderson invoice...") rather
+// than injected via a separate supplier-detection pass — the token cost is
+// small (~500 tokens) and Claude ignores it for every other supplier. Add
+// more suppliers the same way as their column layouts turn out to need it.
+//
+// package_size for a UNITS-sourced row is the INDIVIDUAL item size, never
+// multiplied by the pack count — this matches resolveInvoiceQuantityEvidence
+// (src/lib/invoices.ts), which deterministically overwrites whatever
+// package_size Claude outputs here based on raw_size_text + quantity_source.
+// Multiplying here would make every UNITS-sourced ingredient's price/kg
+// look ~6-12x too cheap (e.g. €1.67 for 800g of beans reads as plausible;
+// €1.67 for 4.8kg does not).
+const HENDERSON_TEMPLATE = `
+SUPPLIER-SPECIFIC RULES — HENDERSON FOODSERVICE
+IF this is a Henderson Foodservice invoice, follow the rules below. They apply to
+Henderson only — ignore this entire section for any other supplier.
+
+Henderson line items are in a FIXED TABLE FORMAT:
+COLUMNS (left to right): CASES | UNITS | DEPT | DESCRIPTION | SIZE | CODE | WSP | DISC | VALUE | VAT
+
+HOW TO READ EACH ROW:
+1. QUANTITY comes from either CASES or UNITS (never both on one row):
+   - Number in CASES -> unit = "case"
+   - Number in UNITS -> unit = "unit" (an individual/loose purchase, not a full case)
+   - Number ending "KGS"/"KG" -> weight purchase, unit = "kg", quantity = that number
+   Copy the literal CASES value to raw_cases_quantity and UNITS value to
+   raw_units_quantity (null when blank), same as the general rule above.
+
+2. WSP = Wholesale Selling Price PER SINGLE case/unit/kg -> unit_price.
+
+3. VALUE = LINE TOTAL = quantity x WSP -> total.
+   CRITICAL: VALUE must equal CASES x WSP, or UNITS x WSP, or KGS x WSP. If it
+   doesn't, re-read the row — you likely misread which column a number belongs to.
+
+4. SIZE = pack format, e.g. "24 X 330ML" or "6 X 800G". Copy it literally to
+   raw_size_text, then:
+   - Quantity from CASES -> package_size = pack count x individual size (the
+     case contains that many items): "24 X 330ML" -> package_size=7920, unit=ml.
+   - Quantity from UNITS -> package_size = the individual size ONLY, never
+     multiplied by the pack count (you bought one item out of that pack):
+     "6 X 800G" at UNITS=1 -> package_size=800, unit=g — NOT 4800.
+
+5. CODE = supplier product code (6 digits) -> product_code, always extract it.
+
+6. DISC = discount, usually blank. When present, VALUE already includes it —
+   do not subtract it again.
+
+7. VAT (A/B/etc.) and DEPT (A/C/F/etc.) are tax and department codes — ignore
+   both for extraction.
+
+WORKED EXAMPLES:
+  "1        A  DRSP COCA COLA ZERO CANS  24 X 330ML  700035  17.33        17.33  B"
+  -> quantity=1 (CASES), unit=case, description="Coca Cola Zero Cans", brand="DRSP",
+     raw_size_text="24 X 330ML", package_size=7920, package_unit=ml,
+     product_code=700035, unit_price=17.33, total=17.33
+
+  "     1   A  BEANS CANNELLINI WATER CR  6 X 800G  704222  1.67         1.67  A"
+  -> quantity=1 (UNITS, not CASES), unit=unit, description="Beans Cannellini Water",
+     brand="CR", raw_size_text="6 X 800G", package_size=800, package_unit=g,
+     product_code=704222, unit_price=1.67, total=1.67
+
+  "     2   A  COCONUT MILK PREMIUM CR  12 X 400ML  263390  3.24         6.48  A"
+  -> quantity=2 (UNITS), unit=unit, description="Coconut Milk Premium", brand="CR",
+     raw_size_text="12 X 400ML", package_size=400, package_unit=ml,
+     product_code=263390, unit_price=3.24, total=6.48
+     (VALUE 6.48 = UNITS 2 x WSP 3.24 — confirms UNITS is the source column)
+
+  "8.120KGS  C  PORK CHOPS 2PK FRENCH TRI  KG  100181  8.76         71.13  A"
+  -> quantity=8.12 (weight), unit=kg, description="Pork Chops 2pk French Trim",
+     raw_size_text=null, package_size=null, package_unit=null,
+     product_code=100181, unit_price=8.76, total=71.13
+
+DEPOSIT RETURN SCHEME:
+  Lines under a "Deposit Return Scheme:" heading (often "DRS RECHARGE") are
+  container deposits, not food items. Do not include them in items.
+
+INVOICE TOTAL:
+  The GOODS total (before VAT) is the sum of every VALUE entry. Extract this
+  as subtotal.
+`
+
 const EXTRACTION_PROMPT = `You are an invoice data extraction system for food service businesses (bakeries, restaurants, cafés). Extract structured data from this invoice text.
 
 Return ONLY valid JSON, no markdown, no backticks, no explanation. The JSON must follow this exact structure:
@@ -250,31 +332,19 @@ ANOTHER EXAMPLE:
 COCONUT OIL PURE KTC 500ML | Pack: 12 | Ordered: 2 | Price: 39.67 | Value: 79.34
 CORRECT: description="COCONUT OIL PURE KTC 500ML" (literal), quantity=2, unit="case", package_size=6000, package_unit="ml", unit_price=39.67, total=79.34
 
-CASE + UNIT SPLIT COLUMNS (Henderson-style invoices):
-
-PRESERVE SOURCE EVIDENCE:
+PRESERVE SOURCE EVIDENCE (applies to any supplier with split quantity columns):
 - Copy the literal CASES column to raw_cases_quantity (null only when blank).
 - Copy the literal UNITS column to raw_units_quantity (null only when blank).
 - Copy the printed size/pack format to raw_size_text (for example "12 X 1KG").
 - Never infer one quantity column from the other.
 - Never default an unclear quantity source to "case".
-
-Some invoices split the quantity across TWO columns: "Case" and
-"Unit". Keep each column as documentary evidence. Do not combine them;
-the costing interpretation depends on which source column was populated.
-
-Rule:
-- If Case > 0 AND Unit = 0: this is a full-case purchase.
-  → quantity = Case
-  → unit = "case"
-  → package_size = items per case × individual pack size
-- If Case = 0 AND Unit > 0: this is a loose/individual purchase.
-  → quantity = Unit
-  → unit = the individual purchase unit (bottle, bag, etc.)
-  → package_size = individual pack size only
-- If both Case > 0 AND Unit > 0: multi-part purchase, uncommon.
-  Preserve both raw values, append " (verify)" to the description, and do
-  not silently combine the quantities.
+- If Case > 0 AND Unit = 0: full-case purchase, quantity = Case, unit = "case",
+  package_size = items per case × individual pack size.
+- If Case = 0 AND Unit > 0: loose/individual purchase, quantity = Unit, unit = the
+  individual purchase unit (bottle, bag, etc.), package_size = individual pack size
+  only — do NOT multiply by the pack count.
+- If both Case > 0 AND Unit > 0: multi-part purchase, uncommon. Preserve both raw
+  values, append " (verify)" to the description, and do not silently combine them.
 
 MULTI-PACK DESCRIPTION NOTATION:
 
@@ -295,29 +365,7 @@ NEVER treat the first number in a "NxM" pattern as the quantity
 being ordered. That number describes the pack contents. The
 quantity comes from the Ordered / Case / Unit columns.
 
-EXAMPLE — Henderson-style invoice line:
-  Case: 0 | Unit: 1 | Description: "Water Still 6x2L" | Price: 8.00 | Total: 8.00
-CORRECT extraction:
-  - description: "Water Still 6x2L" (literal — do not strip the pack notation)
-  - quantity: 1        (from Unit column)
-  - unit: "unit"       (one loose unit from the case format)
-  - package_size: 2    (individual unit size; do NOT multiply by 6)
-  - package_unit: "L"
-  - unit_price: 8.00
-  - total: 8.00
-WRONG extraction (this is the bug we're fixing):
-  - quantity: 6        ← NO, that's the number of bottles in the pack, not the order quantity
-  - This would make quantity × unit_price = 6 × 8 = 48, but total is 8 — the validation should catch this
-
 UNCERTAINTY RULES (very important — reliability over completeness):
-
-HENDERSON OVERRIDE (takes precedence over every earlier multi-pack example):
-- CASES only: package_size = pack count x individual size.
-  Example: CASES=1, UNITS blank, SIZE=12 X 1KG -> case, package_size=12kg.
-- UNITS only: package_size = individual size only. Do NOT multiply by pack count.
-  Example: CASES blank, UNITS=1, SIZE=12 X 1KG -> unit, package_size=1kg.
-- Both CASES and UNITS: preserve both raw fields and append " (verify)".
-- Unknown source: preserve null raw fields and append " (verify)". Never use case by default.
 
 For every field, prefer NULL / empty over a guess. Do NOT invent
 values. Specifically:
@@ -349,7 +397,7 @@ When in doubt, leave it null.
 
 FINAL VALIDATION RULE:
 After extracting all items, verify: SUM of all item totals should approximately equal the invoice subtotal/total goods. If it doesn't, one or more items have wrong values — recheck them.
-
+${HENDERSON_TEMPLATE}
 Invoice text:
 `
 
