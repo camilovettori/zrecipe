@@ -159,6 +159,12 @@ unit:
   bottles), "unit" must be that container word, never the weight/volume
   unit — even if the only container word you can infer is "bag" or "unit".
 
+Some suppliers (e.g. Henderson Foodservice) have separate CASES and UNITS columns.
+- If the quantity comes from a CASES column → unit = 'case'
+- If the quantity comes from a UNITS column → unit = 'unit' or 'pack'
+- If the quantity is in KG/KGS → unit = 'kg' (weight-based purchase)
+Read the column headers carefully to determine which column the quantity belongs to.
+
 package_size / package_unit:
 - The NET WEIGHT or NET VOLUME contained in ONE purchase unit (one bag, one
   box, one bottle) — this is where a weight/volume figure printed in the
