@@ -12,6 +12,8 @@ import { logAIUsage } from '@/lib/ai/usage-logger'
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
+const CLAUDE_MODEL = 'claude-sonnet-4-6'
+
 // ── Shared Anthropic client ────────────────────────────────────────────────
 
 function getAnthropic() {
@@ -631,7 +633,7 @@ async function extractWithClaude(text: string) {
   const anthropic = getAnthropic()
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: CLAUDE_MODEL,
     max_tokens: 4000,
     messages: [{ role: 'user', content: EXTRACTION_PROMPT + text }],
   })
@@ -655,7 +657,7 @@ async function extractInvoiceWithVision(imageBase64: string, mimeType: string) {
     : 'image/jpeg'
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: CLAUDE_MODEL,
     max_tokens: 4000,
     messages: [
       {
@@ -679,7 +681,7 @@ async function extractInvoiceWithVision(imageBase64: string, mimeType: string) {
 async function extractPdfWithHeaderVision(text: string, firstPageImageBase64: string) {
   const anthropic = getAnthropic()
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: CLAUDE_MODEL,
     max_tokens: 4000,
     messages: [
       {
@@ -713,6 +715,52 @@ async function extractPdfWithHeaderVision(text: string, firstPageImageBase64: st
 
   // The original PDF text remains authoritative for deterministic alias
   // validation; the page image is only the fallback for graphical headers.
+  return parseAndValidateExtraction(content.text, usage, text)
+}
+
+// Server-side mirror of MAX_VISION_PAGES in invoices-client.ts — don't trust
+// the client to have honored its own cap.
+const MAX_PDF_VISION_PAGES = 5
+
+const PDF_VISION_INSTRUCTION =
+  `${VISION_INSTRUCTION} This invoice may span multiple pages — the attached images are ` +
+  'ALL the pages, in order. Extract ALL line items from ALL pages into a single items array.'
+
+// Primary PDF extraction path: renders every page (up to MAX_PDF_VISION_PAGES)
+// to an image client-side and treats those images as the authoritative
+// source, the way extractInvoiceWithVision already does for a plain photo
+// upload — the naive y-position text reconstruction in extractPdfContent
+// garbles multi-column invoice layouts (e.g. Henderson's CASE/UNIT split
+// columns), so it's passed through only as supplementary text for the
+// deterministic supplier-alias fallback, never as the primary read.
+async function extractPdfWithVision(pageImages: string[], text: string) {
+  const anthropic = getAnthropic()
+  const images = pageImages.slice(0, MAX_PDF_VISION_PAGES)
+
+  const response = await anthropic.messages.create({
+    model: CLAUDE_MODEL,
+    // Multi-page invoices can carry far more line items than a single page —
+    // give the JSON response room so the items array isn't truncated.
+    max_tokens: 8000,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: EXTRACTION_PROMPT.replace(/Invoice text:\s*$/, PDF_VISION_INSTRUCTION) },
+          ...images.map((imageBase64) => ({
+            type: 'image' as const,
+            source: { type: 'base64' as const, media_type: 'image/jpeg' as const, data: imageBase64 },
+          })),
+        ],
+      },
+    ],
+  })
+
+  const usage = { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens }
+
+  const content = response.content[0]
+  if (content.type !== 'text') throw new Error('Claude returned no text content')
+
   return parseAndValidateExtraction(content.text, usage, text)
 }
 
@@ -977,14 +1025,20 @@ export async function POST(request: NextRequest) {
       runExtraction = () => extractInvoiceWithVision(imageBase64, mimeType)
     } else {
       const text = typeof body?.text === 'string' ? body.text : ''
+      const pageImages = Array.isArray(body?.pageImages)
+        ? body.pageImages.filter((img: unknown): img is string => typeof img === 'string' && img.trim().length > 0)
+        : []
       const firstPageImageBase64 =
         typeof body?.firstPageImageBase64 === 'string' ? body.firstPageImageBase64 : ''
-      if (!text.trim() && !firstPageImageBase64.trim()) {
+      if (!text.trim() && !firstPageImageBase64.trim() && pageImages.length === 0) {
         return NextResponse.json({ error: 'Missing PDF content' }, { status: 400 })
       }
-      runExtraction = firstPageImageBase64.trim()
-        ? () => extractPdfWithHeaderVision(text, firstPageImageBase64)
-        : () => extractWithClaude(text)
+      runExtraction =
+        pageImages.length > 0
+          ? () => extractPdfWithVision(pageImages, text)
+          : firstPageImageBase64.trim()
+            ? () => extractPdfWithHeaderVision(text, firstPageImageBase64)
+            : () => extractWithClaude(text)
     }
 
     // Auth
@@ -1055,7 +1109,7 @@ export async function POST(request: NextRequest) {
           feature: 'invoice_extract',
           inputTokens:  result.usage.inputTokens,
           outputTokens: result.usage.outputTokens,
-          model: 'claude-sonnet-4-6',
+          model: CLAUDE_MODEL,
         })
         const enrichedResult = await applyItemMemory(admin, tenantId, result)
         const correctedResult = await applyThousandsConvention(admin, tenantId, enrichedResult)

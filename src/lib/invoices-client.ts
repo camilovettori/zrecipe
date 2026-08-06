@@ -13,6 +13,14 @@ export function bytesToSize(size: number) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
+// Claude vision gets ALL pages up to this cap (not just page 1) — sending
+// more than this risks both Claude's per-request token budget and Vercel's
+// ~4.5MB Node serverless body limit once base64-encoded.
+const MAX_VISION_PAGES = 5
+// Stay under Vercel's Node body limit with headroom for the JSON envelope
+// and the reconstructed text also in the payload.
+const MAX_VISION_PAYLOAD_BYTES = 3.5 * 1024 * 1024
+
 export async function extractPdfContent(file: File) {
   const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs')
   pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
@@ -20,13 +28,20 @@ export async function extractPdfContent(file: File) {
   const arrayBuffer = await file.arrayBuffer()
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
   const pageTexts: string[] = []
-  let firstPageImageBase64 = ''
+  const pageImages: string[] = []
+  let renderedPayloadBytes = 0
+
+  if (pdf.numPages > MAX_VISION_PAGES) {
+    console.warn(
+      `extractPdfContent: "${file.name}" has ${pdf.numPages} pages — only rendering the first ${MAX_VISION_PAGES} for AI extraction`
+    )
+  }
 
   try {
     for (let pageIndex = 1; pageIndex <= pdf.numPages; pageIndex += 1) {
       const page = await pdf.getPage(pageIndex)
 
-      if (pageIndex === 1) {
+      if (pageIndex <= MAX_VISION_PAGES && renderedPayloadBytes < MAX_VISION_PAYLOAD_BYTES) {
         const baseViewport = page.getViewport({ scale: 1 })
         const scale = Math.min(2, 1400 / Math.max(baseViewport.width, 1))
         const previewViewport = page.getViewport({ scale })
@@ -37,9 +52,22 @@ export async function extractPdfContent(file: File) {
           canvas.width = Math.ceil(previewViewport.width)
           canvas.height = Math.ceil(previewViewport.height)
           await page.render({ canvas, canvasContext: context, viewport: previewViewport }).promise
-          firstPageImageBase64 = canvas.toDataURL('image/jpeg', 0.82).split(',')[1] ?? ''
+          const pageImageBase64 = canvas.toDataURL('image/jpeg', 0.82).split(',')[1] ?? ''
           canvas.width = 0
           canvas.height = 0
+
+          if (pageImageBase64) {
+            // base64 is ~4/3 the size of the raw bytes it encodes.
+            const approxBytes = (pageImageBase64.length * 3) / 4
+            if (renderedPayloadBytes + approxBytes > MAX_VISION_PAYLOAD_BYTES) {
+              console.warn(
+                `extractPdfContent: "${file.name}" — stopping at page ${pageIndex - 1} of ${MAX_VISION_PAGES}, rendered images hit the upload size budget`
+              )
+            } else {
+              pageImages.push(pageImageBase64)
+              renderedPayloadBytes += approxBytes
+            }
+          }
         }
       }
 
@@ -80,7 +108,8 @@ export async function extractPdfContent(file: File) {
 
   return {
     text: pageTexts.join('\n'),
-    firstPageImageBase64,
+    pageImages,
+    firstPageImageBase64: pageImages[0] ?? '',
   }
 }
 

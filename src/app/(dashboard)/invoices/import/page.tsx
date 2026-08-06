@@ -555,9 +555,9 @@ export default function ImportInvoicesPage() {
       }
 
       if (fileKind === 'pdf') {
-        const { text, firstPageImageBase64 } = await extractPdfContent(file)
+        const { text, pageImages } = await extractPdfContent(file)
 
-        if (!text.trim() && !firstPageImageBase64) {
+        if (!text.trim() && pageImages.length === 0) {
           toast.info('This PDF appears to be scanned. Please enter items manually.')
           setDraft(
             buildMatchedDraft(
@@ -591,7 +591,7 @@ export default function ImportInvoicesPage() {
           body: JSON.stringify({
             kind: 'pdf',
             text,
-            firstPageImageBase64,
+            pageImages,
             fileName: file.name,
           }),
         })
