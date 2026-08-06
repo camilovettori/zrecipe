@@ -122,45 +122,40 @@ export async function POST(request: NextRequest) {
       recipeId = recipe.id
     }
 
-    const { error: deleteError } = await admin
-      .from('recipe_ingredients')
-      .delete()
-      .eq('recipe_id', recipeId)
-    if (deleteError) throw deleteError
+    const ingredientRows = (body.ingredients ?? []).map(
+      (
+        ing: {
+          ingredientId?: string | null
+          subRecipeId?: string | null
+          quantity: number
+          unit: string
+          notes?: string | null
+          ingredientName?: string
+          yield_percent?: number | null
+          yield_override?: boolean | null
+          ep_weight_manual?: number | null
+        },
+        idx: number
+      ) => ({
+        ingredient_id: ing.ingredientId ?? null,
+        sub_recipe_id: ing.subRecipeId ?? null,
+        quantity: ing.quantity,
+        unit: ing.unit,
+        notes: ing.notes ?? ing.ingredientName ?? null,
+        sort_order: idx,
+        tenant_id: tenantId,
+        yield_percent: ing.yield_percent ?? 100,
+        yield_override: ing.yield_override ?? false,
+        ep_weight_manual: ing.ep_weight_manual ?? null,
+      })
+    )
 
-    if (body.ingredients?.length > 0) {
-      const ingredientRows = body.ingredients.map(
-        (
-          ing: {
-            ingredientId?: string | null
-            subRecipeId?: string | null
-            quantity: number
-            unit: string
-            notes?: string | null
-            ingredientName?: string
-            yield_percent?: number | null
-            yield_override?: boolean | null
-            ep_weight_manual?: number | null
-          },
-          idx: number
-        ) => ({
-          recipe_id: recipeId,
-          ingredient_id: ing.ingredientId ?? null,
-          sub_recipe_id: ing.subRecipeId ?? null,
-          quantity: ing.quantity,
-          unit: ing.unit,
-          notes: ing.notes ?? ing.ingredientName ?? null,
-          sort_order: idx,
-          tenant_id: tenantId,
-          yield_percent: ing.yield_percent ?? 100,
-          yield_override: ing.yield_override ?? false,
-          ep_weight_manual: ing.ep_weight_manual ?? null,
-        })
-      )
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: ingError } = await (admin.from('recipe_ingredients') as any).insert(ingredientRows)
-      if (ingError) throw ingError
-    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error: ingError } = await (admin as any).rpc('save_recipe_ingredients', {
+      p_recipe_id: recipeId,
+      p_ingredients: ingredientRows,
+    })
+    if (ingError) throw ingError
 
     return NextResponse.json({ success: true, recipeId })
   } catch (error: unknown) {
