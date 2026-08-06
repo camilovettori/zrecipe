@@ -55,6 +55,9 @@ export type InvoiceLineItem = {
   needsReviewReason?: string | null
   supplierRawText?: string | null
   quantityInterpretationConfirmed?: boolean
+  /** Post-extraction validation warnings (price/qty/total mismatch, price
+   *  sanity, possible duplicates) — advisory only, never persisted. */
+  warnings?: string[]
 }
 
 export type InvoiceQuantitySource =
@@ -635,6 +638,166 @@ export function scoreIngredientMatch(query: string, target: string) {
     if (tTokens.some((c) => c.startsWith(token))) score += 10
   }
   return Math.min(score, 80)
+}
+
+// ── Post-extraction validation (AI extraction review layer) ────────────────
+// These run on AI-extracted (vision/text) invoice data only, after Claude
+// returns its JSON — never on CSV rows, which have no OCR/vision risk.
+// They only ever SUGGEST — see resolveInvoiceIngredientPricing and
+// parseAndValidateExtraction in route.ts, both of which treat invoice price/
+// total as documentary evidence that is never silently rewritten. Baking in
+// an auto-corrected price risks fixing the wrong field when the AI misread
+// a different one, which is worse than asking the user to confirm.
+
+/**
+ * Flags a price-per-kg/L that's outside a plausible foodservice range, using
+ * the same unit-family-safe conversion as resolveInvoiceIngredientPricing —
+ * never a fresh ad-hoc kg/L conversion. Count-based packaging (package_unit
+ * "unit"/"dozen") has no meaningful price-per-kg, so it's skipped.
+ */
+export function checkPriceSanity(
+  unitPrice: number | null | undefined,
+  packageSize: number | null | undefined,
+  packageUnit: string | null | undefined
+): string | null {
+  if (unitPrice == null || !Number.isFinite(unitPrice) || unitPrice < 0) return null
+  const basis = getPackagePricingBasis(packageSize, packageUnit)
+  if (!basis || basis.baseUnit === 'unit') return null
+
+  const pricePerBase = unitPrice / basis.baseQuantity
+  if (!Number.isFinite(pricePerBase)) return null
+
+  if (pricePerBase > 200) return `Price seems very high: €${pricePerBase.toFixed(2)}/${basis.baseUnit}`
+  if (pricePerBase < 0.05) return `Price seems very low: €${pricePerBase.toFixed(2)}/${basis.baseUnit}`
+  return null
+}
+
+/**
+ * Checks quantity x unit_price against the extracted line total. Within 2%
+ * (rounding) it's silent. Beyond that it suggests — never applies — a
+ * corrected price or quantity, whichever derives to a plausible number.
+ */
+export function suggestReconciledValue(
+  quantity: number | null | undefined,
+  unitPrice: number | null | undefined,
+  total: number | null | undefined
+): string | null {
+  if (unitPrice == null || total == null || total <= 0) return null
+  const qty = Number(quantity) || 0
+  const price = Number(unitPrice) || 0
+  const calculatedTotal = qty * price
+  const diff = Math.abs(calculatedTotal - total) / total
+  if (diff <= 0.02) return null
+
+  const derivedPrice = qty > 0 ? total / qty : null
+  if (derivedPrice != null && Number.isFinite(derivedPrice) && derivedPrice > 0.01 && derivedPrice < 10000) {
+    return `Price and quantity don't reconcile with the line total (€${total.toFixed(2)}) — line total ÷ quantity suggests unit price €${derivedPrice.toFixed(2)}. Confirm before applying.`
+  }
+
+  const derivedQty = price > 0 ? total / price : null
+  if (derivedQty != null && Number.isFinite(derivedQty) && derivedQty > 0.01 && derivedQty < 100000) {
+    return `Price and quantity don't reconcile with the line total (€${total.toFixed(2)}) — line total ÷ unit price suggests quantity ${derivedQty.toFixed(2)}. Confirm before applying.`
+  }
+
+  return null
+}
+
+/**
+ * Flags items sharing a product_code, or an identical description once
+ * normalized (case/punctuation/whitespace-insensitive) — the same
+ * normalization already used for ingredient-name matching.
+ */
+export function detectDuplicateItems(
+  items: Array<{ description: string; product_code?: string | null }>
+): (string | null)[] {
+  return items.map((item, idx) => {
+    const code = item.product_code?.trim().toLowerCase() || null
+    const normalizedDescription = normalizeText(item.description)
+
+    for (let j = 0; j < items.length; j++) {
+      if (j === idx) continue
+      const other = items[j]
+      const otherCode = other.product_code?.trim().toLowerCase() || null
+      const sameCode = Boolean(code && otherCode && code === otherCode)
+      const sameDescription =
+        !sameCode &&
+        normalizedDescription.length > 0 &&
+        normalizedDescription === normalizeText(other.description)
+
+      if (sameCode || sameDescription) {
+        return `Possible duplicate of item ${j + 1}`
+      }
+    }
+    return null
+  })
+}
+
+/**
+ * Compares the sum of extracted line totals against the invoice's stated
+ * total/subtotal. Observability for the user, not a fabrication risk — it
+ * never touches any item's data, only returns a banner message.
+ */
+export function reconcileInvoiceTotal(
+  items: Array<{ total?: number | null }>,
+  invoiceTotal: number | null | undefined
+): string | null {
+  if (!invoiceTotal || invoiceTotal <= 0) return null
+  const sum = items.reduce((acc, item) => acc + Number(item.total ?? 0), 0)
+  const diff = Math.abs(sum - invoiceTotal) / invoiceTotal
+  if (diff > 0.05) {
+    return `Extracted items total €${sum.toFixed(2)} vs invoice total €${invoiceTotal.toFixed(2)} — ${
+      sum < invoiceTotal ? 'some items may be missing' : 'check for duplicates or wrong prices'
+    }`
+  }
+  return null
+}
+
+/**
+ * Runs all post-extraction validations and attaches their results:
+ * warnings[] per item, plus an invoice-level total-mismatch banner. Called
+ * after supplier-aware memory and thousands-convention correction so
+ * warnings reflect the final values shown to the user, not intermediate
+ * extraction state.
+ */
+export function applyExtractionWarnings<
+  I extends {
+    description: string
+    product_code?: string | null
+    quantity: number
+    unit_price?: number | null
+    total?: number | null
+    package_size?: number | null
+    package_unit?: string | null
+  },
+  T extends {
+    subtotal_amount?: number | null
+    total_amount?: number | null
+    items: I[]
+  }
+>(
+  result: T
+): Omit<T, 'items'> & { items: Array<I & { warnings: string[] }>; invoice_total_warning: string | null } {
+  const duplicateFlags = detectDuplicateItems(result.items)
+
+  const items = result.items.map((item, idx) => {
+    const warnings: string[] = []
+
+    const reconciliation = suggestReconciledValue(item.quantity, item.unit_price, item.total)
+    if (reconciliation) warnings.push(reconciliation)
+
+    const sanity = checkPriceSanity(item.unit_price, item.package_size, item.package_unit)
+    if (sanity) warnings.push(sanity)
+
+    const duplicate = duplicateFlags[idx]
+    if (duplicate) warnings.push(duplicate)
+
+    return { ...item, warnings }
+  })
+
+  const invoiceTotal = result.subtotal_amount ?? result.total_amount ?? null
+  const invoice_total_warning = reconcileInvoiceTotal(items, invoiceTotal)
+
+  return { ...result, items, invoice_total_warning }
 }
 
 export function autoDetectCsvColumns(headers: string[]) {

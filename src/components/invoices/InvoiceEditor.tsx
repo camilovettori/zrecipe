@@ -770,6 +770,13 @@ function ReviewItemCard({
         </p>
       )}
 
+      {item.warnings?.map((warning, index) => (
+        <p key={index} className="mt-2 flex items-start gap-1.5 text-xs font-medium text-amber-700">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          {warning}
+        </p>
+      ))}
+
       {item.packageSize == null && WEIGHT_VOLUME_IN_DESCRIPTION.test(item.description) && (
         <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-700">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />

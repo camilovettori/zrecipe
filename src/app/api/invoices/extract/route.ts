@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import Papa from 'papaparse'
-import { autoDetectCsvColumns, resolveInvoiceQuantityEvidence } from '@/lib/invoices'
+import { autoDetectCsvColumns, resolveInvoiceQuantityEvidence, applyExtractionWarnings } from '@/lib/invoices'
 import { normalizeMemoryKey } from '@/lib/utils/normalizeMemoryKey'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
@@ -1119,8 +1119,11 @@ export async function POST(request: NextRequest) {
         })
         const enrichedResult = await applyItemMemory(admin, tenantId, result)
         const correctedResult = await applyThousandsConvention(admin, tenantId, enrichedResult)
+        // Runs last so warnings reflect final, corrected values — not
+        // intermediate extraction state.
+        const withWarnings = applyExtractionWarnings(correctedResult)
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { usage: _u, ...responseData } = correctedResult
+        const { usage: _u, ...responseData } = withWarnings
         return NextResponse.json(responseData)
       } catch (claudeErr) {
         const message = claudeErr instanceof Error ? claudeErr.message : 'AI extraction failed'
@@ -1132,7 +1135,7 @@ export async function POST(request: NextRequest) {
     // No tenant found — still allow extraction but don't track usage
     try {
       const result = await runExtraction()
-      return NextResponse.json(result)
+      return NextResponse.json(applyExtractionWarnings(result))
     } catch (claudeErr) {
       const message = claudeErr instanceof Error ? claudeErr.message : 'AI extraction failed'
       console.error('[extract] Claude error:', message)

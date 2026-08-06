@@ -140,6 +140,7 @@ export type ExtractedInvoiceItem = {
   normalizedPriceConfidence?: 'high' | 'review'
   needsReviewReason?: string | null
   supplierRawText?: string | null
+  warnings?: string[]
 }
 
 export function normalizeExtractedItems(

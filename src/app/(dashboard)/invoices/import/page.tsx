@@ -156,6 +156,7 @@ function buildDraftFromItems(
     normalizedPriceConfidence?: 'high' | 'review'
     needsReviewReason?: string | null
     supplierRawText?: string | null
+    warnings?: string[]
   }>,
   meta?: {
     subtotalAmount?: number | null
@@ -185,6 +186,7 @@ function buildDraftFromItems(
           normalizedPriceConfidence: item.normalizedPriceConfidence,
           needsReviewReason: item.needsReviewReason ?? null,
           supplierRawText: item.supplierRawText ?? null,
+          warnings: item.warnings ?? [],
           quantityInterpretationConfirmed: false,
           newIngredientBrand: item.brand?.trim() || '',
           quantity: item.quantity,
@@ -340,6 +342,7 @@ export default function ImportInvoicesPage() {
   const [invoiceId, setInvoiceId] = useState<string>(() => crypto.randomUUID())
   const [draft, setDraft] = useState<InvoiceFormState>(createInitialDraft)
   const [thousandsCorrectionApplied, setThousandsCorrectionApplied] = useState(false)
+  const [invoiceTotalWarning, setInvoiceTotalWarning] = useState<string | null>(null)
   const [suppliers, setSuppliers] = useState<SupplierLookup[]>([])
   const [ingredients, setIngredients] = useState<IngredientLookup[]>([])
   const [loadingLookups, setLoadingLookups] = useState(true)
@@ -489,6 +492,7 @@ export default function ImportInvoicesPage() {
       setProcessing(true)
       setFileError(null)
       setThousandsCorrectionApplied(false)
+      setInvoiceTotalWarning(null)
 
       if (fileKind === 'csv') {
         const csvText = await file.text()
@@ -634,8 +638,10 @@ export default function ImportInvoicesPage() {
               normalized_price_confidence?: 'high' | 'review'
               needs_review_reason?: string | null
               supplier_raw_text?: string | null
+              warnings?: string[]
             }>
           thousands_correction_applied?: boolean
+          invoice_total_warning?: string | null
         }
 
         if (!response.ok) {
@@ -643,6 +649,7 @@ export default function ImportInvoicesPage() {
         }
 
         setThousandsCorrectionApplied(payload.thousands_correction_applied ?? false)
+        setInvoiceTotalWarning(payload.invoice_total_warning ?? null)
 
         const rawItems = payload.items ?? []
         const extractedItems = normalizeExtractedItems(
@@ -659,6 +666,7 @@ export default function ImportInvoicesPage() {
           memoryIngredientId: rawItems[i]?.memory_ingredient_id ?? null,
           memoryIngredientName: rawItems[i]?.memory_ingredient_name ?? null,
           needs_verification: rawItems[i]?.needs_verification ?? false,
+          warnings: rawItems[i]?.warnings ?? [],
         }))
         setDraft(
           attachResolvedSupplier(buildMatchedDraft(
@@ -757,8 +765,10 @@ export default function ImportInvoicesPage() {
             normalized_price_confidence?: 'high' | 'review'
             needs_review_reason?: string | null
             supplier_raw_text?: string | null
+            warnings?: string[]
           }>
           thousands_correction_applied?: boolean
+          invoice_total_warning?: string | null
         }
 
         if (!response.ok) {
@@ -766,6 +776,7 @@ export default function ImportInvoicesPage() {
         }
 
         setThousandsCorrectionApplied(payload.thousands_correction_applied ?? false)
+        setInvoiceTotalWarning(payload.invoice_total_warning ?? null)
 
         const rawItems = payload.items ?? []
         const extractedItems = normalizeExtractedItems(
@@ -782,6 +793,7 @@ export default function ImportInvoicesPage() {
           memoryIngredientId: rawItems[i]?.memory_ingredient_id ?? null,
           memoryIngredientName: rawItems[i]?.memory_ingredient_name ?? null,
           needs_verification: rawItems[i]?.needs_verification ?? false,
+          warnings: rawItems[i]?.warnings ?? [],
         }))
         setDraft(
           attachResolvedSupplier(buildMatchedDraft(
@@ -1258,6 +1270,19 @@ export default function ImportInvoicesPage() {
                     multiplied quantities by 1000 and adjusted unit prices accordingly. Verify
                     the amounts against your invoice.
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Invoice total mismatch banner ─────────────────────────────── */}
+          {invoiceTotalWarning && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <div className="font-medium">Extracted total doesn&apos;t match the invoice</div>
+                  <div className="mt-0.5 text-amber-700">{invoiceTotalWarning}</div>
                 </div>
               </div>
             </div>
