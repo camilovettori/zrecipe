@@ -930,7 +930,15 @@ export default function InvoiceEditor({
         next.normalizedPriceConfidence = 'high'
         next.needsReviewReason = null
       }
-      next.total = recalculateItemTotal(next)
+      // Only recalculate when the user actually edits quantity or unit
+      // price. Every other patch — matching an ingredient, editing the
+      // description, confirming allergens — must never touch invoice price
+      // data. Recalculating unconditionally here previously clobbered a
+      // correct AI-extracted total (e.g. qty x package_size x unit_price)
+      // down to the naive qty x unitPrice the moment a match was selected.
+      if ('quantity' in patch || 'unitPrice' in patch) {
+        next.total = recalculateItemTotal(next)
+      }
       return next
     })
     updateDraft({ items, totalAmount: recalculateInvoiceTotals(items).subtotal })
