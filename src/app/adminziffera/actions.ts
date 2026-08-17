@@ -15,6 +15,7 @@
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
+import { type PlanTier } from '@/lib/stripe/plans'
 
 const SUPER_ADMIN_EMAIL = 'camilovettori@gmail.com'
 
@@ -46,9 +47,12 @@ function revalidateTenant(tenantId: string) {
 
 // ── existing actions ──────────────────────────────────────────────────────────
 
-export async function activateCompedPlan(tenantId: string): Promise<void> {
+export async function activateCompedPlan(
+  tenantId: string,
+  tier: PlanTier = 'pro',
+): Promise<void> {
   await requireSuperAdmin()
-  await updateTenant(tenantId, { subscription_status: 'active', is_comped: true, plan_tier: 'pro' })
+  await updateTenant(tenantId, { subscription_status: 'active', is_comped: true, plan_tier: tier })
   revalidateTenant(tenantId)
 }
 
@@ -69,13 +73,14 @@ export async function suspendTenant(tenantId: string): Promise<void> {
 export async function unsuspendTenant(
   tenantId: string,
   restoreTo: 'trialing' | 'active_comped' | 'active_stripe',
+  compedTier: PlanTier = 'pro',
 ): Promise<void> {
   await requireSuperAdmin()
   const update =
     restoreTo === 'trialing'
       ? { subscription_status: 'trialing', is_comped: false }
       : restoreTo === 'active_comped'
-      ? { subscription_status: 'active', is_comped: true, plan_tier: 'pro' }
+      ? { subscription_status: 'active', is_comped: true, plan_tier: compedTier }
       : { subscription_status: 'active', is_comped: false } // active_stripe — admin manages Stripe separately
   await updateTenant(tenantId, update)
   revalidateTenant(tenantId)
@@ -118,4 +123,25 @@ export async function deleteTenant(tenantId: string): Promise<void> {
   if (error) throw new Error(error.message)
   revalidatePath('/adminziffera/tenants')
   revalidatePath('/adminziffera')
+}
+
+export async function deleteTenantMember(tenantId: string, userId: string): Promise<void> {
+  await requireSuperAdmin()
+  const admin = createAdminClient()
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: member, error: memberError } = await (admin.from('tenant_users') as any)
+    .select('id, tenant_id, user_id, role')
+    .eq('tenant_id', tenantId)
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (memberError) throw new Error(memberError.message)
+  if (!member) throw new Error('Member not found.')
+  if (member.role === 'owner') throw new Error('Owner cannot be removed.')
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (admin.from('tenant_users') as any).delete().eq('id', member.id)
+  if (error) throw new Error(error.message)
+  revalidateTenant(tenantId)
 }

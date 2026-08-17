@@ -41,9 +41,10 @@ export function hasBrandingRights(
   isComped: boolean | null | undefined,
   planTier: string | null | undefined = 'starter'
 ): boolean {
-  if (isComped === true) return true
   if (subscriptionStatus === 'trialing') return true
-  return subscriptionStatus === 'active' && (planTier === 'pro' || planTier === 'business')
+  if (subscriptionStatus !== 'active') return false
+  if (planTier === 'pro' || planTier === 'business') return true
+  return isComped === true && (planTier === 'pro' || planTier === 'business')
 }
 
 export const TRIAL_PERIOD_DAYS = 14
@@ -77,14 +78,14 @@ export function getEffectiveTier(tenant: {
   is_comped?: boolean | null
   isComped?: boolean | null
 }): PlanTier {
-  if (tenant.is_comped === true || tenant.isComped === true) return 'pro'
-
   const status = tenant.subscription_status ?? tenant.subscriptionStatus
   if (status === 'trialing') return 'pro'
 
   if (status === 'active') {
     const tier = tenant.plan_tier ?? tenant.planTier
-    return isPlanTier(tier) ? tier : 'starter'
+    if (isPlanTier(tier)) return tier
+    if (tenant.is_comped === true || tenant.isComped === true) return 'pro'
+    return 'starter'
   }
 
   return 'starter'

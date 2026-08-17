@@ -8,6 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { getSafeInternalRedirect } from '@/lib/auth/safe-redirect'
 import SupportModal from '@/components/support/SupportModal'
 
 const loginSchema = z.object({
@@ -28,8 +29,7 @@ export default function LoginForm() {
   const [supportOpen, setSupportOpen] = useState(false)
 
   const redirectTo = searchParams.get('redirectTo')
-  const destination =
-    redirectTo && redirectTo.startsWith('/') && redirectTo !== '/' ? redirectTo : '/dashboard'
+  const destination = getSafeInternalRedirect(redirectTo)
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } =
     useForm<LoginFormData>({ resolver: zodResolver(loginSchema) })
@@ -37,25 +37,39 @@ export default function LoginForm() {
   const onSubmit = async (data: LoginFormData) => {
     setServerError(null)
     const supabase = createClient()
-    const { error } = await supabase.auth.signInWithPassword({ email: data.email, password: data.password })
-    if (error) { setServerError(error.message); return }
+    const { error } = await supabase.auth.signInWithPassword({
+      email: data.email.trim().toLowerCase(),
+      password: data.password,
+    })
+    if (error) {
+      const normalizedMessage = error.message.toLowerCase()
+      setServerError(
+        normalizedMessage.includes('email not confirmed')
+          ? 'Please confirm your email before signing in.'
+          : normalizedMessage.includes('invalid login credentials')
+            ? 'Email or password is incorrect. Please try again.'
+            : 'We could not sign you in. Please try again.'
+      )
+      return
+    }
     router.push(destination)
     router.refresh()
   }
 
   const handleGoogleSignIn = async () => {
     const supabase = createClient()
-    await supabase.auth.signInWithOAuth({
+    const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(destination)}` },
     })
+    if (error) setServerError('Google sign-in could not be started. Please try again.')
   }
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
 
       {serverError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {serverError}
         </div>
       )}
@@ -98,7 +112,6 @@ export default function LoginForm() {
           />
           <button
             type="button"
-            tabIndex={-1}
             onClick={() => setShowPwd((s) => !s)}
             className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#C0BAB1] transition hover:text-[#6B6B6B]"
             aria-label={showPwd ? 'Hide password' : 'Show password'}
@@ -144,7 +157,7 @@ export default function LoginForm() {
 
       <p className="pt-0.5 text-center text-sm text-[#6B6B6B]">
         New to ZRecipe?{' '}
-        <Link href="/signup" className="font-semibold text-[#0E3B2E] transition hover:text-[#164d3c]" data-testid="login-signup-link">
+        <Link href="/register" className="font-semibold text-[#0E3B2E] transition hover:text-[#164d3c]" data-testid="login-signup-link">
           Start your 14-day free trial →
         </Link>
       </p>

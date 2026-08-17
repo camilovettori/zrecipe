@@ -1,14 +1,25 @@
 'use client'
 
-import { useState, useTransition, useEffect, useRef } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  MoreVertical, PauseCircle, PlayCircle, XCircle, Trash2,
-  Loader2, TimerOff, ExternalLink,
+  MoreVertical,
+  PauseCircle,
+  PlayCircle,
+  XCircle,
+  Trash2,
+  Loader2,
+  TimerOff,
+  ExternalLink,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { formatPlanTierLabel, type PlanTier } from '@/lib/stripe/plans'
 import {
-  suspendTenant, unsuspendTenant, cancelTenantSubscription, deleteTenant, endTrial,
+  suspendTenant,
+  unsuspendTenant,
+  cancelTenantSubscription,
+  deleteTenant,
+  endTrial,
 } from '@/app/adminziffera/actions'
 
 type RestoreOption = 'trialing' | 'active_comped' | 'active_stripe'
@@ -19,6 +30,7 @@ interface Props {
   tenantName: string | null
   status: string
   isComped: boolean
+  planTier: PlanTier
   stripeCustomerId: string | null
   stripeSubscriptionId: string | null
   trialDaysLeft: number
@@ -33,46 +45,69 @@ function Spinner() {
 }
 
 export default function TenantActions({
-  tenantId, tenantName, status, isComped,
-  stripeCustomerId, stripeSubscriptionId, trialDaysLeft,
-  recipeCount, ingredientCount, invoiceCount, teamCount,
+  tenantId,
+  tenantName,
+  status,
+  isComped,
+  planTier,
+  stripeCustomerId,
+  stripeSubscriptionId,
+  trialDaysLeft,
+  recipeCount,
+  ingredientCount,
+  invoiceCount,
+  teamCount,
 }: Props) {
   const router = useRouter()
-  const [open, setOpen]   = useState(false)
+  const [open, setOpen] = useState(false)
   const [modal, setModal] = useState<ModalType>(null)
   const [isPending, startTransition] = useTransition()
   const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null)
-  const [deleteInput, setDeleteInput]   = useState('')
-  const [deleteError, setDeleteError]   = useState<string | null>(null)
-  const [restoreTo, setRestoreTo]       = useState<RestoreOption>(trialDaysLeft > 0 ? 'trialing' : 'active_comped')
+  const [deleteInput, setDeleteInput] = useState('')
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [restoreTo, setRestoreTo] = useState<RestoreOption>(
+    trialDaysLeft > 0 ? 'trialing' : 'active_comped'
+  )
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const compedTierLabel = formatPlanTierLabel(planTier)
 
-  // auto-dismiss toast
   useEffect(() => {
     if (!toast) return
-    const t = setTimeout(() => setToast(null), 3500)
-    return () => clearTimeout(t)
+    const timer = setTimeout(() => setToast(null), 3500)
+    return () => clearTimeout(timer)
   }, [toast])
 
-  // click-outside closes dropdown
   useEffect(() => {
     function onOutside(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setOpen(false)
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
     }
     document.addEventListener('mousedown', onOutside)
     return () => document.removeEventListener('mousedown', onOutside)
   }, [])
 
-  function openModal(m: ModalType) { setOpen(false); setModal(m); setDeleteInput(''); setDeleteError(null) }
-  function closeModal() { if (!isPending) { setModal(null); setDeleteError(null) } }
+  function openModal(next: ModalType) {
+    setOpen(false)
+    setModal(next)
+    setDeleteInput('')
+    setDeleteError(null)
+  }
 
-  // ── action handlers ────────────────────────────────────────────────────────
+  function closeModal() {
+    if (!isPending) {
+      setModal(null)
+      setDeleteError(null)
+    }
+  }
+
   function run(fn: () => Promise<void>, successMsg: string) {
     startTransition(async () => {
       try {
         await fn()
         setModal(null)
         setToast({ ok: true, msg: successMsg })
+        router.refresh()
       } catch (err) {
         setToast({ ok: false, msg: err instanceof Error ? err.message : 'Action failed.' })
       }
@@ -96,26 +131,26 @@ export default function TenantActions({
     })
   }
 
-  // ── dropdown items ─────────────────────────────────────────────────────────
-  const canEndTrial   = status === 'trialing'
-  const canSuspend    = status === 'active' || status === 'trialing'
-  const canUnsuspend  = status === 'suspended'
-  const canCancel     = status === 'active'
+  const canEndTrial = status === 'trialing'
+  const canSuspend = status === 'active' || status === 'trialing'
+  const canUnsuspend = status === 'suspended'
+  const canCancel = status === 'active'
 
-  // ── UI ─────────────────────────────────────────────────────────────────────
   return (
     <>
-      {/* Toast */}
       {toast && (
-        <div className={cn(
-          'fixed bottom-6 right-6 z-50 rounded-xl border px-4 py-3 text-sm font-medium shadow-lg',
-          toast.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-800',
-        )}>
+        <div
+          className={cn(
+            'fixed bottom-6 right-6 z-50 rounded-xl border px-4 py-3 text-sm font-medium shadow-lg',
+            toast.ok
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              : 'border-red-200 bg-red-50 text-red-800'
+          )}
+        >
           {toast.msg}
         </div>
       )}
 
-      {/* Dropdown trigger */}
       <div className="relative" ref={dropdownRef}>
         <button
           onClick={() => setOpen((o) => !o)}
@@ -124,7 +159,6 @@ export default function TenantActions({
           <MoreVertical className="h-4 w-4" />
         </button>
 
-        {/* Dropdown menu */}
         {open && (
           <div className="absolute right-0 top-10 z-30 w-52 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
             {canEndTrial && (
@@ -175,12 +209,9 @@ export default function TenantActions({
         )}
       </div>
 
-      {/* ── Modals ──────────────────────────────────────────────────────────── */}
       {modal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl">
-
-            {/* Modal — End trial */}
             {modal === 'end_trial' && (
               <>
                 <div className="mb-4 flex justify-center">
@@ -193,12 +224,15 @@ export default function TenantActions({
                   This will immediately expire the trial. The tenant will need to subscribe to continue using ZRecipe.
                 </p>
                 <div className="flex justify-end gap-3">
-                  <button onClick={closeModal} disabled={isPending} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
                   <button
-                    onClick={() => run(
-                      () => endTrial(tenantId),
-                      `Trial ended for ${tenantName ?? 'tenant'}.`
-                    )}
+                    onClick={closeModal}
+                    disabled={isPending}
+                    className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => run(() => endTrial(tenantId), `Trial ended for ${tenantName ?? 'tenant'}.`)}
                     disabled={isPending}
                     className="flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
                   >
@@ -208,7 +242,6 @@ export default function TenantActions({
               </>
             )}
 
-            {/* Modal A — Suspend */}
             {modal === 'suspend' && (
               <>
                 <div className="mb-4 flex justify-center">
@@ -221,12 +254,18 @@ export default function TenantActions({
                   This tenant will immediately lose access to ZRecipe. Their data will be preserved and they can be unsuspended at any time.
                 </p>
                 <ul className="mb-5 space-y-1 rounded-lg bg-amber-50 px-4 py-3 text-xs text-amber-700">
-                  <li>• User sees &quot;Account suspended&quot; when they try to log in</li>
+                  <li>• User sees "Account suspended" when they try to log in</li>
                   <li>• All team members are locked out</li>
                   <li>• Data is preserved (recipes, ingredients, invoices)</li>
                 </ul>
                 <div className="flex justify-end gap-3">
-                  <button onClick={closeModal} disabled={isPending} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
+                  <button
+                    onClick={closeModal}
+                    disabled={isPending}
+                    className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
                   <button
                     onClick={() => run(() => suspendTenant(tenantId), 'Account suspended.')}
                     disabled={isPending}
@@ -238,7 +277,6 @@ export default function TenantActions({
               </>
             )}
 
-            {/* Modal B — Unsuspend */}
             {modal === 'unsuspend' && (
               <>
                 <div className="mb-4 flex justify-center">
@@ -258,14 +296,20 @@ export default function TenantActions({
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                   >
                     {trialDaysLeft > 0 && <option value="trialing">Trial ({trialDaysLeft}d remaining)</option>}
-                    <option value="active_comped">Active (comped — no billing)</option>
+                    <option value="active_comped">Active (comped - {compedTierLabel})</option>
                     <option value="active_stripe">Active (requires Stripe setup)</option>
                   </select>
                 </div>
                 <div className="flex justify-end gap-3">
-                  <button onClick={closeModal} disabled={isPending} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
                   <button
-                    onClick={() => run(() => unsuspendTenant(tenantId, restoreTo), 'Access restored.')}
+                    onClick={closeModal}
+                    disabled={isPending}
+                    className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => run(() => unsuspendTenant(tenantId, restoreTo, planTier), 'Access restored.')}
                     disabled={isPending}
                     className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
                   >
@@ -275,18 +319,17 @@ export default function TenantActions({
               </>
             )}
 
-            {/* Modal C — Cancel subscription */}
             {modal === 'cancel' && (
               <>
                 <div className="mb-4 flex justify-center">
                   <XCircle className="h-12 w-12 text-red-500" />
                 </div>
                 <h3 className="mb-2 text-center text-base font-semibold text-slate-900">
-                  Cancel {tenantName ?? 'this tenant'}&apos;s subscription?
+                  Cancel {tenantName ?? 'this tenant'}'s subscription?
                 </h3>
                 <p className="mb-3 text-center text-sm text-slate-500">
                   {isComped
-                    ? 'This is a comped account — canceling will revoke their free Pro access.'
+                    ? `This is a comped account - canceling will revoke their free ${compedTierLabel} access.`
                     : 'The tenant will lose Pro access. If this is a Stripe subscription, you should also cancel it in the Stripe Dashboard.'}
                 </p>
                 {!isComped && stripeSubscriptionId && (
@@ -294,6 +337,7 @@ export default function TenantActions({
                     <a
                       href={`https://dashboard.stripe.com/subscriptions/${stripeSubscriptionId}`}
                       target="_blank"
+                      rel="noopener noreferrer"
                       className="text-emerald-600 underline"
                     >
                       Open in Stripe Dashboard →
@@ -306,7 +350,13 @@ export default function TenantActions({
                   </div>
                 )}
                 <div className="flex justify-end gap-3">
-                  <button onClick={closeModal} disabled={isPending} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
+                  <button
+                    onClick={closeModal}
+                    disabled={isPending}
+                    className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
                   <button
                     onClick={() => run(() => cancelTenantSubscription(tenantId), 'Subscription cancelled.')}
                     disabled={isPending}
@@ -318,7 +368,6 @@ export default function TenantActions({
               </>
             )}
 
-            {/* Modal D — Delete */}
             {modal === 'delete' && (
               <>
                 <div className="mb-4 flex justify-center">
@@ -368,11 +417,17 @@ export default function TenantActions({
                     value={deleteInput}
                     onChange={(e) => setDeleteInput(e.target.value)}
                     placeholder={tenantName ?? 'Business name'}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-400"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-500/20"
                   />
                 </div>
                 <div className="flex justify-end gap-3">
-                  <button onClick={closeModal} disabled={isPending} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
+                  <button
+                    onClick={closeModal}
+                    disabled={isPending}
+                    className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
                   <button
                     onClick={handleDelete}
                     disabled={isPending || deleteInput !== (tenantName ?? '')}

@@ -5,8 +5,10 @@ import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatTicketNumber } from '@/lib/support/formatTicketNumber'
+import { type PlanTier } from '@/lib/stripe/plans'
 import SubscriptionSection from './SubscriptionSection'
 import TenantActions from './TenantActions'
+import TenantMemberDeleteButton from './TenantMemberDeleteButton'
 
 const SUPER_ADMIN_EMAIL = 'camilovettori@gmail.com'
 
@@ -140,6 +142,7 @@ export default async function TenantDetail(props: { params: Promise<{ id: string
 
   const owner       = teamMembers.find((m) => m.role === 'owner') ?? null
   const isComped    = (tenant.is_comped ?? false) as boolean
+  const planTier    = (tenant.plan_tier ?? 'starter') as PlanTier
 
   // Support tickets opened by this tenant's owner
   let supportTickets: SupportTicketRow[] = []
@@ -217,6 +220,7 @@ export default async function TenantDetail(props: { params: Promise<{ id: string
             tenantName={tenant.name}
             status={tenant.subscription_status}
             isComped={isComped}
+            planTier={planTier}
             stripeCustomerId={tenant.stripe_customer_id ?? null}
             stripeSubscriptionId={tenant.stripe_subscription_id ?? null}
             trialDaysLeft={daysLeft}
@@ -254,11 +258,12 @@ export default async function TenantDetail(props: { params: Promise<{ id: string
               <th className="px-5 py-2.5 text-left">Role</th>
               <th className="px-5 py-2.5 text-left">Last login</th>
               <th className="px-5 py-2.5 text-left">Joined</th>
+              <th className="px-5 py-2.5 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {teamMembers.length === 0 ? (
-              <tr><td colSpan={4} className="px-5 py-6 text-sm text-slate-400">No team members</td></tr>
+              <tr><td colSpan={5} className="px-5 py-6 text-sm text-slate-400">No team members</td></tr>
             ) : (
               teamMembers.map((m) => (
                 <tr key={m.user_id} className="hover:bg-slate-50">
@@ -291,6 +296,17 @@ export default async function TenantDetail(props: { params: Promise<{ id: string
                   <td className="px-5 py-3 text-sm text-slate-500">
                     {new Date(m.joined_at).toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </td>
+                  <td className="px-5 py-3 text-right">
+                    {m.role !== 'owner' ? (
+                      <TenantMemberDeleteButton
+                        tenantId={tenant.id}
+                        userId={m.user_id}
+                        memberName={m.display_name}
+                      />
+                    ) : (
+                      <span className="text-xs text-slate-300">Owner</span>
+                    )}
+                  </td>
                 </tr>
               ))
             )}
@@ -304,6 +320,7 @@ export default async function TenantDetail(props: { params: Promise<{ id: string
         tenantName={tenant.name}
         status={tenant.subscription_status}
         isComped={isComped}
+        planTier={planTier}
         daysLeft={daysLeft}
         trialPct={trialPct}
         trialEndsFormatted={trialEndsFormatted}

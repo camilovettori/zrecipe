@@ -36,6 +36,12 @@ export function isPlanTier(value: unknown): value is PlanTier {
   return value === 'starter' || value === 'pro' || value === 'business'
 }
 
+export function formatPlanTierLabel(tier: PlanTier | string | null | undefined): string {
+  if (tier === 'starter') return 'Starter'
+  if (tier === 'business') return 'Business'
+  return 'Pro'
+}
+
 export function getPlanForTier(tier: PlanTier) {
   return PLANS[tier.toUpperCase() as keyof typeof PLANS]
 }

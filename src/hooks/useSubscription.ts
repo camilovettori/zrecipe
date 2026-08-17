@@ -13,7 +13,7 @@ export interface SubscriptionState {
   isCanceled:         boolean
   isPastDue:          boolean
   hasFullAccess:      boolean  // backward-compatible alias for Pro-level access
-  hasBrandingRights:  boolean  // Pro/Business/trial or admin-comped
+  hasBrandingRights:  boolean  // Trial or active tier with branding rights
   customLogoUrl:      string | null
   limits:             SubscriptionLimits
   tier:               PlanTier
@@ -77,7 +77,7 @@ export function useSubscription(): SubscriptionState {
           isCanceled,
           isPastDue,
           hasFullAccess,
-          hasBrandingRights: ctx.tenant.isComped === true || limits.canUseBranding,
+          hasBrandingRights: limits.canUseBranding,
           customLogoUrl: ctx.tenant.customLogoUrl ?? null,
           limits,
           tier,

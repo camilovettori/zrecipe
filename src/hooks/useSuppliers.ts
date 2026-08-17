@@ -180,11 +180,79 @@ export function useSuppliers(options?: { autoLoad?: boolean }) {
   )
 
   const deleteSupplier = useCallback(
-    async (supplierId: string) => {
+    async (supplierId: string, supplierName?: string) => {
       const supabase = createClient()
-      const { error: deleteError } = await supabase.from('suppliers').delete().eq('id', supplierId)
+      const tenantId = await resolveTenantId()
+
+      const [
+        { count: invoiceCount, error: invoiceError },
+        { count: ingredientSupplierCount, error: ingredientSupplierError },
+        { count: ingredientLastCount, error: ingredientLastError },
+        { count: codeCount, error: codeError },
+        { count: memoryCount, error: memoryError },
+      ] = await Promise.all([
+        supabase
+          .from('invoices')
+          .select('id', { count: 'exact', head: true })
+          .eq('tenant_id', tenantId)
+          .eq('supplier_id', supplierId),
+        supabase
+          .from('ingredients')
+          .select('id', { count: 'exact', head: true })
+          .eq('tenant_id', tenantId)
+          .eq('supplier_id', supplierId),
+        supabase
+          .from('ingredients')
+          .select('id', { count: 'exact', head: true })
+          .eq('tenant_id', tenantId)
+          .eq('last_supplier_id', supplierId),
+        supabase
+          .from('ingredient_supplier_codes')
+          .select('id', { count: 'exact', head: true })
+          .eq('tenant_id', tenantId)
+          .eq('supplier_id', supplierId),
+        supabase
+          .from('invoice_item_memory')
+          .select('id', { count: 'exact', head: true })
+          .eq('tenant_id', tenantId)
+          .eq('supplier_id', supplierId),
+      ])
+
+      const preflightError =
+        invoiceError ?? ingredientSupplierError ?? ingredientLastError ?? codeError ?? memoryError
+
+      if (preflightError) {
+        throw preflightError
+      }
+
+      const totalLinks =
+        (invoiceCount ?? 0) +
+        (ingredientSupplierCount ?? 0) +
+        (ingredientLastCount ?? 0) +
+        (codeCount ?? 0) +
+        (memoryCount ?? 0)
+
+      if (totalLinks > 0) {
+        const label = supplierName ? `“${supplierName}”` : 'This supplier'
+        throw new Error(
+          `${label} is still linked to ${totalLinks} record${totalLinks !== 1 ? 's' : ''}. Remove those links first, then delete the supplier.`
+        )
+      }
+
+      const { error: deleteError } = await supabase
+        .from('suppliers')
+        .delete()
+        .eq('tenant_id', tenantId)
+        .eq('id', supplierId)
 
       if (deleteError) {
+        if (deleteError.code === '23503') {
+          throw new Error(
+            supplierName
+              ? `“${supplierName}” is still linked to another record. Remove the link first, then try again.`
+              : 'This supplier is still linked to another record. Remove the link first, then try again.'
+          )
+        }
         throw deleteError
       }
 

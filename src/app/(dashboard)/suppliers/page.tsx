@@ -85,7 +85,7 @@ export default function SuppliersPage() {
     if (!confirmed) return
 
     try {
-      await deleteSupplier(supplier.id)
+      await deleteSupplier(supplier.id, supplier.name)
       toast.success('Supplier deleted')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Unable to delete supplier')
