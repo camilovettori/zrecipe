@@ -3,6 +3,11 @@ const nextConfig = {
   async redirects() {
     return [
       {
+        source: '/signup',
+        destination: '/register',
+        permanent: true,
+      },
+      {
         source: '/:path*',
         has: [{ type: 'host', value: 'www.zrecipe.ie' }],
         destination: 'https://zrecipe.ie/:path*',

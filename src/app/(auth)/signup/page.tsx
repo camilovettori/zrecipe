@@ -1,18 +1,7 @@
-import AuthSplitShell from '@/components/auth/AuthSplitShell'
-import RegisterForm from '@/components/auth/RegisterForm'
+import { permanentRedirect } from 'next/navigation'
 
 export const metadata = { title: 'Start Free Trial - ZRecipe' }
 
 export default function SignupPage() {
-  return (
-    <AuthSplitShell
-      variant="signup"
-
-      formTitle="Create your kitchen."
-      formSubtitle="Two minutes. One kitchen. Zero credit card."
-      formId="signup-form"
-    >
-      <RegisterForm />
-    </AuthSplitShell>
-  )
+  permanentRedirect('/register')
 }

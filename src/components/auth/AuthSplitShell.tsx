@@ -34,9 +34,9 @@ const COPY = {
   },
   signup: {
     eyebrow: '14-DAY FREE TRIAL · NO CARD REQUIRED',
-    headlineMain: 'Start costing recipes in the next',
-    headlineAccent: '90 seconds.',
-    subtitle: "Full Pro access from day one. Cancel anytime. We'll remind you 3 days before the trial ends — no surprise charges.",
+    headlineMain: 'Start costing recipes in under',
+    headlineAccent: '2 minutes.',
+    subtitle: 'Full Pro access for 14 days. No credit card required. Choose a plan only if ZRecipe works for your kitchen.',
   },
   recovery: {
     eyebrow: 'ACCOUNT RECOVERY',
@@ -207,10 +207,10 @@ export default function AuthSplitShell({
                     className="inline-flex items-center gap-2 font-semibold text-white transition-opacity hover:opacity-85"
                     style={{ background: '#1D9E75', borderRadius: '10px', fontSize: '16px', padding: '14px 32px' }}
                   >
-                    {variant === 'login' ? 'Start free trial →' : 'Create your kitchen →'}
+                    {variant === 'login' ? 'Start free trial →' : 'Create my kitchen — free →'}
                   </Link>
                   <p className="mt-2 text-[12px]" style={{ color: 'rgba(255,255,255,0.5)' }}>
-                    14 days free · No credit card · Cancel anytime
+                    14 days free · No credit card · Choose a plan later
                   </p>
                 </div>
               )}

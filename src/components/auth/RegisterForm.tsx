@@ -60,6 +60,7 @@ export default function RegisterForm() {
   const [showPwd, setShowPwd] = useState(false)
   const [supportOpen, setSupportOpen] = useState(false)
   const [acceptedTerms, setAcceptedTerms] = useState(false)
+  const [termsError, setTermsError] = useState<string | null>(null)
   const router = useRouter()
 
   const { register, handleSubmit, control, setValue, formState: { errors, isSubmitting } } =
@@ -69,7 +70,11 @@ export default function RegisterForm() {
   const passwordValue = useWatch({ control, name: 'password', defaultValue: '' })
 
   const handleGoogleSignIn = async () => {
-    if (!acceptedTerms) return
+    if (!acceptedTerms) {
+      setTermsError('Please accept the Terms of Service and Privacy Policy to continue.')
+      return
+    }
+    setTermsError(null)
     const supabase = createClient()
     await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -78,6 +83,11 @@ export default function RegisterForm() {
   }
 
   const onSubmit = async (data: RegisterFormData) => {
+    if (!acceptedTerms) {
+      setTermsError('Please accept the Terms of Service and Privacy Policy to continue.')
+      return
+    }
+    setTermsError(null)
     setServerError(null)
     setSuccessMessage(null)
     const supabase = createClient()
@@ -138,7 +148,7 @@ export default function RegisterForm() {
       )}
 
       {/* Business name + Full name — side by side */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label htmlFor="r-biz" className={labelClass}>Business name</label>
           <div className="relative">
@@ -207,7 +217,6 @@ export default function RegisterForm() {
           />
           <button
             type="button"
-            tabIndex={-1}
             onClick={() => setShowPwd((s) => !s)}
             className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#C0BAB1] transition hover:text-[#6B6B6B]"
             aria-label={showPwd ? 'Hide password' : 'Show password'}
@@ -244,10 +253,15 @@ export default function RegisterForm() {
         <input
           type="checkbox"
           checked={acceptedTerms}
-          onChange={(e) => setAcceptedTerms(e.target.checked)}
+          onChange={(e) => {
+            setAcceptedTerms(e.target.checked)
+            if (e.target.checked) setTermsError(null)
+          }}
           required
+          aria-invalid={Boolean(termsError)}
+          aria-describedby={termsError ? 'signup-terms-error' : undefined}
           data-testid="signup-terms-checkbox"
-          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+          className={`mt-0.5 h-4 w-4 rounded text-emerald-600 focus:ring-emerald-500 ${termsError ? 'border-rose-500 ring-2 ring-rose-200' : 'border-slate-300'}`}
         />
         <span className="text-slate-600">
           I agree to the{' '}
@@ -260,13 +274,18 @@ export default function RegisterForm() {
           </Link>.
         </span>
       </label>
+      {termsError && (
+        <p id="signup-terms-error" role="alert" className="-mt-1 text-xs font-medium text-rose-600">
+          {termsError}
+        </p>
+      )}
 
       {/* Submit */}
       <div className="pt-0.5">
         <button
           type="submit"
           data-testid="signup-submit-button"
-          disabled={isSubmitting || !acceptedTerms}
+          disabled={isSubmitting}
           className="flex h-12 w-full items-center justify-center gap-2 rounded-lg text-sm font-semibold tracking-wide text-white transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
           style={{ background: '#0E3B2E' }}
           onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = '#164d3c' }}
@@ -274,7 +293,7 @@ export default function RegisterForm() {
         >
           {isSubmitting
             ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating your kitchen…</>
-            : 'Start free trial →'}
+            : 'Create my kitchen — free →'}
         </button>
         <p className="mt-2 flex items-center justify-center gap-1.5 text-[11px] text-[#B8B3AA]">
           <ShieldCheck className="h-3 w-3" />
@@ -294,8 +313,7 @@ export default function RegisterForm() {
         type="button"
         data-testid="signup-google-button"
         onClick={handleGoogleSignIn}
-        disabled={!acceptedTerms}
-        className="flex h-12 w-full items-center justify-center gap-3 rounded-lg border border-[#E2DDD4] bg-white text-sm font-medium text-[#3D3D3D] transition hover:bg-[#FAFAF8] hover:border-[#C8C4BC] disabled:cursor-not-allowed disabled:opacity-60"
+        className="flex h-12 w-full items-center justify-center gap-3 rounded-lg border border-[#E2DDD4] bg-white text-sm font-medium text-[#3D3D3D] transition hover:border-[#C8C4BC] hover:bg-[#FAFAF8]"
       >
         <GoogleIcon />
         Continue with Google
