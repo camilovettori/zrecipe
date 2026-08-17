@@ -6,11 +6,12 @@ import LegalPageShell, {
   legalList,
   legalLink,
 } from '@/components/legal/LegalPageShell'
+import { SITE_URL } from '@/lib/site-url'
 
 export const metadata: Metadata = {
   title: { absolute: 'Terms of Service | ZRecipe' },
   description: 'Read the terms governing ZRecipe accounts, subscriptions, AI features, food costing tools, and acceptable use.',
-  alternates: { canonical: 'https://www.zrecipe.ie/terms' },
+  alternates: { canonical: `${SITE_URL}/terms` },
 }
 
 export default function TermsOfServicePage() {

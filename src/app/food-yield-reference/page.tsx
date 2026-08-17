@@ -5,8 +5,9 @@ import LandingNav from '@/components/landing/LandingNav'
 import FoodYieldReference from '@/components/landing/FoodYieldReference'
 import FreeToolsFooter from '@/components/landing/FreeToolsFooter'
 import { YIELD_FACTORS } from '@/lib/data/yield-factors'
+import { SITE_URL } from '@/lib/site-url'
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.zrecipe.ie'
+const siteUrl = SITE_URL
 const pageUrl = `${siteUrl}/food-yield-reference`
 
 export const metadata: Metadata = {

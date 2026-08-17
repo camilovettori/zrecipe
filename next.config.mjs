@@ -1,5 +1,15 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  async redirects() {
+    return [
+      {
+        source: '/:path*',
+        has: [{ type: 'host', value: 'www.zrecipe.ie' }],
+        destination: 'https://zrecipe.ie/:path*',
+        permanent: true,
+      },
+    ]
+  },
   async headers() {
     return [
       {

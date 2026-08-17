@@ -4,8 +4,9 @@ import { Apple, ArrowRight, Calculator, CheckCircle2, Scale, Sparkles } from 'lu
 import LandingNav from '@/components/landing/LandingNav'
 import FreeToolsFooter from '@/components/landing/FreeToolsFooter'
 import { PUBLIC_TOOLS } from '@/lib/public-tools'
+import { SITE_URL } from '@/lib/site-url'
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.zrecipe.ie'
+const siteUrl = SITE_URL
 const pageUrl = `${siteUrl}/tools`
 
 export const metadata: Metadata = {

@@ -6,11 +6,12 @@ import LegalPageShell, {
   legalList,
   legalLink,
 } from '@/components/legal/LegalPageShell'
+import { SITE_URL } from '@/lib/site-url'
 
 export const metadata: Metadata = {
   title: { absolute: 'Privacy Policy | ZRecipe' },
   description: 'Learn how ZRecipe collects, uses, stores, and protects personal and business data under Irish and EU privacy law.',
-  alternates: { canonical: 'https://www.zrecipe.ie/privacy' },
+  alternates: { canonical: `${SITE_URL}/privacy` },
 }
 
 export default function PrivacyPolicyPage() {

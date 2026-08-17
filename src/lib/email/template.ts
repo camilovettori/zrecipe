@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { escapeHtml } from './send'
+import { SITE_URL } from '@/lib/site-url'
 
 export interface EmailButton {
   label: string
@@ -30,7 +31,6 @@ export interface EmailTemplateOptions {
   meta?: Array<{ label: string; value: string }>
 }
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://zrecipe.ie'
 const LOGO_URL = `${SITE_URL}/images/fundobranco2.png`
 
 /** Builds bodyHtml from plain-text paragraphs — each line is HTML-escaped. */

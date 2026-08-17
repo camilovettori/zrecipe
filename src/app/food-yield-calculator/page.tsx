@@ -4,8 +4,9 @@ import { ArrowRight, CheckCircle2, Scale, Sprout, TrendingDown, Utensils } from 
 import LandingNav from '@/components/landing/LandingNav'
 import FoodYieldCalculator from '@/components/landing/FoodYieldCalculator'
 import FreeToolsFooter from '@/components/landing/FreeToolsFooter'
+import { SITE_URL } from '@/lib/site-url'
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.zrecipe.ie'
+const siteUrl = SITE_URL
 const pageUrl = `${siteUrl}/food-yield-calculator`
 
 export const metadata: Metadata = {

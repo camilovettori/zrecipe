@@ -3,8 +3,9 @@ import Link from 'next/link'
 import { ArrowRight, BadgeEuro, CheckCircle2, ReceiptText, ShieldCheck, Utensils } from 'lucide-react'
 import LandingNav from '@/components/landing/LandingNav'
 import VatCalculator from '@/components/landing/VatCalculator'
+import { SITE_URL } from '@/lib/site-url'
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.zrecipe.ie'
+const siteUrl = SITE_URL
 const pageUrl = `${siteUrl}/vat-calculator-ireland`
 
 export const metadata: Metadata = {
@@ -284,4 +285,3 @@ export default function VatCalculatorIrelandPage() {
     </div>
   )
 }
-

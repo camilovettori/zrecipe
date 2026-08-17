@@ -6,11 +6,12 @@ import LegalPageShell, {
   legalList,
   legalLink,
 } from '@/components/legal/LegalPageShell'
+import { SITE_URL } from '@/lib/site-url'
 
 export const metadata: Metadata = {
   title: { absolute: 'GDPR Compliance | ZRecipe' },
   description: 'Learn how ZRecipe supports GDPR compliance, protects EU customer data, and enables you to exercise your data rights.',
-  alternates: { canonical: 'https://www.zrecipe.ie/gdpr' },
+  alternates: { canonical: `${SITE_URL}/gdpr` },
 }
 
 const DATA_TABLE = [
