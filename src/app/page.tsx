@@ -548,7 +548,7 @@ export default function LandingPage() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Product</p>
                   <ul className="mt-3 flex flex-col gap-2 text-sm text-slate-400">
                     <li><a href="#features" className="transition-colors hover:text-white">Features</a></li>
-                    <li><Link href="/vat-calculator-ireland" className="transition-colors hover:text-white">VAT Calculator</Link></li>
+                    <li><Link href="/tools" className="transition-colors hover:text-white">Free Tools</Link></li>
                     <li><a href="#pricing" className="transition-colors hover:text-white">Pricing</a></li>
                     <li><a href="#faq" className="transition-colors hover:text-white">FAQ</a></li>
                   </ul>

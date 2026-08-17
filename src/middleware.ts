@@ -20,6 +20,9 @@ const EXEMPT_PREFIXES = [
   '/terms',
   '/gdpr',
   '/vat-calculator-ireland',
+  '/tools',
+  '/food-yield-calculator',
+  '/food-yield-reference',
   '/_next',
   '/favicon',
 ]
