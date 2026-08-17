@@ -8,10 +8,11 @@ import PrimaryCTALink from './PrimaryCTALink'
 import SupportModal from '@/components/support/SupportModal'
 
 const LINKS = [
-  { href: '#features', label: 'Features' },
-  { href: '#about', label: 'About' },
-  { href: '#pricing', label: 'Pricing' },
-  { href: '#faq', label: 'FAQ' },
+  { href: '/#features', label: 'Features' },
+  { href: '/#about', label: 'About' },
+  { href: '/vat-calculator-ireland', label: 'VAT Calculator' },
+  { href: '/#pricing', label: 'Pricing' },
+  { href: '/#faq', label: 'FAQ' },
 ]
 
 export default function LandingNav() {
@@ -48,13 +49,13 @@ export default function LandingNav() {
 
         <div className="hidden items-center gap-8 lg:flex">
           {LINKS.map((l) => (
-            <a
+            <Link
               key={l.href}
               href={l.href}
               className="text-sm font-medium text-slate-600 transition-colors hover:text-primary-600"
             >
               {l.label}
-            </a>
+            </Link>
           ))}
           <button
             type="button"
@@ -95,14 +96,14 @@ export default function LandingNav() {
         <div className="border-t border-slate-100 bg-white px-5 py-4 lg:hidden">
           <div className="flex flex-col gap-4">
             {LINKS.map((l) => (
-              <a
+              <Link
                 key={l.href}
                 href={l.href}
                 onClick={() => setOpen(false)}
                 className="text-sm font-medium text-slate-600"
               >
                 {l.label}
-              </a>
+              </Link>
             ))}
             <button
               type="button"

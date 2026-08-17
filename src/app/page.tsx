@@ -12,6 +12,7 @@ import HeroGlowLayer from '@/components/landing/HeroGlowLayer'
 import Reveal from '@/components/landing/Reveal'
 import PrimaryCTALink from '@/components/landing/PrimaryCTALink'
 import HeroDemoVideo from '@/components/landing/HeroDemoVideo'
+import VatCalculator from '@/components/landing/VatCalculator'
 
 export const metadata: Metadata = {
   title: {
@@ -377,6 +378,31 @@ export default function LandingPage() {
         </section>
 
         {/* ══ PRICING ════════════════════════════════════════════════════════ */}
+        <section id="vat-calculator" className="scroll-mt-20 bg-white py-16 sm:py-20">
+          <div className="mx-auto max-w-7xl px-5 sm:px-8">
+            <Reveal>
+              <div className="mx-auto max-w-3xl text-center">
+                <p className="text-sm font-semibold uppercase tracking-widest text-emerald-700">Free business tool</p>
+                <h2 className="mt-3 font-display text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+                  Free VAT Calculator Ireland
+                </h2>
+                <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-slate-600">
+                  Add or remove Irish VAT at 23%, 13.5%, 9%, 4.8%, 0% or a custom rate. See the net, VAT and gross amounts instantly.
+                </p>
+              </div>
+              <div className="mx-auto mt-10 max-w-5xl">
+                <VatCalculator />
+              </div>
+              <p className="mt-6 text-center text-sm text-slate-500">
+                Need formulas, current rate guidance and worked examples?{' '}
+                <Link href="/vat-calculator-ireland" className="font-semibold text-emerald-700 underline underline-offset-4">
+                  Open the complete Irish VAT calculator guide
+                </Link>
+              </p>
+            </Reveal>
+          </div>
+        </section>
+
         <section id="pricing" className="scroll-mt-16 bg-brand-paper py-16 sm:py-20">
           <div className="mx-auto max-w-7xl px-5 sm:px-8">
             <Reveal>
@@ -522,6 +548,7 @@ export default function LandingPage() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Product</p>
                   <ul className="mt-3 flex flex-col gap-2 text-sm text-slate-400">
                     <li><a href="#features" className="transition-colors hover:text-white">Features</a></li>
+                    <li><Link href="/vat-calculator-ireland" className="transition-colors hover:text-white">VAT Calculator</Link></li>
                     <li><a href="#pricing" className="transition-colors hover:text-white">Pricing</a></li>
                     <li><a href="#faq" className="transition-colors hover:text-white">FAQ</a></li>
                   </ul>

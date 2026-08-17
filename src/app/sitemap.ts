@@ -11,6 +11,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 1,
     },
     {
+      url: `${baseUrl}/vat-calculator-ireland`,
+      lastModified: new Date('2026-08-17'),
+      changeFrequency: 'monthly',
+      priority: 0.9,
+    },
+    {
       url: `${baseUrl}/privacy`,
       lastModified: new Date('2026-07-23'),
       changeFrequency: 'yearly',

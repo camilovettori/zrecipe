@@ -19,6 +19,7 @@ const EXEMPT_PREFIXES = [
   '/privacy',
   '/terms',
   '/gdpr',
+  '/vat-calculator-ireland',
   '/_next',
   '/favicon',
 ]
