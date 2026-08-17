@@ -48,7 +48,7 @@ function revalidateTenant(tenantId: string) {
 
 export async function activateCompedPlan(tenantId: string): Promise<void> {
   await requireSuperAdmin()
-  await updateTenant(tenantId, { subscription_status: 'active', is_comped: true })
+  await updateTenant(tenantId, { subscription_status: 'active', is_comped: true, plan_tier: 'pro' })
   revalidateTenant(tenantId)
 }
 
@@ -75,7 +75,7 @@ export async function unsuspendTenant(
     restoreTo === 'trialing'
       ? { subscription_status: 'trialing', is_comped: false }
       : restoreTo === 'active_comped'
-      ? { subscription_status: 'active', is_comped: true }
+      ? { subscription_status: 'active', is_comped: true, plan_tier: 'pro' }
       : { subscription_status: 'active', is_comped: false } // active_stripe — admin manages Stripe separately
   await updateTenant(tenantId, update)
   revalidateTenant(tenantId)

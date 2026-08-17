@@ -4,8 +4,8 @@ import Papa from 'papaparse'
 import { z } from 'zod'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
-import { getEffectiveSubscriptionStatus } from '@/lib/tenant'
-import { FREE_LIMITS, PRO_LIMITS } from '@/lib/subscription/limits'
+import { getEffectiveSubscriptionStatus, getEffectiveTier } from '@/lib/tenant'
+import { getLimitsForTier } from '@/lib/subscription/limits'
 import { logAIUsage } from '@/lib/ai/usage-logger'
 
 export const runtime = 'nodejs'
@@ -211,10 +211,14 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
     const tenantId = member?.tenant_id as string | undefined
 
+    if (!tenantId) {
+      return NextResponse.json({ error: 'Tenant not found' }, { status: 404 })
+    }
+
     if (tenantId) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: tenantInfo } = await (admin.from('tenants') as any)
-        .select('subscription_status, created_at')
+        .select('subscription_status, plan_tier, is_comped, created_at')
         .eq('id', tenantId)
         .single()
 
@@ -222,8 +226,12 @@ export async function POST(request: NextRequest) {
         tenantInfo?.subscription_status,
         tenantInfo?.created_at ?? new Date().toISOString()
       )
-      const isPro = subStatus === 'active' || subStatus === 'trialing'
-      const limits = isPro ? PRO_LIMITS : FREE_LIMITS
+      const tier = getEffectiveTier({
+        subscription_status: subStatus,
+        plan_tier: tenantInfo?.plan_tier,
+        is_comped: tenantInfo?.is_comped,
+      })
+      const limits = getLimitsForTier(tier)
       if (!limits.canUploadInvoices) {
         return NextResponse.json(emptyRecipe('AI recipe import is a Pro feature.', { limitReached: true }), { status: 403 })
       }
@@ -238,7 +246,10 @@ export async function POST(request: NextRequest) {
           .in('feature', ['invoice_extract', 'recipe_extract'])
           .gte('used_at', startOfMonth)
         if ((usedCount ?? 0) >= monthlyLimit) {
-          return NextResponse.json(emptyRecipe('AI extraction limit reached.', { limitReached: true }), { status: 429 })
+          return NextResponse.json(
+            emptyRecipe('AI import limit reached. Upgrade to Business for unlimited AI imports.', { limitReached: true }),
+            { status: 429 }
+          )
         }
       }
 

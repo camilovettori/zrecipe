@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { AlertTriangle, ArrowDownRight, ArrowLeft, ArrowUpRight, Calculator, Camera, Check, ChefHat, Loader2, Merge, Minus, Repeat, Save, Tag, Trash2, X, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, ArrowDownRight, ArrowLeft, ArrowUpRight, Calculator, Camera, Check, ChefHat, Loader2, Lock, Merge, Minus, Repeat, Save, Tag, Trash2, X, type LucideIcon } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
 import { useSuppliers, type SupplierRecord } from '@/hooks/useSuppliers'
 import { useSafeBack } from '@/hooks/useSafeBack'
+import { useSubscription } from '@/hooks/useSubscription'
 import IngredientForm, {
   type AutoSaveStatus,
   type IngredientCostPreview,
@@ -269,6 +270,7 @@ export default function IngredientDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
   const isNew = id === 'new'
+  const { limits } = useSubscription()
 
   const [ingredient, setIngredient] = useState<IngredientRow | null>(null)
   const [priceHistory, setPriceHistory] = useState<PricePoint[]>([])
@@ -843,11 +845,21 @@ export default function IngredientDetailPage() {
               {!isNew && ingredient && (
                 <button
                   type="button"
-                  onClick={() => setSimulatorOpen(true)}
+                  onClick={() => {
+                    if (!limits.canUsePriceSimulator) {
+                      toast('Price simulator is a Pro feature', {
+                        description: 'Upgrade to Pro from Settings → Billing to model price changes.',
+                      })
+                      return
+                    }
+                    setSimulatorOpen(true)
+                  }}
                   title="Price simulator"
                   className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
                 >
-                  <Calculator className="h-3.5 w-3.5" />
+                  {limits.canUsePriceSimulator
+                    ? <Calculator className="h-3.5 w-3.5" />
+                    : <Lock className="h-3.5 w-3.5" />}
                   Simulate
                 </button>
               )}
@@ -1072,6 +1084,7 @@ export default function IngredientDetailPage() {
                   </div>
                 )}
 
+                  {limits.canUseSupplierCodes ? (
                   <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-800">
                     <div className="mb-3 flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -1162,6 +1175,21 @@ export default function IngredientDetailPage() {
                       </div>
                     )}
                   </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                      <div className="flex items-center gap-2 text-sm text-slate-500">
+                        <Lock className="h-4 w-4" />
+                        Supplier codes are available on Pro and Business.
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => router.push('/settings/billing')}
+                        className="text-xs font-semibold text-emerald-600 hover:underline"
+                      >
+                        View plans
+                      </button>
+                    </div>
+                  )}
 
                   {brandChangeNotice && (
                     <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-800 dark:bg-amber-950/20">
@@ -1234,7 +1262,15 @@ export default function IngredientDetailPage() {
                     {usedRecipes.length > 0 && (
                       <button
                         type="button"
-                        onClick={() => setSubstituteModalOpen(true)}
+                        onClick={() => {
+                          if (!limits.canSubstituteAcrossRecipes) {
+                            toast('Bulk substitution is a Pro feature', {
+                              description: 'Upgrade to Pro from Settings → Billing to substitute across recipes.',
+                            })
+                            return
+                          }
+                          setSubstituteModalOpen(true)
+                        }}
                         disabled={substituting}
                         className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
                       >
@@ -1311,7 +1347,7 @@ export default function IngredientDetailPage() {
 
       {ingredient && (
         <PriceSimulatorModal
-          open={simulatorOpen}
+          open={simulatorOpen && limits.canUsePriceSimulator}
           onClose={() => setSimulatorOpen(false)}
           ingredient={ingredient}
           usedRecipeIds={usedRecipes.map((r) => r.id)}
@@ -1320,7 +1356,7 @@ export default function IngredientDetailPage() {
       )}
 
       <SubstituteIngredientModal
-        open={substituteModalOpen}
+        open={substituteModalOpen && limits.canSubstituteAcrossRecipes}
         currentIngredientId={ingredient?.id ?? null}
         currentSubRecipeId={null}
         currentIngredientName={ingredient?.name ?? ''}
@@ -1328,33 +1364,26 @@ export default function IngredientDetailPage() {
         scopeCount={usedRecipes.length}
         onSubstitute={async (replacement: SubstituteReplacement) => {
           if (!ingredient) return
+          if (!limits.canSubstituteAcrossRecipes) return
           setSubstituting(true)
           try {
-            const supabase = createClient()
-            const updatePayload =
-              replacement.kind === 'ingredient'
-                ? {
-                    ingredient_id: replacement.data.id,
-                    sub_recipe_id: null,
-                    notes: replacement.data.name,
-                  }
-                : {
-                    sub_recipe_id: replacement.data.id,
-                    ingredient_id: null,
-                    notes: replacement.data.name,
-                  }
-
-            const affectedCount = usedRecipes.length
-
-            const { error } = await supabase
-              .from('recipe_ingredients')
-              .update(updatePayload)
-              .eq('ingredient_id', ingredient.id)
-
-            if (error) {
-              toast.error('Failed to substitute ingredient')
-              throw error
+            const response = await fetch('/api/ingredients/substitute', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                currentIngredientId: ingredient.id,
+                replacementKind: replacement.kind,
+                replacementId: replacement.data.id,
+              }),
+            })
+            const result = await response.json().catch(() => ({})) as {
+              error?: string
+              affectedCount?: number
             }
+            if (!response.ok) {
+              throw new Error(result.error ?? 'Failed to substitute ingredient')
+            }
+            const affectedCount = result.affectedCount ?? usedRecipes.length
 
             toast.success(
               `Substituted in ${affectedCount} recipe${affectedCount !== 1 ? 's' : ''}`

@@ -2,18 +2,21 @@
 
 import { useEffect, useState } from 'react'
 import { resolveTenantContext } from '@/hooks/useTenant'
-import { getEffectiveSubscriptionStatus, hasBrandingRights, TRIAL_PERIOD_DAYS } from '@/lib/tenant'
-import { FREE_LIMITS, PRO_LIMITS, type SubscriptionLimits } from '@/lib/subscription/limits'
+import { getEffectiveSubscriptionStatus, getEffectiveTier, TRIAL_PERIOD_DAYS } from '@/lib/tenant'
+import { getLimitsForTier, PRO_LIMITS, type SubscriptionLimits } from '@/lib/subscription/limits'
+import type { PlanTier } from '@/lib/stripe/plans'
 
 export interface SubscriptionState {
-  isPro:              boolean  // active subscription
+  isPro:              boolean  // Pro-level access (Pro, Business, or Pro trial)
+  isBusiness:         boolean
   isTrialing:         boolean  // within trial window
   isCanceled:         boolean
   isPastDue:          boolean
-  hasFullAccess:      boolean  // isPro || isTrialing
-  hasBrandingRights:  boolean  // active subscription OR admin-comped — can customize/remove the Kitchen Card logo
+  hasFullAccess:      boolean  // backward-compatible alias for Pro-level access
+  hasBrandingRights:  boolean  // Pro/Business/trial or admin-comped
   customLogoUrl:      string | null
   limits:             SubscriptionLimits
+  tier:               PlanTier
   daysLeft:           number   // trial days remaining (0 if not trialing)
   trialEndsAt:        Date | null
   loading:            boolean
@@ -21,6 +24,7 @@ export interface SubscriptionState {
 
 const LOADING_STATE: SubscriptionState = {
   isPro:             false,
+  isBusiness:        false,
   isTrialing:        false,
   isCanceled:        false,
   isPastDue:         false,
@@ -28,6 +32,7 @@ const LOADING_STATE: SubscriptionState = {
   hasBrandingRights: false,
   customLogoUrl:     null,
   limits:            PRO_LIMITS,
+  tier:              'pro',
   daysLeft:          0,
   trialEndsAt:       null,
   loading:           true,
@@ -44,11 +49,18 @@ export function useSubscription(): SubscriptionState {
           ctx.tenant.createdAt
         )
 
-        const isPro      = status === 'active'
         const isTrialing = status === 'trialing'
         const isCanceled = status === 'canceled'
         const isPastDue  = status === 'past_due'
-        const hasFullAccess = isPro || isTrialing
+        const tier = getEffectiveTier({
+          subscriptionStatus: status,
+          planTier: ctx.tenant.planTier,
+          isComped: ctx.tenant.isComped,
+        })
+        const limits = getLimitsForTier(tier)
+        const isPro = tier === 'pro' || tier === 'business'
+        const isBusiness = tier === 'business'
+        const hasFullAccess = isPro
 
         const trialEndsAt = new Date(
           new Date(ctx.tenant.createdAt).getTime() +
@@ -60,13 +72,15 @@ export function useSubscription(): SubscriptionState {
 
         setState({
           isPro,
+          isBusiness,
           isTrialing,
           isCanceled,
           isPastDue,
           hasFullAccess,
-          hasBrandingRights: hasBrandingRights(ctx.tenant.subscriptionStatus, ctx.tenant.isComped),
+          hasBrandingRights: ctx.tenant.isComped === true || limits.canUseBranding,
           customLogoUrl: ctx.tenant.customLogoUrl ?? null,
-          limits:      hasFullAccess ? PRO_LIMITS : FREE_LIMITS,
+          limits,
+          tier,
           daysLeft,
           trialEndsAt: isTrialing ? trialEndsAt : null,
           loading:     false,
@@ -74,7 +88,14 @@ export function useSubscription(): SubscriptionState {
       })
       .catch(() => {
         // On error fail open — don't restrict access
-        setState((s) => ({ ...s, hasFullAccess: true, limits: PRO_LIMITS, loading: false }))
+        setState((s) => ({
+          ...s,
+          isPro: true,
+          hasFullAccess: true,
+          limits: PRO_LIMITS,
+          tier: 'pro',
+          loading: false,
+        }))
       })
   }, [])
 

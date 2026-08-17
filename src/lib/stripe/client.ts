@@ -1,7 +1,7 @@
 import 'server-only'
 
 import Stripe from 'stripe'
-import { ZRECIPE_PRO } from './plans'
+import { getPlanForTier, type PlanTier } from './plans'
 
 let stripeClient: Stripe | null = null
 
@@ -24,14 +24,18 @@ export async function createCheckoutSession({
   customerId,
   successUrl,
   cancelUrl,
+  tier = 'pro',
 }: {
   tenantId: string
   customerEmail?: string | null
   customerId?: string | null
   successUrl: string
   cancelUrl: string
+  tier?: PlanTier
 }) {
-  if (!ZRECIPE_PRO.priceId) {
+  const plan = getPlanForTier(tier)
+
+  if (!plan.priceId) {
     throw new Error('Stripe price ID is not configured.')
   }
 
@@ -40,12 +44,11 @@ export async function createCheckoutSession({
     mode: 'subscription',
     customer: customerId ?? undefined,
     customer_email: customerId ? undefined : customerEmail ?? undefined,
-    line_items: [{ price: ZRECIPE_PRO.priceId, quantity: 1 }],
+    line_items: [{ price: plan.priceId, quantity: 1 }],
     subscription_data: {
-      trial_period_days: ZRECIPE_PRO.trialDays,
-      metadata: { tenantId },
+      metadata: { tenantId, planTier: tier },
     },
-    metadata: { tenantId },
+    metadata: { tenantId, planTier: tier },
     success_url: successUrl,
     cancel_url: cancelUrl,
     allow_promotion_codes: true,

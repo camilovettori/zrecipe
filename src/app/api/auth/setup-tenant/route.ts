@@ -87,6 +87,7 @@ export async function POST(request: NextRequest) {
       owner_email: ownerEmail,
       business_type: businessType.toLowerCase(),
       plan: 'pro',
+      plan_tier: 'pro',
       subscription_status: 'trialing',
       // Consent is enforced client-side (required checkbox, disabled submit)
       // before this route is ever reached — this just records it for the

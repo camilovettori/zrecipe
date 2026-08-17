@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import Papa from 'papaparse'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
+import { getEffectiveSubscriptionStatus, getEffectiveTier, getTenantContext } from '@/lib/tenant'
+import { getLimitsForTier } from '@/lib/subscription/limits'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -178,6 +180,27 @@ export async function POST(request: NextRequest) {
     const { data: { user }, error: userError } = await supabase.auth.getUser()
     if (userError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const context = await getTenantContext(supabase, user.id)
+    if (!context) {
+      return NextResponse.json({ error: 'Tenant not found' }, { status: 404 })
+    }
+
+    const status = getEffectiveSubscriptionStatus(
+      context.tenant.subscriptionStatus,
+      context.tenant.createdAt
+    )
+    const tier = getEffectiveTier({
+      subscriptionStatus: status,
+      planTier: context.tenant.planTier,
+      isComped: context.tenant.isComped,
+    })
+    if (!getLimitsForTier(tier).canImportSupplierPriceLists) {
+      return NextResponse.json(
+        { error: 'Supplier price-list import is a Pro feature.' },
+        { status: 403 }
+      )
     }
 
     const body = await request.json().catch(() => ({}))

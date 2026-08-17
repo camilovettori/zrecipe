@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: tenant, error: tenantError } = await (admin.from('tenants') as any)
     .select(
-      'id, name, slug, created_at, plan, business_type, owner_email, subscription_status, stripe_customer_id, subscription_current_period_end, subscription_trial_end'
+      'id, name, slug, created_at, plan, plan_tier, business_type, owner_email, subscription_status, stripe_customer_id, subscription_current_period_end, subscription_trial_end'
     )
     .eq('id', member.tenant_id)
     .limit(1)
@@ -62,6 +62,7 @@ export async function GET(request: NextRequest) {
       slug:                          tenant.slug ?? null,
       createdAt:                     tenant.created_at,
       plan:                          tenant.plan ?? null,
+      planTier:                      tenant.plan_tier ?? 'starter',
       businessType:                  tenant.business_type ?? null,
       ownerEmail:                    tenant.owner_email ?? null,
       subscriptionStatus:            tenant.subscription_status ?? null,

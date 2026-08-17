@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isPlanTier, type PlanTier } from '@/lib/stripe/plans'
 
 export type TenantSubscriptionStatus =
   | 'active'
@@ -16,6 +17,7 @@ export interface TenantContext {
     slug?: string | null
     createdAt: string
     plan?: string | null
+    planTier?: PlanTier | null
     businessType?: string | null
     ownerEmail?: string | null
     subscriptionStatus?: string | null
@@ -36,9 +38,12 @@ export interface TenantContext {
 // reimplement this check elsewhere.
 export function hasBrandingRights(
   subscriptionStatus: string | null | undefined,
-  isComped: boolean | null | undefined
+  isComped: boolean | null | undefined,
+  planTier: string | null | undefined = 'starter'
 ): boolean {
-  return subscriptionStatus === 'active' || isComped === true
+  if (isComped === true) return true
+  if (subscriptionStatus === 'trialing') return true
+  return subscriptionStatus === 'active' && (planTier === 'pro' || planTier === 'business')
 }
 
 export const TRIAL_PERIOD_DAYS = 14
@@ -64,6 +69,27 @@ export function getEffectiveSubscriptionStatus(
   return isTrialActive(createdAt, now) ? 'trialing' : 'past_due'
 }
 
+export function getEffectiveTier(tenant: {
+  plan_tier?: string | null
+  planTier?: string | null
+  subscription_status?: string | null
+  subscriptionStatus?: string | null
+  is_comped?: boolean | null
+  isComped?: boolean | null
+}): PlanTier {
+  if (tenant.is_comped === true || tenant.isComped === true) return 'pro'
+
+  const status = tenant.subscription_status ?? tenant.subscriptionStatus
+  if (status === 'trialing') return 'pro'
+
+  if (status === 'active') {
+    const tier = tenant.plan_tier ?? tenant.planTier
+    return isPlanTier(tier) ? tier : 'starter'
+  }
+
+  return 'starter'
+}
+
 export async function getTenantContext(
   supabase: SupabaseClient,
   userId: string
@@ -82,7 +108,7 @@ export async function getTenantContext(
   const { data: tenant, error: tenantError } = await supabase
     .from('tenants')
     .select(
-      'id, name, slug, created_at, plan, business_type, owner_email, subscription_status, stripe_customer_id, subscription_current_period_end, subscription_trial_end, subscription_cancel_at, is_comped, custom_logo_url'
+      'id, name, slug, created_at, plan, plan_tier, business_type, owner_email, subscription_status, stripe_customer_id, subscription_current_period_end, subscription_trial_end, subscription_cancel_at, is_comped, custom_logo_url'
     )
     .eq('id', member.tenant_id)
     .limit(1)
@@ -101,6 +127,7 @@ export async function getTenantContext(
       slug: tenant.slug ?? null,
       createdAt: tenant.created_at,
       plan: tenant.plan ?? null,
+      planTier: isPlanTier(tenant.plan_tier) ? tenant.plan_tier : 'starter',
       businessType: tenant.business_type ?? null,
       ownerEmail: tenant.owner_email ?? null,
       subscriptionStatus: tenant.subscription_status ?? null,

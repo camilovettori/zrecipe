@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
-import { hasBrandingRights } from '@/lib/tenant'
+import { getEffectiveSubscriptionStatus, hasBrandingRights } from '@/lib/tenant'
 
 export const runtime = 'nodejs'
 export const maxDuration = 30
@@ -24,13 +24,17 @@ async function resolveTenantForRequest(request: NextRequest) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: tenant } = await (admin.from('tenants') as any)
-    .select('id, subscription_status, is_comped')
+    .select('id, subscription_status, plan_tier, is_comped, created_at')
     .eq('id', member.tenant_id)
     .maybeSingle()
 
   if (!tenant) return { error: 'Tenant not found' as const, status: 404 as const }
 
-  if (!hasBrandingRights(tenant.subscription_status, tenant.is_comped)) {
+  const status = getEffectiveSubscriptionStatus(
+    tenant.subscription_status,
+    tenant.created_at ?? new Date().toISOString()
+  )
+  if (!hasBrandingRights(status, tenant.is_comped, tenant.plan_tier)) {
     return { error: 'Upgrade to Pro to customize branding' as const, status: 403 as const }
   }
 

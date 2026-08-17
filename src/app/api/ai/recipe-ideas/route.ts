@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
-import { getEffectiveSubscriptionStatus } from '@/lib/tenant'
-import { FREE_LIMITS, PRO_LIMITS } from '@/lib/subscription/limits'
+import { getEffectiveSubscriptionStatus, getEffectiveTier } from '@/lib/tenant'
+import { getLimitsForTier } from '@/lib/subscription/limits'
 import { logAIUsage } from '@/lib/ai/usage-logger'
 
 export const runtime = 'nodejs'
@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
     // ── Subscription + AI usage limit check ───────────────────────────────────
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: tenantInfo } = await (admin.from('tenants') as any)
-      .select('subscription_status, created_at')
+      .select('subscription_status, plan_tier, is_comped, created_at')
       .eq('id', tenantId)
       .single()
 
@@ -126,10 +126,12 @@ export async function POST(request: NextRequest) {
       tenantInfo?.subscription_status,
       tenantInfo?.created_at ?? new Date().toISOString()
     )
-    const isPro = subStatus === 'active' || subStatus === 'trialing'
-    const monthlyLimit = isPro
-      ? PRO_LIMITS.aiRecipeIdeasPerMonth
-      : FREE_LIMITS.aiRecipeIdeasPerMonth
+    const tier = getEffectiveTier({
+      subscription_status: subStatus,
+      plan_tier: tenantInfo?.plan_tier,
+      is_comped: tenantInfo?.is_comped,
+    })
+    const monthlyLimit = getLimitsForTier(tier).aiRecipeIdeasPerMonth
 
     if (monthlyLimit !== Infinity) {
       const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
@@ -144,7 +146,7 @@ export async function POST(request: NextRequest) {
       if (used >= monthlyLimit) {
         return NextResponse.json({
           error: 'limit_reached',
-          message: `You've used ${used}/${monthlyLimit} AI recipe ideas this month. Upgrade to Pro for more.`,
+          message: `You've used ${used}/${monthlyLimit} AI recipe ideas this month. Upgrade to ${tier === 'starter' ? 'Pro' : 'Business'} for more.`,
           usage: { used, limit: monthlyLimit },
         }, { status: 429 })
       }

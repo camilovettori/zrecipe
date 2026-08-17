@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { ArrowLeft, ImageIcon, Loader2, Lock } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { clearTenantCache, resolveTenantContext } from '@/hooks/useTenant'
-import { hasBrandingRights } from '@/lib/tenant'
+import { useSubscription } from '@/hooks/useSubscription'
 
 type TenantSettings = {
   id: string
@@ -15,11 +15,10 @@ type TenantSettings = {
 }
 
 export default function BrandingSettingsPage() {
+  const { hasBrandingRights: hasBranding } = useSubscription()
   const [tenant, setTenant] = useState<TenantSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [uploadingLogo, setUploadingLogo] = useState(false)
-
-  const hasBranding = hasBrandingRights(tenant?.subscription_status ?? null, tenant?.is_comped ?? false)
 
   useEffect(() => {
     const load = async () => {

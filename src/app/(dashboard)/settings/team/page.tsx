@@ -15,7 +15,7 @@ type TeamMember = { id: string; user_id: string; role: string; created_at: strin
 type PendingInvite = { id: string; email: string; role: string; invited_at: string; status: string }
 
 export default function TeamSettingsPage() {
-  const { limits, hasFullAccess } = useSubscription()
+  const { limits, tier } = useSubscription()
   const [loading, setLoading] = useState(true)
   const [members, setMembers] = useState<TeamMember[]>([])
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([])
@@ -104,8 +104,9 @@ export default function TeamSettingsPage() {
     refetchTeam()
   }
 
-  const atTeamLimit = hasFullAccess && members.length >= limits.maxTeamMembers
-  const inviteBlocked = !hasFullAccess || atTeamLimit
+  const occupiedSeats = members.length + pendingInvites.length
+  const atTeamLimit = occupiedSeats >= limits.maxTeamMembers
+  const inviteBlocked = atTeamLimit
 
   if (loading) {
     return (
@@ -236,14 +237,9 @@ export default function TeamSettingsPage() {
 
               {inviteBlocked && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                  {!hasFullAccess ? (
-                    <>
-                      Team members require a Pro plan —{' '}
-                      <Link href="/settings/billing" className="font-semibold underline">Upgrade</Link>
-                    </>
-                  ) : (
-                    <>Team limit reached ({members.length}/{limits.maxTeamMembers}) on the Pro plan.</>
-                  )}
+                  Team limit reached ({occupiedSeats}/{limits.maxTeamMembers}) on the{' '}
+                  {tier.charAt(0).toUpperCase() + tier.slice(1)} plan.{' '}
+                  <Link href="/settings/billing" className="font-semibold underline">View plans</Link>
                 </div>
               )}
 

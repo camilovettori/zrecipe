@@ -54,7 +54,7 @@ export const metadata: Metadata = {
 
 const STATS = [
   { label: '14-day free trial' },
-  { label: '€25/month, no surprises', emphasize: true },
+  { label: 'Plans from €9/month', emphasize: true },
   { label: 'EU Reg. 1169/2011 compliant' },
   { label: 'Built by 20+ years in hospitality' },
 ]
@@ -98,12 +98,19 @@ const STEPS = [
   },
 ]
 
-const FREE_FEATURES = ['Up to 5 recipes', 'Up to 20 ingredients', 'Basic recipe costing', 'Supplier tracking']
+const STARTER_FEATURES = [
+  'Up to 25 recipes',
+  'Up to 75 ingredients',
+  'Complete recipe costing',
+  'Basic Kitchen Cards',
+  '5 AI recipe ideas / month',
+]
 
 const PRO_FEATURES = [
   'Unlimited recipes',
   'Unlimited ingredients',
   'AI-powered invoice import',
+  '50 AI imports / month',
   'Yield factor & batch costing',
   'EU allergen labels & printing',
   'PDF export — kitchen cards & reports',
@@ -111,16 +118,25 @@ const PRO_FEATURES = [
   'AI recipe ideas',
 ]
 
+const BUSINESS_FEATURES = [
+  'Everything in Pro',
+  'Bulk invoice import',
+  'Unlimited AI recipe ideas',
+  'Unlimited AI imports',
+  'Team members (up to 15)',
+  'Priority support',
+]
+
 const FAQ_ITEMS: FAQItem[] = [
   {
     question: 'Is there a free plan?',
     answer:
-      'Yes. The Free plan includes up to 5 recipes, 20 ingredients, basic recipe costing, and supplier tracking — no credit card required.',
+      'There is no permanent free tier. Every workspace starts with 14 days of Pro access, then you can choose Starter, Pro, or Business.',
   },
   {
     question: 'Do I need a credit card to start the trial?',
     answer:
-      'No. You get full Pro access for 14 days without entering payment details. Add a card only if you decide to continue on Pro.',
+      'No. You get full Pro access for 14 days without entering payment details. Add a card only when you choose a paid plan.',
   },
   {
     question: 'Which countries and currencies does ZRecipe support?',
@@ -140,7 +156,7 @@ const FAQ_ITEMS: FAQItem[] = [
   {
     question: 'Can I cancel anytime?',
     answer:
-      'Yes. There are no lock-in contracts — cancel your Pro subscription at any time and keep access until the end of your billing period.',
+      'Yes. There are no lock-in contracts — cancel your subscription at any time and keep access until the end of your billing period.',
   },
 ]
 
@@ -369,20 +385,20 @@ export default function LandingPage() {
                   Simple, transparent pricing
                 </h2>
                 <p className="mt-3 text-base text-slate-600">
-                  Start free. Upgrade when your kitchen is ready to grow.
+                  Start with 14 days of Pro access, then choose the plan that fits your kitchen.
                 </p>
               </div>
 
-              <div className="mx-auto mt-12 grid max-w-3xl items-stretch gap-6 sm:grid-cols-2">
-                {/* Free */}
-                <div className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-7">
-                  <h3 className="font-sans text-lg font-semibold text-slate-900">Free</h3>
+              <div className="mx-auto mt-12 grid max-w-6xl items-stretch gap-6 lg:grid-cols-3">
+                {/* Starter */}
+                <div className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-7 lg:order-1">
+                  <h3 className="font-sans text-lg font-semibold text-slate-900">Starter</h3>
                   <p className="mt-3 flex items-baseline gap-1">
-                    <span className="text-3xl font-bold text-slate-900">€0</span>
+                    <span className="text-3xl font-bold text-slate-900">€9</span>
                     <span className="text-sm text-slate-400">/month</span>
                   </p>
                   <ul className="mt-6 flex flex-col gap-3">
-                    {FREE_FEATURES.map((f) => (
+                    {STARTER_FEATURES.map((f) => (
                       <li key={f} className="flex items-start gap-2 text-sm text-slate-600">
                         <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary-600" />
                         {f}
@@ -393,12 +409,35 @@ export default function LandingPage() {
                     href="/register"
                     className="mt-auto block rounded-lg border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
                   >
-                    Start for free
+                    Start 14-day trial
+                  </Link>
+                </div>
+
+                {/* Business */}
+                <div className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-7 lg:order-3">
+                  <h3 className="font-sans text-lg font-semibold text-slate-900">Business</h3>
+                  <p className="mt-3 flex items-baseline gap-1">
+                    <span className="text-3xl font-bold text-slate-900">€45</span>
+                    <span className="text-sm text-slate-400">/month</span>
+                  </p>
+                  <ul className="mt-6 flex flex-col gap-3">
+                    {BUSINESS_FEATURES.map((f) => (
+                      <li key={f} className="flex items-start gap-2 text-sm text-slate-600">
+                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary-600" />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+                  <Link
+                    href="/register"
+                    className="mt-auto block rounded-lg border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                  >
+                    Start 14-day trial
                   </Link>
                 </div>
 
                 {/* Pro */}
-                <div className="relative flex h-full flex-col rounded-2xl border-2 border-primary-600 bg-white p-7 shadow-[0_8px_32px_rgba(0,0,0,0.08)]">
+                <div className="relative flex h-full flex-col rounded-2xl border-2 border-primary-600 bg-white p-7 shadow-[0_8px_32px_rgba(0,0,0,0.08)] lg:order-2">
                   <span className="absolute -top-3 left-7 rounded-full bg-accent-500 px-3 py-1 text-xs font-semibold text-white">
                     Most popular
                   </span>

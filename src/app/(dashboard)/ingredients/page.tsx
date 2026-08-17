@@ -137,7 +137,7 @@ export default function IngredientsPage() {
     setNeedsPriceOnly,
     needsPriceCount,
   } = useIngredients()
-  const { limits, hasFullAccess } = useSubscription()
+  const { limits, loading: subscriptionLoading } = useSubscription()
 
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -291,7 +291,7 @@ export default function IngredientsPage() {
   }
 
   const hasFilters = search !== '' || category !== 'all' || needsPriceOnly
-  const atIngredientLimit = !hasFullAccess && ingredients.length >= limits.maxIngredients
+  const atIngredientLimit = allIngredients.length >= limits.maxIngredients
 
   return (
     <div className="space-y-6">
@@ -308,17 +308,34 @@ export default function IngredientsPage() {
           </p>
         </div>
         <button
-          onClick={() => setImportOpen(true)}
-          className="flex shrink-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+          onClick={() => {
+            if (!limits.canImportSupplierPriceLists) {
+              toast('Supplier price-list import is a Pro feature', {
+                description: 'Upgrade to Pro from Settings → Billing to import supplier price lists.',
+              })
+              return
+            }
+            setImportOpen(true)
+          }}
+          disabled={subscriptionLoading}
+          title={!limits.canImportSupplierPriceLists ? 'Supplier price-list import is a Pro feature' : undefined}
+          className={cn(
+            'flex shrink-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300',
+            limits.canImportSupplierPriceLists
+              ? 'hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700'
+              : 'cursor-not-allowed opacity-60'
+          )}
         >
-          <Search className="h-4 w-4" />
+          {limits.canImportSupplierPriceLists
+            ? <Search className="h-4 w-4" />
+            : <Lock className="h-4 w-4" />}
           Import supplier price list
         </button>
         <div className="flex flex-col items-end gap-1">
           <button
             onClick={() => !atIngredientLimit && router.push('/ingredients/new')}
             disabled={atIngredientLimit}
-            title={atIngredientLimit ? `Free plan limit: ${limits.maxIngredients} ingredients` : undefined}
+            title={atIngredientLimit ? `Starter plan limit: ${limits.maxIngredients} ingredients` : undefined}
             className={cn(
               'flex shrink-0 items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors',
               atIngredientLimit ? 'cursor-not-allowed bg-slate-400' : 'bg-emerald-600 hover:bg-emerald-500'
@@ -329,7 +346,7 @@ export default function IngredientsPage() {
           </button>
           {atIngredientLimit && (
             <p className="text-right text-xs text-slate-500">
-              Free plan limit of {limits.maxIngredients} reached.{' '}
+              Starter plan limit of {limits.maxIngredients} reached.{' '}
               <a href="/settings/billing" className="font-medium text-emerald-600 hover:underline">Upgrade</a>
             </p>
           )}

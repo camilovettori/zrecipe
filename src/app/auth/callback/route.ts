@@ -153,6 +153,7 @@ export async function GET(request: NextRequest) {
       owner_email: ownerEmail,
       business_type: businessType,
       plan,
+      plan_tier: 'pro',
       subscription_status: 'trialing',
       // Consent is enforced client-side (required checkbox, disabled submit)
       // on the register form before signUp is ever called — this just

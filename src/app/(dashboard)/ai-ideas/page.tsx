@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { useIngredients } from '@/hooks/useIngredients'
+import { useSubscription } from '@/hooks/useSubscription'
 import { resolveTenantContext } from '@/hooks/useTenant'
 import { cn } from '@/lib/utils'
 import { CustomSelect } from '@/components/ui/CustomSelect'
@@ -211,6 +212,7 @@ function RecipeResultCard({
 export default function AIIdeasPage() {
   const router = useRouter()
   const { ingredients, loading: ingredientsLoading } = useIngredients()
+  const { isPro } = useSubscription()
 
   const [activeTab, setActiveTab] = useState<Tab>('what-can-make')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -611,7 +613,9 @@ export default function AIIdeasPage() {
                   You&apos;ve reached your monthly AI limit ({aiUsage?.used}/{aiUsage?.limit} ideas used)
                 </p>
                 <p className="mt-0.5 text-xs text-amber-700">
-                  Upgrade to Pro for 50 AI recipe ideas per month.
+                  {isPro
+                    ? 'Upgrade to Business for unlimited AI recipe ideas.'
+                    : 'Upgrade to Pro for 50 AI recipe ideas per month.'}
                 </p>
               </div>
               <a

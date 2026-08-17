@@ -1,6 +1,8 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getEffectiveSubscriptionStatus, getEffectiveTier } from '@/lib/tenant'
+import { getLimitsForTier } from '@/lib/subscription/limits'
 
 export const runtime = 'nodejs'
 
@@ -32,11 +34,39 @@ export async function POST(request: NextRequest) {
 
   const admin = createAdminClient()
 
-  const { data: tenant } = await supabase
-    .from('tenants')
-    .select('name')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: tenant } = await (admin.from('tenants') as any)
+    .select('name, subscription_status, plan_tier, is_comped, created_at')
     .eq('id', tenantId)
     .single()
+
+  if (!tenant) {
+    return NextResponse.json({ error: 'Tenant not found' }, { status: 404 })
+  }
+
+  const status = getEffectiveSubscriptionStatus(
+    tenant.subscription_status,
+    tenant.created_at ?? new Date().toISOString()
+  )
+  const tier = getEffectiveTier({
+    subscription_status: status,
+    plan_tier: tenant.plan_tier,
+    is_comped: tenant.is_comped,
+  })
+  const limits = getLimitsForTier(tier)
+  const [{ count: memberCount }, { count: pendingCount }] = await Promise.all([
+    admin.from('tenant_users').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId),
+    admin.from('tenant_invites').select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('status', 'pending'),
+  ])
+
+  if ((memberCount ?? 0) + (pendingCount ?? 0) >= limits.maxTeamMembers) {
+    return NextResponse.json(
+      { error: `Team limit reached for the ${tier} plan.` },
+      { status: 403 }
+    )
+  }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL
   if (!appUrl) {

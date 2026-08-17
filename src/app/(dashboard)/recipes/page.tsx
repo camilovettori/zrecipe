@@ -107,7 +107,7 @@ function RecipeGrid({
 export default function RecipesPage() {
   const router = useRouter()
   const { recipes, loading, error } = useRecipes()
-  const { limits, hasFullAccess } = useSubscription()
+  const { limits } = useSubscription()
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('all')
   const [allergenFilter, setAllergenFilter] = useState<number | null>(null)
@@ -123,7 +123,7 @@ export default function RecipesPage() {
     [recipes]
   )
 
-  const atRecipeLimit = !hasFullAccess && recipes.length >= limits.maxRecipes
+  const atRecipeLimit = recipes.length >= limits.maxRecipes
 
   const avgMargin = useMemo(() => {
     if (!recipes.length) return 0
@@ -276,7 +276,7 @@ export default function RecipesPage() {
             type="button"
             onClick={() => !atRecipeLimit && router.push('/recipes/new')}
             disabled={atRecipeLimit}
-            title={atRecipeLimit ? `Free plan limit: ${limits.maxRecipes} recipes` : undefined}
+            title={atRecipeLimit ? `Starter plan limit: ${limits.maxRecipes} recipes` : undefined}
             className={cn(
               'inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition-colors shadow-sm',
               atRecipeLimit ? 'cursor-not-allowed bg-slate-400' : 'bg-emerald-600 hover:bg-emerald-500'
@@ -287,7 +287,7 @@ export default function RecipesPage() {
           </button>
           {atRecipeLimit && (
             <p className="text-right text-xs text-slate-500">
-              Free plan limit of {limits.maxRecipes} reached.{' '}
+              Starter plan limit of {limits.maxRecipes} reached.{' '}
               <a href="/settings/billing" className="font-medium text-emerald-600 hover:underline">Upgrade</a>
             </p>
           )}

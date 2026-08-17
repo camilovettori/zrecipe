@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Zap } from 'lucide-react'
 import { useSubscription } from '@/hooks/useSubscription'
-import { FREE_LIMITS } from '@/lib/subscription/limits'
 
 const LS_POPUP_KEY    = 'zrecipe-upgrade-popup-ts'
 const LS_BANNER_KEY   = 'zrecipe-upgrade-banner-dismissed'
@@ -55,7 +54,7 @@ export function UpgradeBanner() {
 
   const label = isTrialing
     ? `Your trial ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}.`
-    : "You're on the free plan. Upgrade to Pro for unlimited access."
+    : "You're on Starter. Upgrade to Pro for unlimited access and advanced tools."
 
   return (
     <div className="sticky top-0 z-30 flex items-center justify-between gap-3 bg-emerald-600 px-4 py-2.5 text-white">
@@ -89,22 +88,17 @@ export function UpgradeBanner() {
 // ── Upgrade popup (modal, every 15 min) ───────────────────────────────────────
 
 export default function UpgradePopup() {
-  const { isPro, isTrialing, loading } = useSubscription()
+  const { isPro, isTrialing, limits, loading } = useSubscription()
   const [open, setOpen]           = useState(false)
   const [checkingOut, setCheckingOut] = useState(false)
 
   useEffect(() => {
     if (loading || isPro) return
 
-    // Note: this intentionally reads FREE_LIMITS directly rather than the
-    // hook's `limits` field — `limits` follows `hasFullAccess` (isPro ||
-    // isTrialing), so during an active trial it would resolve to
-    // PRO_LIMITS.popupIntervalMinutes (0), which would either suppress the
-    // popup entirely or fire it on every render. The interval only ever
-    // applies to non-Pro tenants (trialing or free), so FREE_LIMITS is the
-    // correct source regardless of trial status.
-    const popupInterval = FREE_LIMITS.popupIntervalMinutes * 60 * 1000
-    if (popupInterval <= 0) return
+    // Starter has a finite reminder interval. Pro, Business and trial access
+    // resolve to Infinity and therefore never schedule this popup.
+    const popupInterval = limits.popupIntervalMinutes * 60 * 1000
+    if (!Number.isFinite(popupInterval) || popupInterval <= 0) return
 
     const lastShown = Number(localStorage.getItem(LS_POPUP_KEY) ?? '0')
     if (Date.now() - lastShown > popupInterval) {
@@ -115,7 +109,7 @@ export default function UpgradePopup() {
       }, 800)
       return () => clearTimeout(t)
     }
-  }, [loading, isPro])
+  }, [isPro, limits.popupIntervalMinutes, loading])
 
   const dismiss = () => setOpen(false)
 

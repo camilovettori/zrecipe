@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getTenantContext } from '@/lib/tenant'
+import { getEffectiveSubscriptionStatus, getEffectiveTier, getTenantContext } from '@/lib/tenant'
+import { getLimitsForTier } from '@/lib/subscription/limits'
 
 type TenantMemberRow = {
   id: string
@@ -104,6 +105,28 @@ export async function POST(request: NextRequest) {
 
   if (!['owner', 'admin'].includes(context.role)) {
     return NextResponse.json({ message: 'Only owners and admins can invite members' }, { status: 403 })
+  }
+
+  const status = getEffectiveSubscriptionStatus(
+    context.tenant.subscriptionStatus,
+    context.tenant.createdAt
+  )
+  const tier = getEffectiveTier({
+    subscription_status: status,
+    planTier: context.tenant.planTier,
+    isComped: context.tenant.isComped,
+  })
+  const limits = getLimitsForTier(tier)
+  const { count: memberCount } = await admin
+    .from('tenant_users')
+    .select('id', { count: 'exact', head: true })
+    .eq('tenant_id', context.tenantId)
+
+  if ((memberCount ?? 0) >= limits.maxTeamMembers) {
+    return NextResponse.json(
+      { message: `Team limit reached for the ${tier} plan.` },
+      { status: 403 }
+    )
   }
 
   const inviteResult = await admin.auth.admin.inviteUserByEmail(email, {

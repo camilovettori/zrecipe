@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
-import { getEffectiveSubscriptionStatus } from '@/lib/tenant'
-import { FREE_LIMITS } from '@/lib/subscription/limits'
+import { getEffectiveSubscriptionStatus, getEffectiveTier } from '@/lib/tenant'
+import { getLimitsForTier } from '@/lib/subscription/limits'
 
 export const runtime = 'nodejs'
 
@@ -39,33 +39,52 @@ export async function POST(request: NextRequest) {
 
     const tenantId = member.tenant_id
 
-    // Enforce free plan recipe limit for new recipes only
-    if (!body.id) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: tenant } = await (admin.from('tenants') as any)
-        .select('subscription_status, created_at')
-        .eq('id', tenantId)
-        .single()
+    // Resolve the tier once and enforce both feature and quantity limits server-side.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: tenant } = await (admin.from('tenants') as any)
+      .select('subscription_status, plan_tier, is_comped, created_at')
+      .eq('id', tenantId)
+      .single()
 
-      const effectiveStatus = getEffectiveSubscriptionStatus(
-        tenant?.subscription_status ?? null,
-        tenant?.created_at ?? new Date().toISOString()
+    const effectiveStatus = getEffectiveSubscriptionStatus(
+      tenant?.subscription_status ?? null,
+      tenant?.created_at ?? new Date().toISOString()
+    )
+    const tier = getEffectiveTier({
+      subscription_status: effectiveStatus,
+      plan_tier: tenant?.plan_tier,
+      is_comped: tenant?.is_comped,
+    })
+    const limits = getLimitsForTier(tier)
+
+    if (!limits.canUseYieldFactor && Array.isArray(body.ingredients)) {
+      const usesYieldFactor = body.ingredients.some((ingredient: {
+        yield_percent?: number | null
+        yield_override?: boolean | null
+        ep_weight_manual?: number | null
+      }) =>
+        (ingredient.yield_percent ?? 100) !== 100 ||
+        ingredient.yield_override === true ||
+        ingredient.ep_weight_manual != null
       )
-      const hasFullAccess = effectiveStatus === 'active' || effectiveStatus === 'trialing'
 
-      if (!hasFullAccess) {
+      if (usesYieldFactor) {
+        return NextResponse.json({ error: 'Upgrade to Pro to use yield factors.' }, { status: 403 })
+      }
+    }
+
+    if (!body.id && limits.maxRecipes !== Infinity) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { count } = await (admin.from('recipes') as any)
           .select('id', { count: 'exact', head: true })
           .eq('tenant_id', tenantId)
 
-        if ((count ?? 0) >= FREE_LIMITS.maxRecipes) {
+        if ((count ?? 0) >= limits.maxRecipes) {
           return NextResponse.json(
-            { error: `Free plan limit of ${FREE_LIMITS.maxRecipes} recipes reached. Upgrade to Pro for unlimited recipes.` },
+            { error: `${tier === 'starter' ? 'Starter' : tier} plan limit of ${limits.maxRecipes} recipes reached.` },
             { status: 403 }
           )
         }
-      }
     }
 
     const recipeData = {

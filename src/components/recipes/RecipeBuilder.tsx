@@ -232,6 +232,7 @@ function IngredientRow({
   costStatus,
   isZeroPrice,
   batchMultiplier,
+  canUseYieldFactor,
   onUpdate,
   onRemove,
   onNoteClick,
@@ -242,6 +243,7 @@ function IngredientRow({
   costStatus: IngredientCostStatus
   isZeroPrice: boolean
   batchMultiplier: number
+  canUseYieldFactor: boolean
   onUpdate: (patch: Partial<RecipeIngredientDraft>) => void
   onRemove: () => void
   onNoteClick: () => void
@@ -457,7 +459,7 @@ function IngredientRow({
 
           {/* YF — fixed width, no inline AP text */}
           <div className="flex justify-center">
-            {!item.subRecipeId ? (
+            {!item.subRecipeId && canUseYieldFactor ? (
               <YieldFactorPopover item={item} onUpdate={onUpdate} />
             ) : (
               <span className="text-xs text-slate-300">—</span>
@@ -558,7 +560,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const handleBack = useSafeBack('/recipes')
   const isNew = recipeId === 'new'
   const { getRecipeWithIngredients, createRecipe, updateRecipe, deleteRecipe } = useRecipes({ autoLoad: false })
-  const { hasFullAccess } = useSubscription()
+  const { limits } = useSubscription()
 
   const [loading, setLoading] = useState(!isNew)
   const [saving, setSaving] = useState(false)
@@ -1141,7 +1143,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   }
 
   const handleYieldFactorsToggle = () => {
-    if (!hasFullAccess) {
+    if (!limits.canUseYieldFactor) {
       toast('Yield factor calculator is a Pro feature', {
         description: 'Upgrade to Pro from Settings -> Billing to unlock this.',
       })
@@ -1749,11 +1751,23 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   }, [recipeAllergens])
 
   const handlePrintSelect = useCallback((type: 'full' | 'kitchen' | 'label') => {
+    if (type === 'full' && !limits.canUseReports) {
+      toast('Full cost reports are a Pro feature', {
+        description: 'Upgrade to Pro from Settings → Billing to print management reports.',
+      })
+      return
+    }
+    if (type === 'label' && !limits.canPrintLabels) {
+      toast('Product labels are a Pro feature', {
+        description: 'Upgrade to Pro from Settings → Billing to print product labels.',
+      })
+      return
+    }
     setShowPrintModal(false)
     if (type === 'full') handlePrintFull()
     else if (type === 'kitchen') setShowKitchenCardModal(true)
     else setShowLabelEditor(true)
-  }, [handlePrintFull])
+  }, [handlePrintFull, limits.canPrintLabels, limits.canUseReports])
 
   const kitchenCardData: KitchenCardData = useMemo(() => {
     const N = effectiveN
@@ -1863,17 +1877,11 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
           <button
             type="button"
             onClick={() => {
-              if (!hasFullAccess) {
-                toast('PDF & Kitchen Card export is a Pro feature', {
-                  description: 'Upgrade to Pro from Settings → Billing to print or export recipes.',
-                })
-                return
-              }
               setShowPrintModal(true)
             }}
             className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
-            {hasFullAccess ? <Printer className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+            <Printer className="h-4 w-4" />
             <span className="hidden sm:inline">Print</span>
           </button>
 
@@ -2223,7 +2231,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                   <button
                     type="button"
                     onClick={() => {
-                      if (!hasFullAccess) {
+                      if (!limits.canUseBatchMultiplier) {
                         toast('Batch costing is a Pro feature', {
                           description: 'Upgrade to Pro from Settings → Billing to scale recipes into batches.',
                         })
@@ -2231,13 +2239,13 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                       }
                       setBatchEnabled((v) => !v)
                     }}
-                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${!hasFullAccess ? 'cursor-not-allowed opacity-50' : ''} ${batchEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`}
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${!limits.canUseBatchMultiplier ? 'cursor-not-allowed opacity-50' : ''} ${batchEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`}
                     aria-pressed={batchEnabled}
-                    aria-disabled={!hasFullAccess}
+                    aria-disabled={!limits.canUseBatchMultiplier}
                   >
                     <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${batchEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                   </button>
-                  {!hasFullAccess && <Lock className="h-3.5 w-3.5 shrink-0 text-slate-400" />}
+                  {!limits.canUseBatchMultiplier && <Lock className="h-3.5 w-3.5 shrink-0 text-slate-400" />}
                   {batchEnabled && (
                     <input
                       type="number"
@@ -2370,7 +2378,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
               <button
                 type="button"
                 onClick={() => {
-                  if (!hasFullAccess) {
+                  if (!limits.canUseYieldFactor) {
                     toast('Yield factor calculator is a Pro feature', {
                       description: 'Upgrade to Pro from Settings → Billing to unlock this.',
                     })
@@ -2438,6 +2446,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                     costStatus={computedIngredients[idx]?.costStatus ?? 'ok'}
                     isZeroPrice={computedIngredients[idx]?.isZeroPrice ?? false}
                     batchMultiplier={effectiveN}
+                    canUseYieldFactor={limits.canUseYieldFactor}
                     onUpdate={(patch) => updateIngredient(item.id, patch)}
                     onRemove={() => removeIngredient(item.id)}
                     onNoteClick={() => setNoteModalIngredientId(item.id)}

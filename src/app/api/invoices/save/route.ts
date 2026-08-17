@@ -10,6 +10,8 @@ import {
   normalizeIngredientAllergenSelection,
   type IngredientAllergen,
 } from '@/lib/allergens'
+import { getEffectiveSubscriptionStatus, getEffectiveTier } from '@/lib/tenant'
+import { getLimitsForTier } from '@/lib/subscription/limits'
 
 type SaveItem = {
   id?: string
@@ -178,6 +180,22 @@ export async function POST(request: NextRequest) {
 
   const tenantId = member.tenant_id as string
 
+  const { data: tenant } = await admin
+    .from('tenants')
+    .select('subscription_status, plan_tier, is_comped, created_at')
+    .eq('id', tenantId)
+    .single()
+  const subscriptionStatus = getEffectiveSubscriptionStatus(
+    tenant?.subscription_status,
+    tenant?.created_at ?? new Date().toISOString()
+  )
+  const tier = getEffectiveTier({
+    subscription_status: subscriptionStatus,
+    plan_tier: tenant?.plan_tier,
+    is_comped: tenant?.is_comped,
+  })
+  const subscriptionLimits = getLimitsForTier(tier)
+
   const { data: existingIngredientsData, error: existingIngredientsError } = await admin
     .from('ingredients')
     .select('id, name, price_unit')
@@ -203,6 +221,7 @@ export async function POST(request: NextRequest) {
     existingIngredients.map((ing) => [ing.id, ing.price_unit])
   )
   const tenantIngredientIds = new Set(existingIngredients.map((ing) => ing.id))
+  let ingredientCount = existingIngredients.length
 
   try {
     let body: any = {}
@@ -521,6 +540,13 @@ export async function POST(request: NextRequest) {
           // this save call, or by a prior invoice) — reuse it instead of creating a duplicate.
           ingredientId = dedupedIngredientId
         } else {
+          if (ingredientCount >= subscriptionLimits.maxIngredients) {
+            return NextResponse.json(
+              { error: `${tier === 'starter' ? 'Starter' : tier} plan limit of ${subscriptionLimits.maxIngredients} ingredients reached.` },
+              { status: 403 }
+            )
+          }
+
           const ingredientPayload = {
             tenant_id: tenantId,
             name: ingredientName,
@@ -552,6 +578,7 @@ export async function POST(request: NextRequest) {
           }
 
           ingredientId = createdIngredient.id
+          ingredientCount += 1
           ingredientIdByNormalizedName.set(normalizedName, ingredientId)
           tenantIngredientIds.add(ingredientId)
         }
@@ -617,7 +644,7 @@ export async function POST(request: NextRequest) {
       // so remember it whenever this line item carries a code and resolved
       // to an ingredient. Best-effort: never fails the (already-succeeded)
       // item save.
-      if (item.product_code && supplierId && ingredientId) {
+      if (subscriptionLimits.canUseSupplierCodes && item.product_code && supplierId && ingredientId) {
         try {
           const { error: codeUpsertError } = await admin
             .from('ingredient_supplier_codes')

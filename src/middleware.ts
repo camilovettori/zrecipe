@@ -191,7 +191,7 @@ export async function middleware(request: NextRequest) {
 
   // Subscription status is enforced in the UI via useSubscription() / limits,
   // not by blocking middleware redirects.  Canceled/past_due users stay in the
-  // app with FREE_LIMITS restrictions so they can still access their data.
+  // app with Starter restrictions so they can still access their data.
   return response
 }
 

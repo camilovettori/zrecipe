@@ -43,17 +43,17 @@ export default function TrialBanner({ info }: { info: TrialInfo }) {
         <ShieldAlert className="h-5 w-5 shrink-0 text-red-500" />
         <div className="flex-1">
           <p className="text-sm font-semibold text-red-800 dark:text-red-300">
-            Your Pro trial has ended. You&apos;re on the Free plan.
+            Your Pro trial has ended. Starter limits now apply.
           </p>
           <p className="mt-0.5 text-xs text-red-600 dark:text-red-400">
-            Subscribe to restore unlimited access to recipes, AI imports, and price tracking.
+            Choose a plan to match the recipe, AI, reporting, and team capacity you need.
           </p>
         </div>
         <Link
           href="/settings/billing"
           className="shrink-0 rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-red-500"
         >
-          Subscribe to keep your data
+          Choose a plan
         </Link>
       </div>
     )
@@ -129,7 +129,7 @@ export default function TrialBanner({ info }: { info: TrialInfo }) {
                 : 'bg-emerald-600 hover:bg-emerald-500'
             }`}
           >
-            {isUrgent ? 'Subscribe to keep your data' : 'Subscribe now — €25/month'}
+            {isUrgent ? 'Choose a plan' : 'See plans from €9/month'}
           </Link>
           <Link
             href="/settings/billing"

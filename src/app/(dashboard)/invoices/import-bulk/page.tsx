@@ -71,7 +71,7 @@ async function extractFile(file: File, kind: InvoiceFileKind): Promise<ExtractRe
     const response = await fetch('/api/invoices/extract', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: 'csv', csv: csvText, fileName: file.name }),
+      body: JSON.stringify({ kind: 'csv', csv: csvText, fileName: file.name, bulk: true }),
     })
     return (await response.json().catch(() => ({ error: 'Unable to parse CSV' }))) as ExtractResponse
   }
@@ -84,7 +84,7 @@ async function extractFile(file: File, kind: InvoiceFileKind): Promise<ExtractRe
     const response = await fetch('/api/invoices/extract', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: 'pdf', text, fileName: file.name }),
+      body: JSON.stringify({ kind: 'pdf', text, fileName: file.name, bulk: true }),
     })
     return (await response.json().catch(() => ({ error: 'Unable to extract PDF data' }))) as ExtractResponse
   }
@@ -103,7 +103,7 @@ async function extractFile(file: File, kind: InvoiceFileKind): Promise<ExtractRe
   const response = await fetch('/api/invoices/extract', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ kind: 'image', imageBase64, mimeType: compressed.type, fileName: file.name }),
+    body: JSON.stringify({ kind: 'image', imageBase64, mimeType: compressed.type, fileName: file.name, bulk: true }),
   })
   return (await response.json().catch(() => ({ error: 'Unable to extract image data' }))) as ExtractResponse
 }
@@ -389,14 +389,14 @@ export default function BulkImportInvoicesPage() {
     )
   }
 
-  if (!subLoading && !limits.canUploadInvoices) {
+  if (!subLoading && !limits.canBulkImportInvoices) {
     return (
       <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
         <EmptyState
           icon={Lock}
-          title="Invoice import is a Pro feature"
-          description="Upgrade to Pro to import invoices with AI-powered extraction."
-          action={{ label: 'Upgrade to Pro', onClick: () => router.push('/settings/billing') }}
+          title="Bulk invoice import is a Business feature"
+          description="Upgrade to Business to process multiple invoices in one workflow."
+          action={{ label: 'View Business', onClick: () => router.push('/settings/billing') }}
         />
       </div>
     )
@@ -524,7 +524,7 @@ export default function BulkImportInvoicesPage() {
               <span>
                 Monthly AI extraction limit reached — remaining files were skipped.{' '}
                 <a href="/settings/billing" className="font-semibold underline">
-                  Upgrade to Pro
+                  Upgrade to Business
                 </a>{' '}
                 for unlimited invoice extraction.
               </span>

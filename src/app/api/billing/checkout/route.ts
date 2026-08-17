@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
+import { getPlanForTier, isPlanTier } from '@/lib/stripe/plans'
 
 export async function POST(request: NextRequest) {
   try {
@@ -54,9 +55,12 @@ export async function POST(request: NextRequest) {
     }
 
     // ── 3. Validate Stripe config ────────────────────────────────────────
-    const priceId = process.env.STRIPE_PRICE_ID ?? process.env.STRIPE_PRO_PRICE_ID
-    if (!priceId) {
-      console.error('[STRIPE] No price ID configured')
+    const body = await request.json().catch(() => ({})) as { tier?: unknown }
+    const tier = isPlanTier(body.tier) ? body.tier : 'pro'
+    const plan = getPlanForTier(tier)
+
+    if (!plan.priceId) {
+      console.error(`[STRIPE] No price ID configured for ${tier}`)
       return NextResponse.json({ message: 'Stripe price is not configured' }, { status: 500 })
     }
 
@@ -74,15 +78,16 @@ export async function POST(request: NextRequest) {
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       payment_method_types: ['card'],
-      line_items: [{ price: priceId, quantity: 1 }],
+      line_items: [{ price: plan.priceId, quantity: 1 }],
       ...(tenant.stripe_customer_id
         ? { customer: tenant.stripe_customer_id as string }
         : { customer_email: user.email ?? undefined }),
+      // The no-card trial starts when the workspace is created. Checkout
+      // starts billing immediately and must not grant a second trial.
       subscription_data: {
-        ...(tenant.stripe_customer_id ? {} : { trial_period_days: 14 }),
-        metadata: { tenantId: tenant.id as string },
+        metadata: { tenantId: tenant.id as string, planTier: tier },
       },
-      metadata: { tenantId: tenant.id as string },
+      metadata: { tenantId: tenant.id as string, planTier: tier },
       success_url: `${appUrl}/settings/billing?success=true`,
       cancel_url:  `${appUrl}/settings/billing?notice=checkout_canceled`,
       allow_promotion_codes: true,

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import {
   BarChart3, ChefHat, TrendingUp, Receipt, FileText,
-  AlertTriangle, Sparkles, Printer, Apple, Truck, Loader2,
+  AlertTriangle, Sparkles, Printer, Apple, Truck, Loader2, Lock,
   ArrowUpRight, ArrowDownRight, X,
 } from 'lucide-react'
 import {
@@ -14,6 +14,8 @@ import { createClient } from '@/lib/supabase/client'
 import { calculateCost, type CostResult } from '@/lib/utils/cost-calculator'
 import { resolveIngredientPrice, type PriceHistoryEntry } from '@/lib/ingredients/resolveIngredientPrice'
 import { cn } from '@/lib/utils'
+import { useSubscription } from '@/hooks/useSubscription'
+import EmptyState from '@/components/shared/EmptyState'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -103,6 +105,7 @@ type SortMode = 'name' | 'margin-high' | 'margin-low' | 'cost-high' | 'profit-hi
 // ── Main page ────────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
+  const { limits, loading: subscriptionLoading } = useSubscription()
   const [activeTab, setActiveTab] = useState<'overview' | 'trends' | 'print'>('overview')
   const [loading, setLoading] = useState(true)
   const [tenantName, setTenantName] = useState('')
@@ -472,10 +475,23 @@ export default function ReportsPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  if (loading) {
+  if (loading || subscriptionLoading) {
     return (
       <div className="flex items-center justify-center py-24">
         <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+      </div>
+    )
+  }
+
+  if (!limits.canUseReports) {
+    return (
+      <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+        <EmptyState
+          icon={Lock}
+          title="Reports are a Pro feature"
+          description="Upgrade to Pro for analytics, printable reports and AI-powered business insights."
+          action={{ label: 'View plans', onClick: () => window.location.assign('/settings/billing') }}
+        />
       </div>
     )
   }

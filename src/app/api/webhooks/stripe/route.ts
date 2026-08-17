@@ -1,6 +1,7 @@
 import Stripe from 'stripe'
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getTierFromPriceId, isPlanTier } from '@/lib/stripe/plans'
 
 export const runtime = 'nodejs'
 
@@ -36,6 +37,7 @@ async function handleSubscriptionEvent(
   const currentPeriodEnd = (subscription as Stripe.Subscription & {
     current_period_end?: number
   }).current_period_end
+  const tier = getTierFromPriceId(subscription.items.data[0]?.price?.id)
 
   await updateTenantByCustomerId(customerId, {
     subscription_status: status,
@@ -45,7 +47,8 @@ async function handleSubscriptionEvent(
       : null,
     subscription_trial_end:
       subscription.trial_end ? new Date(subscription.trial_end * 1000).toISOString() : null,
-    plan: status === 'canceled' ? 'free' : 'pro',
+    plan: tier,
+    plan_tier: tier,
   })
 }
 
@@ -76,6 +79,13 @@ export async function POST(request: NextRequest) {
           typeof session.subscription === 'string' ? session.subscription : null
 
         if (customerId && tenantId) {
+          const embeddedPriceId = session.line_items?.data[0]?.price?.id
+          const lineItems = embeddedPriceId
+            ? null
+            : await stripe.checkout.sessions.listLineItems(session.id, { limit: 1 })
+          const priceId = embeddedPriceId ?? lineItems?.data[0]?.price?.id
+          const metadataTier = metadata?.planTier
+          const tier = isPlanTier(metadataTier) ? metadataTier : getTierFromPriceId(priceId)
           const admin = createAdminClient()
           const tenants = admin.from('tenants') as unknown as TenantsTable
           await tenants
@@ -83,7 +93,8 @@ export async function POST(request: NextRequest) {
               stripe_customer_id: customerId,
               stripe_subscription_id: subscriptionId,
               subscription_status: 'active',
-              plan: 'pro',
+              plan: tier,
+              plan_tier: tier,
             })
             .eq('id', tenantId)
         }

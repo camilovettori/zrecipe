@@ -72,7 +72,7 @@ const SIZE_MAP: Record<string, { w: number; h: number }> = {
 
 export default function LabelsPage() {
   const router = useRouter()
-  const { hasFullAccess, loading: subLoading } = useSubscription()
+  const { limits, loading: subLoading } = useSubscription()
   const [labelQueue, setLabelQueue] = useState<LabelItem[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<RecipeResult[]>([])
@@ -358,7 +358,7 @@ export default function LabelsPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  if (!subLoading && !hasFullAccess) {
+  if (!subLoading && !limits.canPrintLabels) {
     return (
       <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
         <EmptyState

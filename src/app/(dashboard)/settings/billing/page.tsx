@@ -12,21 +12,22 @@ import {
   Receipt,
   Sparkles,
   TrendingUp,
-  X,
   Zap,
 } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from '@/lib/toast'
 import { clearTenantCache, resolveTenantContext } from '@/hooks/useTenant'
 import { createClient } from '@/lib/supabase/client'
-import { TRIAL_PERIOD_DAYS, getEffectiveSubscriptionStatus } from '@/lib/tenant'
-import { FREE_LIMITS } from '@/lib/subscription/limits'
+import { TRIAL_PERIOD_DAYS, getEffectiveSubscriptionStatus, getEffectiveTier } from '@/lib/tenant'
+import { getLimitsForTier } from '@/lib/subscription/limits'
+import type { PlanTier } from '@/lib/stripe/plans'
 import { cn } from '@/lib/utils'
 
 type TenantSettings = {
   id: string
   name: string
   plan: string | null
+  plan_tier: PlanTier
   subscription_status: string | null
   stripe_customer_id: string | null
   subscription_current_period_end: string | null
@@ -181,7 +182,12 @@ export default function BillingSettingsPage() {
     return getEffectiveSubscriptionStatus(tenant.subscription_status, tenant.created_at)
   }, [tenant])
 
-  const hasFullAccess = subStatus === 'active' || subStatus === 'trialing'
+  const effectiveTier = useMemo(() => getEffectiveTier({
+    subscription_status: subStatus,
+    plan_tier: tenant?.plan_tier,
+    is_comped: tenant?.is_comped,
+  }), [subStatus, tenant?.is_comped, tenant?.plan_tier])
+  const currentLimits = getLimitsForTier(effectiveTier)
 
   // ── URL params: notice toast ───────────────────────────────────────────────
   useEffect(() => {
@@ -218,6 +224,7 @@ export default function BillingSettingsPage() {
             subscriptionCurrentPeriodEnd?: string | null
             subscriptionTrialEnd?: string | null
             plan?: string | null
+            planTier?: PlanTier | null
           }
         }
 
@@ -236,6 +243,7 @@ export default function BillingSettingsPage() {
                   subscription_trial_end:
                     payload.tenant?.subscriptionTrialEnd ?? current.subscription_trial_end,
                   plan: payload.tenant?.plan ?? current.plan,
+                  plan_tier: payload.tenant?.planTier ?? current.plan_tier,
                 }
               : current
           )
@@ -285,6 +293,7 @@ export default function BillingSettingsPage() {
           id:                             ctx.tenantId,
           name:                           ctx.tenant.name,
           plan:                           ctx.tenant.plan ?? null,
+          plan_tier:                      ctx.tenant.planTier ?? 'starter',
           subscription_status:            ctx.tenant.subscriptionStatus ?? null,
           stripe_customer_id:             ctx.tenant.stripeCustomerId ?? null,
           subscription_current_period_end: ctx.tenant.subscriptionCurrentPeriodEnd ?? null,
@@ -317,13 +326,22 @@ export default function BillingSettingsPage() {
   }, [])
 
   // ── Handlers ───────────────────────────────────────────────────────────────
-  const handleBillingAction = async (forceCheckout = false) => {
+  const handleBillingAction = async (forceCheckout = false, tier: PlanTier = 'pro') => {
     try {
       setBillingBusy(true)
-      const isManage = !forceCheckout && !!tenant?.stripe_customer_id && subStatus === 'active'
+      const isManage =
+        !forceCheckout &&
+        !!tenant?.stripe_customer_id &&
+        (subStatus === 'active' || subStatus === 'past_due')
       const endpoint = isManage ? '/api/billing/portal' : '/api/billing/checkout'
 
-      const res = await fetch(endpoint, { method: 'POST' })
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        ...(isManage ? {} : {
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tier }),
+        }),
+      })
       let payload: { url?: string; message?: string }
       try {
         payload = await res.json()
@@ -445,7 +463,7 @@ export default function BillingSettingsPage() {
                     day: 'numeric', month: 'long', year: 'numeric',
                   })}
                 </strong>
-                . After that, your account will switch to the free plan.
+                . After that, your account will use Starter limits until you choose a plan again.
               </p>
               <button
                 onClick={handleReactivate}
@@ -459,171 +477,112 @@ export default function BillingSettingsPage() {
         )}
 
         {/* Plan comparison */}
-        <div className="grid grid-cols-2 gap-4">
-
-          {/* FREE card */}
-          <div className="border border-gray-200 rounded-2xl p-6 bg-gray-50">
-            <div className="mb-4">
-              <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Free</span>
-              <div className="flex items-baseline gap-1 mt-1">
-                <span className="text-3xl font-bold text-gray-800">€0</span>
-                <span className="text-gray-400 text-sm">/month</span>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">After your trial ends</p>
-            </div>
-            <ul className="space-y-2.5">
-              {[
-                { text: '5 recipes maximum',       ok: false },
-                { text: '20 ingredients',          ok: true  },
-                { text: 'Basic recipe costing',    ok: true  },
-                { text: 'Supplier tracking',       ok: true  },
-                { text: 'Invoice import',          ok: false },
-                { text: 'Yield factor calculator', ok: false },
-                { text: 'Batch costing',           ok: false },
-                { text: 'Label printing',          ok: false },
-                { text: 'AI insights & reports',   ok: false },
-                { text: 'PDF export',              ok: false },
-                { text: 'Team members',            ok: false },
-              ].map((item, i) => (
-                <li key={i} className="flex items-center gap-2.5">
-                  {item.ok
-                    ? <Check className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                    : <X className="w-4 h-4 text-gray-300 flex-shrink-0" />}
-                  <span className={cn('text-sm', item.ok ? 'text-gray-700' : 'text-gray-400')}>
-                    {item.text}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* PRO card */}
-          <div className="border-2 border-emerald-400 rounded-2xl p-6 bg-white relative">
-            <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-              <span className={cn(
-                'text-xs font-semibold px-3 py-1 rounded-full',
-                subStatus === 'active'
-                  ? 'bg-emerald-500 text-white'
-                  : 'bg-emerald-100 text-emerald-700'
-              )}>
-                {subStatus === 'active' ? '✓ Your current plan' : 'Recommended'}
-              </span>
-            </div>
-
-            <div className="mb-4 mt-2">
-              <span className="text-xs font-semibold uppercase tracking-wider text-emerald-600">Pro</span>
-              <div className="flex items-baseline gap-1 mt-1">
-                <span className="text-3xl font-bold text-gray-900">€25</span>
-                <span className="text-gray-400 text-sm">/month</span>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">Complete recipe costing, label printing &amp; AI insights</p>
-            </div>
-
-            <ul className="space-y-2.5 mb-6">
-              {[
-                'Unlimited recipes',
-                'Unlimited ingredients',
-                'Invoice import (PDF & CSV) with AI extraction',
-                'Full recipe costing with batch support',
-                'Yield factor calculator (USDA reference)',
-                'VAT calculator + waste & overhead tracking',
-                'Product label printing (Brother, Dymo, A4)',
-                'EU allergen compliance (Reg. 1169/2011)',
-                'AI-powered business insights',
-                'Reports & analytics dashboard',
-                'PDF export — kitchen card & cost report',
-                '50 AI recipe ideas / month',
-                'Team members (up to 5)',
-                'Priority support',
-              ].map((item, i) => (
-                <li key={i} className="flex items-center gap-2.5">
-                  <Check className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                  <span className="text-sm text-gray-700">{item}</span>
-                </li>
-              ))}
-            </ul>
-
-            {subStatus === 'trialing' && (
-              <button
-                onClick={() => handleBillingAction(true)}
-                disabled={billingBusy}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-semibold text-sm transition-colors disabled:opacity-50"
-              >
-                {billingBusy ? 'Redirecting…' : 'Subscribe — €25/month'}
-              </button>
-            )}
-
-            {subStatus === 'active' && !tenant?.subscription_cancel_at && (
-              <>
-                {showCancelConfirm ? (
-                  <div className="border border-red-200 rounded-xl p-4 bg-red-50">
-                    <p className="text-sm font-medium text-red-700 mb-1">Cancel your subscription?</p>
-                    <p className="text-xs text-red-500 mb-3">
-                      You&apos;ll keep full access until the end of your current billing period. No refunds for partial months.
-                    </p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setShowCancelConfirm(false)}
-                        className="flex-1 border border-gray-200 text-gray-600 py-2 rounded-lg text-sm hover:bg-gray-50"
-                      >
-                        Keep subscription
-                      </button>
-                      <button
-                        onClick={handleCancelSubscription}
-                        disabled={isCancelling}
-                        className="flex-1 bg-red-500 hover:bg-red-600 text-white py-2 rounded-lg text-sm font-medium disabled:opacity-50"
-                      >
-                        {isCancelling ? 'Cancelling...' : 'Yes, cancel'}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <button
-                      onClick={handleCancelSubscription}
-                      className="w-full border border-red-200 text-red-500 hover:bg-red-50 py-3 rounded-xl font-medium text-sm transition-colors"
-                    >
-                      Cancel subscription
-                    </button>
-                    <p className="text-xs text-gray-400 text-center mt-2">
-                      Access continues until end of billing period
-                    </p>
-                  </>
+        <div className="grid gap-4 lg:grid-cols-3">
+          {([
+            {
+              tier: 'starter' as const,
+              name: 'Starter',
+              price: 9,
+              description: 'Core costing for owner-operated kitchens.',
+              features: ['25 recipes', '75 ingredients', 'Basic Kitchen Cards', '5 AI recipe ideas / month', 'Owner account'],
+            },
+            {
+              tier: 'pro' as const,
+              name: 'Pro',
+              price: 25,
+              description: 'Advanced costing, AI and reporting for growing teams.',
+              features: ['Unlimited recipes & ingredients', '50 AI imports / month', 'Yield & batch tools', 'Labels, branding & reports', 'Up to 5 team members'],
+            },
+            {
+              tier: 'business' as const,
+              name: 'Business',
+              price: 45,
+              description: 'High-volume workflows for larger food businesses.',
+              features: ['Everything in Pro', 'Bulk invoice import', 'Unlimited AI ideas & imports', 'Up to 15 team members', 'Priority support'],
+            },
+          ]).map((plan) => {
+            const isCurrent = subStatus === 'active' && effectiveTier === plan.tier
+            const isTrialPlan = subStatus === 'trialing' && plan.tier === 'pro'
+            return (
+              <div
+                key={plan.tier}
+                className={cn(
+                  'relative flex flex-col rounded-2xl bg-white p-5',
+                  plan.tier === 'pro' ? 'border-2 border-emerald-400' : 'border border-slate-200'
                 )}
-              </>
-            )}
-
-            {subStatus === 'active' && tenant?.subscription_cancel_at && (
-              <button
-                onClick={handleReactivate}
-                disabled={billingBusy}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-semibold text-sm transition-colors disabled:opacity-50"
               >
-                {billingBusy ? 'Reactivating…' : 'Reactivate subscription'}
-              </button>
-            )}
+                {(isCurrent || isTrialPlan || (plan.tier === 'pro' && subStatus !== 'active')) && (
+                  <span className={cn(
+                    'absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold',
+                    isCurrent ? 'bg-emerald-500 text-white' : 'bg-emerald-100 text-emerald-700'
+                  )}>
+                    {isCurrent ? '✓ Current plan' : isTrialPlan ? 'Your trial access' : 'Recommended'}
+                  </span>
+                )}
+                <div className="mb-4 mt-1">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-emerald-600">{plan.name}</span>
+                  <div className="mt-1 flex items-baseline gap-1">
+                    <span className="text-3xl font-bold text-slate-900">€{plan.price}</span>
+                    <span className="text-sm text-slate-400">/month</span>
+                  </div>
+                  <p className="mt-2 min-h-10 text-xs leading-5 text-slate-500">{plan.description}</p>
+                </div>
+                <ul className="mb-6 flex-1 space-y-2.5">
+                  {plan.features.map((feature) => (
+                    <li key={feature} className="flex items-start gap-2.5">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                      <span className="text-sm text-slate-700">{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  onClick={() => handleBillingAction(
+                    subStatus !== 'active' && subStatus !== 'past_due',
+                    plan.tier
+                  )}
+                  disabled={billingBusy}
+                  className={cn(
+                    'w-full rounded-xl py-2.5 text-sm font-semibold transition disabled:opacity-50',
+                    plan.tier === 'pro'
+                      ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                      : 'border border-slate-200 text-slate-700 hover:bg-slate-50'
+                  )}
+                >
+                  {billingBusy
+                    ? 'Redirecting…'
+                    : subStatus === 'active'
+                      ? (isCurrent ? 'Manage plan' : 'Change plan')
+                      : `Choose ${plan.name}`}
+                </button>
+              </div>
+            )
+          })}
+        </div>
 
-            {subStatus === 'past_due' && (
-              <button
-                onClick={() => handleBillingAction(false)}
-                disabled={billingBusy}
-                className="w-full bg-amber-500 hover:bg-amber-600 text-white py-3 rounded-xl font-semibold text-sm transition-colors disabled:opacity-50"
-              >
-                {billingBusy ? 'Redirecting…' : 'Update payment method'}
-              </button>
-            )}
-
-            {(subStatus === 'canceled' || subStatus === 'inactive') && (
-              <button
-                onClick={() => handleBillingAction(true)}
-                disabled={billingBusy}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-semibold text-sm transition-colors disabled:opacity-50"
-              >
-                {billingBusy ? 'Redirecting…' : 'Reactivate — €25/month'}
+        {subStatus === 'active' && tenant?.stripe_customer_id && !tenant.subscription_cancel_at && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            {showCancelConfirm ? (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+                <p className="mb-1 text-sm font-medium text-red-700">Cancel your subscription?</p>
+                <p className="mb-3 text-xs text-red-500">
+                  You&apos;ll keep access until the end of your current billing period.
+                </p>
+                <div className="flex gap-2">
+                  <button onClick={() => setShowCancelConfirm(false)} className="flex-1 rounded-lg border border-gray-200 py-2 text-sm text-gray-600 hover:bg-white">
+                    Keep subscription
+                  </button>
+                  <button onClick={handleCancelSubscription} disabled={isCancelling} className="flex-1 rounded-lg bg-red-500 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-50">
+                    {isCancelling ? 'Cancelling…' : 'Yes, cancel'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={handleCancelSubscription} className="w-full rounded-xl border border-red-200 py-2.5 text-sm font-medium text-red-500 hover:bg-red-50">
+                Cancel subscription
               </button>
             )}
           </div>
-        </div>
+        )}
 
         {/* Section 3 — Usage stats */}
         <section>
@@ -634,10 +593,15 @@ export default function BillingSettingsPage() {
             <UsageStat
               label="Recipes"
               value={usage.recipes}
-              max={hasFullAccess ? undefined : FREE_LIMITS.maxRecipes}
+              max={currentLimits.maxRecipes === Infinity ? undefined : currentLimits.maxRecipes}
               icon={TrendingUp}
             />
-            <UsageStat label="Ingredients" value={usage.ingredients} icon={Package} />
+            <UsageStat
+              label="Ingredients"
+              value={usage.ingredients}
+              max={currentLimits.maxIngredients === Infinity ? undefined : currentLimits.maxIngredients}
+              icon={Package}
+            />
             <UsageStat label="Invoices" value={usage.invoices} icon={Receipt} />
           </div>
           {aiUsage && (
@@ -649,7 +613,7 @@ export default function BillingSettingsPage() {
                 icon={Sparkles}
               />
               <UsageStat
-                label="AI Invoice Extractions (this month)"
+                label="AI Imports (this month)"
                 value={aiUsage.invoice_extracts.used}
                 max={aiUsage.invoice_extracts.limit ?? undefined}
                 icon={Receipt}

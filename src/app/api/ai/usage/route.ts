@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createRequestSupabaseClient } from '@/lib/supabase/request'
-import { getEffectiveSubscriptionStatus } from '@/lib/tenant'
-import { FREE_LIMITS, PRO_LIMITS } from '@/lib/subscription/limits'
+import { getEffectiveSubscriptionStatus, getEffectiveTier } from '@/lib/tenant'
+import { getLimitsForTier } from '@/lib/subscription/limits'
 
 export const runtime = 'nodejs'
 
@@ -12,6 +12,8 @@ type TenantUserRow = {
 
 type TenantInfoRow = {
   subscription_status: string | null
+  plan_tier: string | null
+  is_comped: boolean | null
   created_at: string | null
 }
 
@@ -44,7 +46,7 @@ export async function GET(request: NextRequest) {
 
     const { data: tenantInfo } = (await admin
       .from('tenants')
-      .select('subscription_status, created_at')
+      .select('subscription_status, plan_tier, is_comped, created_at')
       .eq('id', tenantId)
       .single()) as { data: TenantInfoRow | null }
 
@@ -52,8 +54,13 @@ export async function GET(request: NextRequest) {
       tenantInfo?.subscription_status,
       tenantInfo?.created_at ?? new Date().toISOString()
     )
-    const isPro = subStatus === 'active' || subStatus === 'trialing'
-    const limits = isPro ? PRO_LIMITS : FREE_LIMITS
+    const tier = getEffectiveTier({
+      subscription_status: subStatus,
+      plan_tier: tenantInfo?.plan_tier,
+      is_comped: tenantInfo?.is_comped,
+    })
+    const isPro = tier === 'pro' || tier === 'business'
+    const limits = getLimitsForTier(tier)
 
     const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
 
@@ -68,7 +75,7 @@ export async function GET(request: NextRequest) {
         .from('ai_usage')
         .select('*', { count: 'exact', head: true })
         .eq('tenant_id', tenantId)
-        .eq('feature', 'invoice_extract')
+        .in('feature', ['invoice_extract', 'recipe_extract'])
         .gte('used_at', startOfMonth),
     ])) as AiUsageCountRow[]
 
