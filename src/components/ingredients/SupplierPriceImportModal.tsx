@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useDropzone } from 'react-dropzone'
 import { AlertTriangle, Check, CircleCheck, FileSpreadsheet, FileText, Image as ImageIcon, Loader2, Search, UploadCloud, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -429,13 +430,19 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
 
   if (!open) return null
 
-  return (
+  // Portaled to document.body — DashboardShell's `.page-fade-in` wrapper
+  // (see globals.css) leaves a lingering `transform: translateY(0)` after
+  // its entrance animation completes (animation-fill-mode: both), which
+  // creates a new containing block for any `position: fixed` descendant.
+  // Without the portal, this modal positions relative to that scrolling
+  // wrapper instead of the viewport and scrolls off-screen with the page.
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+        className="flex max-h-[90vh] w-[95vw] max-w-7xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="border-b border-slate-100 px-6 py-4 dark:border-slate-800">
@@ -463,7 +470,7 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
           </div>
         </div>
 
-        <div className="grid flex-1 gap-0 overflow-hidden lg:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="grid flex-1 gap-0 overflow-hidden lg:grid-cols-[256px_minmax(0,1fr)]">
           <div className="border-b border-slate-100 bg-slate-50/60 p-5 lg:border-b-0 lg:border-r lg:border-slate-100 dark:border-slate-800 dark:bg-slate-950/40">
             <div className="flex rounded-2xl bg-slate-100 p-1 dark:bg-slate-800">
               <button
@@ -674,15 +681,15 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
                             }
                           />
                         </th>
-                        <th className="px-3 py-3">Ingredient</th>
+                        <th className="min-w-[180px] px-3 py-3">Ingredient</th>
                         <th className="px-3 py-3">Brand</th>
                         <th className="px-3 py-3">Category</th>
-                        <th className="px-3 py-3">Supplier</th>
-                        <th className="px-3 py-3">Package price</th>
-                        <th className="px-3 py-3">Package size</th>
-                        <th className="px-3 py-3">Unit</th>
-                        <th className="px-3 py-3">Calculated unit cost</th>
-                        <th className="px-3 py-3">Match status</th>
+                        <th className="w-32 px-3 py-3">Supplier</th>
+                        <th className="w-28 px-3 py-3">Package price</th>
+                        <th className="w-28 px-3 py-3">Package size</th>
+                        <th className="w-24 px-3 py-3">Unit</th>
+                        <th className="w-32 px-3 py-3">Calculated unit cost</th>
+                        <th className="w-36 shrink-0 px-3 py-3">Match status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
@@ -829,6 +836,7 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
