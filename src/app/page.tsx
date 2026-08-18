@@ -377,6 +377,74 @@ export default function LandingPage() {
           </Reveal>
         </section>
 
+        {/* ══ PRODUCT SCREENSHOT ══════════════════════════════════════════════ */}
+        <section className="bg-gradient-to-br from-slate-900 to-emerald-950 py-16 sm:py-24">
+          <div className="mx-auto max-w-7xl px-5 sm:px-8">
+            <Reveal>
+              <div className="flex flex-col items-center gap-12 lg:flex-row lg:gap-16">
+
+                {/* Left: text */}
+                <div className="flex-1 text-center lg:text-left">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-emerald-400">
+                    Real numbers, instantly
+                  </span>
+                  <h2 className="mt-4 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                    Know your margin<br />
+                    <span className="text-emerald-400">before you set the price</span>
+                  </h2>
+                  <p className="mt-4 text-base leading-relaxed text-slate-300">
+                    ZRecipe calculates your true food cost in real time — ingredients,
+                    labour, overhead, waste, and VAT — so you always know exactly what
+                    each dish costs to make and what margin you&apos;re earning.
+                  </p>
+
+                  <ul className="mt-6 space-y-3 text-sm text-slate-300">
+                    {[
+                      'Ingredient cost auto-updated from your invoices',
+                      'Labour: fixed rate or time-based calculation',
+                      'VAT-inclusive selling price with ex-VAT breakdown',
+                      'Margin %, profit per unit, and food cost % — all live',
+                    ].map((item) => (
+                      <li key={item} className="flex items-start gap-2">
+                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <div className="mt-8">
+                    <PrimaryCTALink
+                      href="/register"
+                      className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary-600 px-6 py-3.5 text-base font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
+                    >
+                      Try it free for 14 days
+                      <ArrowRight className="h-4 w-4" />
+                    </PrimaryCTALink>
+                  </div>
+                </div>
+
+                {/* Right: screenshot */}
+                <div className="w-full flex-1 lg:max-w-lg">
+                  <div className="relative overflow-hidden rounded-2xl shadow-2xl ring-1 ring-white/10">
+                    <Image
+                      src="/images/costbreakdown.png"
+                      alt="ZRecipe Cost Breakdown — showing €1.53 food cost, €5.19 selling price, and 66.5% margin on a bakery recipe"
+                      width={700}
+                      height={900}
+                      className="w-full"
+                      unoptimized
+                    />
+                  </div>
+                  <p className="mt-3 text-center text-xs text-slate-500">
+                    Real cost breakdown — ingredient cost, VAT, margin, and profit at a glance
+                  </p>
+                </div>
+
+              </div>
+            </Reveal>
+          </div>
+        </section>
+
         {/* ══ PRICING ════════════════════════════════════════════════════════ */}
         <section id="pricing" className="scroll-mt-16 bg-brand-paper py-16 sm:py-20">
           <div className="mx-auto max-w-7xl px-5 sm:px-8">
