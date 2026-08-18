@@ -22,8 +22,21 @@ function cleanJson(text: string) {
 }
 
 function parseNumber(value: unknown) {
+  // Number('') is 0, not NaN — without this guard a genuinely blank CSV
+  // cell would silently become a real €0 price/quantity instead of null.
+  if (value === '' || value == null) return null
   const num = Number(value)
   return Number.isFinite(num) ? num : null
+}
+
+// CSV columns come from PapaParse as '' for blank cells, never undefined —
+// so a `??` chain across fallback columns can't skip a column that's
+// present-but-blank in a given row. This treats blank/whitespace as absent.
+function firstNonEmpty(...values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    if (value && value.trim()) return value.trim()
+  }
+  return null
 }
 
 async function extractRowsFromText(text: string) {
@@ -220,18 +233,20 @@ export async function POST(request: NextRequest) {
       const rows = (parsed.data ?? []).filter((row) => Object.keys(row).length > 0)
 
       const items = rows.map((row) => {
-        const ingredientName =
-          row['Ingredient'] ??
-          row['Ingredient Name'] ??
-          row['Name'] ??
-          row['Item'] ??
-          row['Description'] ??
-          ''
+        const ingredientName = firstNonEmpty(
+          row['Ingredient'],
+          row['Ingredient Name'],
+          row['Name'],
+          row['Item'],
+          row['Label Name'],
+          row['Supplier Product Description'],
+          row['Description']
+        ) ?? ''
         const packagePrice = parseNumber(
-          row['Package Price'] ?? row['Price'] ?? row['Cost'] ?? row['Supplier Price']
+          firstNonEmpty(row['Package Price'], row['Price'], row['Cost'], row['Supplier Price'])
         )
         const packageQuantity = parseNumber(
-          row['Package Quantity'] ?? row['Quantity'] ?? row['Pack Size'] ?? row['Size']
+          firstNonEmpty(row['Package Quantity'], row['Quantity'], row['Purchase Weight'], row['Pack Size'], row['Size'])
         )
         return {
           ingredient_name: ingredientName,
@@ -240,15 +255,15 @@ export async function POST(request: NextRequest) {
           supplier: row['Supplier'] ?? null,
           package_price: packagePrice,
           package_quantity: packageQuantity,
-          package_unit: row['Package Unit'] ?? row['Unit'] ?? null,
-          price_unit: row['Price Unit'] ?? row['Normalized Unit'] ?? null,
-          needs_review: !ingredientName || packagePrice == null || packageQuantity == null,
-          notes: null,
+          package_unit: firstNonEmpty(row['Package Unit'], row['Measure Unit'], row['Unit']),
+          price_unit: firstNonEmpty(row['Price Unit'], row['Normalized Unit']),
+          needs_review: !ingredientName || packagePrice == null,
+          notes: row['Product Code'] ? `Code: ${row['Product Code']}` : null,
         }
       })
 
       return NextResponse.json({
-        supplier_name: typeof body?.fileName === 'string' ? body.fileName : null,
+        supplier_name: null, // CSV files don't have a supplier name — let the user set it in the UI
         items,
       })
     }
