@@ -9,8 +9,8 @@ test('the canonical origin is the non-www production domain', () => {
   assert.equal(SITE_URL, 'https://zrecipe.ie')
 })
 
-test('sitemap emits only non-www canonical URLs', () => {
-  const entries = sitemap()
+test('sitemap emits only non-www canonical URLs', async () => {
+  const entries = await sitemap()
   assert.ok(entries.length > 0)
   for (const entry of entries) {
     assert.match(entry.url, /^https:\/\/zrecipe\.ie(?:\/|$)/)

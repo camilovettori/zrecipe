@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Users, CreditCard, Inbox, Megaphone } from 'lucide-react'
+import { LayoutDashboard, Users, CreditCard, Inbox, Megaphone, BookOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const NAV = [
@@ -10,6 +10,7 @@ const NAV = [
   { href: '/adminziffera/tenants',       icon: Users,           label: 'Tenants' },
   { href: '/adminziffera/inbox',         icon: Inbox,           label: 'Inbox' },
   { href: '/adminziffera/announcements', icon: Megaphone,       label: 'Announcements' },
+  { href: '/adminziffera/blog',          icon: BookOpen,        label: 'Blog' },
   { href: '/adminziffera/billing',       icon: CreditCard,      label: 'Billing' },
 ]
 

@@ -16,6 +16,7 @@ const LINKS_BEFORE_TOOLS = [
 const LINKS_AFTER_TOOLS = [
   { href: '/#pricing', label: 'Pricing' },
   { href: '/#faq', label: 'FAQ' },
+  { href: '/blog', label: 'Blog' },
 ]
 
 const TOOL_ICONS = {

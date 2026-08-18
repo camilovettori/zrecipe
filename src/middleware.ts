@@ -23,6 +23,7 @@ const EXEMPT_PREFIXES = [
   '/tools',
   '/food-yield-calculator',
   '/food-yield-reference',
+  '/blog',
   '/_next',
   '/favicon',
 ]

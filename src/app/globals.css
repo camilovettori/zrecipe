@@ -39,6 +39,54 @@
   }
 }
 
+@layer components {
+  /* Tailwind Typography isn't installed (see LegalPageShell.tsx) — this
+     hand-styles the arbitrary HTML that the blog admin's WYSIWYG editor
+     (react-quill-new) outputs into blog_posts.content. */
+  .blog-content {
+    @apply text-[15px] leading-relaxed text-slate-700;
+  }
+  .blog-content > * + * {
+    @apply mt-4;
+  }
+  .blog-content h2 {
+    @apply mt-10 text-2xl font-bold text-slate-900 first:mt-0;
+  }
+  .blog-content h3 {
+    @apply mt-8 text-xl font-bold text-slate-900;
+  }
+  .blog-content a {
+    @apply text-emerald-600 underline underline-offset-2 hover:text-emerald-700;
+  }
+  .blog-content strong {
+    @apply font-semibold text-slate-900;
+  }
+  .blog-content ul {
+    @apply list-disc space-y-1.5 pl-6;
+  }
+  .blog-content ol {
+    @apply list-decimal space-y-1.5 pl-6;
+  }
+  .blog-content img {
+    @apply rounded-2xl;
+  }
+  .blog-content blockquote {
+    @apply border-l-4 border-emerald-200 pl-4 italic text-slate-600;
+  }
+
+  /* react-quill-new (blog admin editor) — match the admin panel's rounded,
+     slate-bordered form controls instead of Quill's default square look. */
+  .blog-editor-quill .ql-toolbar {
+    @apply rounded-t-lg border-slate-200 bg-slate-50;
+  }
+  .blog-editor-quill .ql-container {
+    @apply rounded-b-lg border-slate-200 font-sans text-sm;
+  }
+  .blog-editor-quill .ql-editor {
+    min-height: 280px;
+  }
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;
