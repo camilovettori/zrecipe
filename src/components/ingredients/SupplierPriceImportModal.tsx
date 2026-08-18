@@ -356,6 +356,9 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
 
       const supplierMap = new Map(suppliers.map((supplier) => [normalizeString(supplier.name), supplier.id]))
 
+      const skippedRows: string[] = []
+      let importedCount = 0
+
       for (const row of selectedRows) {
         const packagePrice = row.packagePrice.trim() === '' ? null : Number(row.packagePrice)
         const packageQuantity = row.packageQuantity.trim() === '' ? null : Number(row.packageQuantity)
@@ -368,7 +371,10 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
         })
 
         if (!normalized.isValid || normalized.normalizedPrice == null) {
-          throw new Error(`Row "${row.ingredientName}" is missing a valid package price or unit.`)
+          // One bad row (e.g. a blank price cell) shouldn't stop the other
+          // 76 valid rows from importing — skip it and report it instead.
+          skippedRows.push(row.ingredientName || '(unnamed row)')
+          continue
         }
 
         const supplierId = supplierMap.get(normalizeString(row.supplier)) ?? null
@@ -447,10 +453,20 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
           )
           if (allergenError) throw allergenError
         }
+
+        importedCount += 1
       }
 
-      toast.success(`Imported ${selectedRows.length} ingredient${selectedRows.length !== 1 ? 's' : ''}`)
-      onClose()
+      if (skippedRows.length > 0) {
+        toast.error(
+          `Skipped ${skippedRows.length} row${skippedRows.length !== 1 ? 's' : ''} with invalid price: ${skippedRows.slice(0, 3).join(', ')}${skippedRows.length > 3 ? '…' : ''}`
+        )
+      }
+
+      if (importedCount > 0) {
+        toast.success(`Imported ${importedCount} ingredient${importedCount !== 1 ? 's' : ''}`)
+        onClose()
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to import selected rows')
     } finally {
@@ -714,14 +730,14 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
                         }
                       />
                     </div>
-                    <div className="min-w-0 flex-1">Ingredient</div>
-                    <div className="w-[120px] shrink-0">Supplier</div>
+                    <div className="min-w-[200px] flex-1">Ingredient</div>
+                    <div className="w-24 shrink-0">Supplier</div>
                     <div className="w-20 shrink-0">Price</div>
                     <div className="w-20 shrink-0">Size</div>
-                    <div className="w-[90px] shrink-0">Unit</div>
-                    <div className="w-[90px] shrink-0">Unit cost</div>
-                    <div className="w-[130px] shrink-0">Status</div>
-                    <div className="w-24 shrink-0">Code</div>
+                    <div className="w-20 shrink-0">Unit</div>
+                    <div className="w-24 shrink-0">Unit cost</div>
+                    <div className="w-24 shrink-0">Status</div>
+                    <div className="w-20 shrink-0">Code</div>
                   </div>
                   <div className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
                     {rows.map((row) => (
@@ -740,7 +756,7 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
                             onChange={(e) => updateRow(row.id, { selected: e.target.checked })}
                           />
                         </div>
-                        <div className="min-w-0 flex-1">
+                        <div className="min-w-[200px] flex-1">
                           <input
                             value={row.ingredientName}
                             onChange={(e) => updateRow(row.id, { ingredientName: e.target.value })}
@@ -748,7 +764,7 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
                             className="w-full truncate rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-700 dark:bg-slate-800"
                           />
                         </div>
-                        <div className="w-[120px] shrink-0">
+                        <div className="w-24 shrink-0">
                           <input
                             value={row.supplier}
                             onChange={(e) => updateRow(row.id, { supplier: e.target.value })}
@@ -771,7 +787,7 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
                             className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-700 dark:bg-slate-800"
                           />
                         </div>
-                        <div className="w-[90px] shrink-0">
+                        <div className="w-20 shrink-0">
                           <CustomSelect
                             value={row.packageUnit}
                             onChange={(value) => updateRow(row.id, { packageUnit: value })}
@@ -788,7 +804,7 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
                             className="w-full"
                           />
                         </div>
-                        <div className="w-[90px] shrink-0">
+                        <div className="w-24 shrink-0">
                           <p className="truncate font-bold text-emerald-700 dark:text-emerald-300">
                             {formatIngredientMoney(row.calculatedUnitPrice)}
                           </p>
@@ -796,7 +812,7 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
                             / {row.priceUnit || getDefaultIngredientPriceUnit(row.packageUnit)}
                           </p>
                         </div>
-                        <div className="w-[130px] shrink-0 pt-1">
+                        <div className="w-24 shrink-0 pt-1">
                           <span
                             className={cn(
                               'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-1 text-[10px] font-semibold',
@@ -819,7 +835,7 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
                                   : 'New'}
                           </span>
                         </div>
-                        <div className="w-24 shrink-0 truncate pt-2 text-xs text-slate-400" title={row.productCode}>
+                        <div className="w-20 shrink-0 truncate pt-2 text-xs text-slate-400" title={row.productCode}>
                           {row.productCode || '—'}
                         </div>
                       </div>
