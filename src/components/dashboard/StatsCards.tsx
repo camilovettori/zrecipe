@@ -1,7 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { ChefHat, Apple, FileText, TrendingUp } from 'lucide-react'
+import { ChefHat, Apple, FileText, TrendingUp, Receipt } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export interface DashboardStats {
@@ -9,13 +9,15 @@ export interface DashboardStats {
   totalIngredients: string
   invoicesThisMonth: string
   avgMargin: string
+  avgMarginBasis: { included: number; total: number }
+  monthlySpend: string
 }
 
 interface StatsCardsProps {
   stats: DashboardStats
 }
 
-const noMarginData = (v: string) => v === 'N/A' || v === '--'
+const noMarginData = (v: string) => v === 'N/A' || v === '--' || v === 'Set prices'
 
 export default function StatsCards({ stats }: StatsCardsProps) {
   const cards = [
@@ -48,19 +50,28 @@ export default function StatsCards({ stats }: StatsCardsProps) {
     },
     {
       label:       'Avg Margin',
-      value:       noMarginData(stats.avgMargin) ? 'N/A' : stats.avgMargin,
+      value:       noMarginData(stats.avgMargin) ? 'Set prices' : stats.avgMargin,
       subtext:     noMarginData(stats.avgMargin)
         ? 'Add recipe selling prices to calculate'
-        : 'across your recipe catalog',
+        : `Based on ${stats.avgMarginBasis.included} of ${stats.avgMarginBasis.total} recipes`,
       icon:        TrendingUp,
       iconBg:      'bg-violet-100 dark:bg-violet-900/30',
       iconColor:   'text-violet-600 dark:text-violet-400',
       accentColor: 'border-l-violet-500',
     },
+    {
+      label:       'Monthly Spend',
+      value:       stats.monthlySpend,
+      subtext:     'from invoices this month',
+      icon:        Receipt,
+      iconBg:      'bg-purple-100 dark:bg-purple-900/30',
+      iconColor:   'text-purple-600 dark:text-purple-400',
+      accentColor: 'border-l-purple-500',
+    },
   ]
 
   return (
-    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       {cards.map((card, i) => (
         <motion.div
           key={card.label}

@@ -6,6 +6,8 @@ type ActivityItem = {
   type: 'recipe' | 'ingredient' | 'invoice'
   id: string
   label: string
+  subtitle?: string
+  value?: string
   at: string
 }
 
@@ -39,19 +41,13 @@ const HREF: Record<ActivityItem['type'], (id: string) => string> = {
   invoice:    (id) => `/invoices/${id}`,
 }
 
-const ACTION: Record<ActivityItem['type'], string> = {
-  recipe:     'Recipe',
-  ingredient: 'Ingredient',
-  invoice:    'Invoice',
-}
-
 async function getRecentActivity(tenantId: string): Promise<ActivityItem[]> {
   const admin = createAdminClient()
 
   const [recipesRes, ingredientsRes, invoicesRes] = await Promise.all([
     admin
       .from('recipes')
-      .select('id, name, created_at')
+      .select('id, name, category, created_at')
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
       .limit(5),
@@ -63,7 +59,7 @@ async function getRecentActivity(tenantId: string): Promise<ActivityItem[]> {
       .limit(5),
     admin
       .from('invoices')
-      .select('id, invoice_number, created_at')
+      .select('id, invoice_number, created_at, total_amount, supplier:suppliers(name)')
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
       .limit(5),
@@ -71,17 +67,33 @@ async function getRecentActivity(tenantId: string): Promise<ActivityItem[]> {
 
   const items: ActivityItem[] = []
 
-  for (const row of (recipesRes.data ?? []) as Array<{ id: string; name: string; created_at: string }>) {
-    items.push({ type: 'recipe', id: row.id, label: row.name, at: row.created_at })
+  for (const row of (recipesRes.data ?? []) as Array<{ id: string; name: string; category: string | null; created_at: string }>) {
+    items.push({
+      type: 'recipe',
+      id: row.id,
+      label: row.name,
+      subtitle: row.category ?? undefined,
+      at: row.created_at,
+    })
   }
   for (const row of (ingredientsRes.data ?? []) as Array<{ id: string; name: string; created_at: string }>) {
     items.push({ type: 'ingredient', id: row.id, label: row.name, at: row.created_at })
   }
-  for (const row of (invoicesRes.data ?? []) as Array<{ id: string; invoice_number: string | null; created_at: string }>) {
+  type InvoiceRow = {
+    id: string
+    invoice_number: string | null
+    created_at: string
+    total_amount: number | null
+    supplier: { name: string | null } | { name: string | null }[] | null
+  }
+  for (const row of (invoicesRes.data ?? []) as InvoiceRow[]) {
+    const supplier = Array.isArray(row.supplier) ? row.supplier[0] ?? null : row.supplier
     items.push({
       type: 'invoice',
       id: row.id,
-      label: row.invoice_number ? `#${row.invoice_number}` : 'Invoice',
+      label: supplier?.name ?? 'Invoice',
+      subtitle: row.invoice_number ? `#${row.invoice_number}` : undefined,
+      value: row.total_amount != null ? `€${Number(row.total_amount).toFixed(2)}` : undefined,
       at: row.created_at,
     })
   }
@@ -126,12 +138,18 @@ export default async function RecentActivity({ tenantId }: Props) {
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-slate-900 dark:text-white">
-                        {ACTION[item.type]}: {item.label}
+                        {item.label}
                       </p>
+                      {item.subtitle && (
+                        <p className="truncate text-xs text-slate-500 dark:text-slate-400">{item.subtitle}</p>
+                      )}
                     </div>
-                    <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500">
-                      {timeAgo(item.at)}
-                    </span>
+                    <div className="flex shrink-0 flex-col items-end gap-0.5">
+                      {item.value && (
+                        <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">{item.value}</span>
+                      )}
+                      <span className="text-xs text-slate-400 dark:text-slate-500">{timeAgo(item.at)}</span>
+                    </div>
                   </Link>
                 </li>
               )

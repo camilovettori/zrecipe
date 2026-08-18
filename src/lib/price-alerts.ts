@@ -47,7 +47,13 @@ export function computePriceChange(history: PriceHistoryEntry[]): PriceChangeRes
   const current = sorted[sorted.length - 1]
   const previous = sorted[sorted.length - 2]
   if (Math.abs(current.price - previous.price) < 0.00001) return null
+  // A previous price this low is almost always a data entry error (e.g.
+  // €0.01 → €9.40 reads as a +99900% spike), not a real price change.
+  if (previous.price < 0.10) return null
   const percentChange = ((current.price - previous.price) / previous.price) * 100
+  // Anything beyond ±500% is still almost certainly bad data even once the
+  // near-zero guard above has already run.
+  if (Math.abs(percentChange) > 500) return null
   return {
     previousPrice: previous.price,
     currentPrice: current.price,

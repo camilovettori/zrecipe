@@ -67,7 +67,7 @@ async function getPriceAlerts(): Promise<IngredientPriceChange[]> {
 
     // Sort by absolute percentage change descending
     alerts.sort((a, b) => Math.abs(b.percentChange) - Math.abs(a.percentChange))
-    return alerts
+    return alerts.slice(0, 5)
   } catch {
     return []
   }
