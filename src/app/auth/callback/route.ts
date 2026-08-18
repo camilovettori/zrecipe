@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { sendEmail, HELLO_FROM, escapeHtml } from '@/lib/email/send'
 
 function slugify(value: string) {
   return value
@@ -197,6 +198,28 @@ export async function GET(request: NextRequest) {
     applyCookies(response, cookiesToSet)
     return response
   }
+
+  // Notify admin of new signup — fire and forget, never block registration
+  void sendEmail({
+    from: HELLO_FROM,
+    to: 'hello@zrecipe.ie',
+    subject: `🎉 New ZRecipe signup — ${businessName}`,
+    html: `
+      <h2 style="color:#059669;font-family:sans-serif;">New signup on ZRecipe</h2>
+      <table style="font-family:sans-serif;font-size:14px;border-collapse:collapse;">
+        <tr><td style="padding:6px 16px 6px 0;color:#64748b;font-weight:600;">Business</td><td style="padding:6px 0;">${escapeHtml(businessName)}</td></tr>
+        <tr><td style="padding:6px 16px 6px 0;color:#64748b;font-weight:600;">Name</td><td style="padding:6px 0;">${escapeHtml(fullName ?? '—')}</td></tr>
+        <tr><td style="padding:6px 16px 6px 0;color:#64748b;font-weight:600;">Email</td><td style="padding:6px 0;">${escapeHtml(user.email ?? '—')}</td></tr>
+        <tr><td style="padding:6px 16px 6px 0;color:#64748b;font-weight:600;">Business type</td><td style="padding:6px 0;">${escapeHtml(businessType ?? '—')}</td></tr>
+        <tr><td style="padding:6px 16px 6px 0;color:#64748b;font-weight:600;">Plan selected</td><td style="padding:6px 0;">${escapeHtml(plan ?? 'pro')}</td></tr>
+        <tr><td style="padding:6px 16px 6px 0;color:#64748b;font-weight:600;">Tenant ID</td><td style="padding:6px 0;font-size:12px;color:#94a3b8;">${tenant.id}</td></tr>
+        <tr><td style="padding:6px 16px 6px 0;color:#64748b;font-weight:600;">Signed up at</td><td style="padding:6px 0;">${new Date().toLocaleString('en-IE', { timeZone: 'Europe/Dublin' })}</td></tr>
+      </table>
+      <p style="margin-top:24px;font-family:sans-serif;font-size:13px;color:#94a3b8;">
+        View tenant in admin: <a href="https://zrecipe.ie/adminziffera/tenants/${tenant.id}" style="color:#059669;">Open in Admin Panel</a>
+      </p>
+    `,
+  })
 
   if (fullName) {
     const { error: profileError } = await supabase.auth.updateUser({
