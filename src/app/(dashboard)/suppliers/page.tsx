@@ -1,10 +1,11 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Plus, Search, Truck, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Search, Truck, Pencil, Trash2, GitMerge } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import EmptyState from '@/components/shared/EmptyState'
 import SupplierSlideOver from '@/components/suppliers/SupplierSlideOver'
+import MergeSupplierModal from '@/components/suppliers/MergeSupplierModal'
 import { useSuppliers, type SupplierRecord } from '@/hooks/useSuppliers'
 import { cn } from '@/lib/utils'
 
@@ -18,11 +19,12 @@ function formatDate(value?: string | null) {
 }
 
 export default function SuppliersPage() {
-  const { suppliers, loading, error, createSupplier, updateSupplier, deleteSupplier } =
+  const { suppliers, loading, error, createSupplier, updateSupplier, deleteSupplier, refreshSuppliers } =
     useSuppliers()
   const [query, setQuery] = useState('')
   const [panelOpen, setPanelOpen] = useState(false)
   const [editingSupplier, setEditingSupplier] = useState<SupplierRecord | null>(null)
+  const [mergingSupplier, setMergingSupplier] = useState<SupplierRecord | null>(null)
   const [saving, setSaving] = useState(false)
 
   const filteredSuppliers = useMemo(() => {
@@ -39,6 +41,10 @@ export default function SuppliersPage() {
   const openEdit = (supplier: SupplierRecord) => {
     setEditingSupplier(supplier)
     setPanelOpen(true)
+  }
+
+  const openMerge = (supplier: SupplierRecord) => {
+    setMergingSupplier(supplier)
   }
 
   const handleSave = async (values: {
@@ -225,6 +231,17 @@ export default function SuppliersPage() {
                           type="button"
                           onClick={(event) => {
                             event.stopPropagation()
+                            openMerge(supplier)
+                          }}
+                          className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                        >
+                          <GitMerge className="h-3.5 w-3.5" />
+                          Merge
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
                             handleDelete(supplier)
                           }}
                           className={cn(
@@ -252,6 +269,14 @@ export default function SuppliersPage() {
           if (saving) return
           await handleSave(values)
         }}
+      />
+
+      <MergeSupplierModal
+        open={mergingSupplier !== null}
+        loser={mergingSupplier}
+        suppliers={suppliers}
+        onClose={() => setMergingSupplier(null)}
+        onMerged={refreshSuppliers}
       />
     </div>
   )

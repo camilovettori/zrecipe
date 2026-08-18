@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
+import { mergeSuppliers } from '@/lib/suppliers/mergeSuppliers'
 
 export interface SupplierRecord {
   id: string
@@ -261,6 +262,20 @@ export function useSuppliers(options?: { autoLoad?: boolean }) {
     []
   )
 
+  const mergeSupplier = useCallback(
+    async (keeperId: string, loserId: string) => {
+      const result = await mergeSuppliers({ keeperId, loserId })
+
+      if (!result.ok) {
+        throw new Error(result.error ?? 'Unable to merge supplier')
+      }
+
+      await refreshSuppliers()
+      return result
+    },
+    [refreshSuppliers]
+  )
+
   return {
     suppliers,
     loading,
@@ -269,5 +284,6 @@ export function useSuppliers(options?: { autoLoad?: boolean }) {
     createSupplier,
     updateSupplier,
     deleteSupplier,
+    mergeSupplier,
   }
 }
