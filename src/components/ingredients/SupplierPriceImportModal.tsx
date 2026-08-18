@@ -442,7 +442,7 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
       onClick={onClose}
     >
       <div
-        className="flex max-h-[90vh] w-[95vw] max-w-7xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+        className="flex max-h-[90vh] w-[95vw] max-w-6xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="border-b border-slate-100 px-6 py-4 dark:border-slate-800">
@@ -470,8 +470,8 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
           </div>
         </div>
 
-        <div className="grid flex-1 gap-0 overflow-hidden lg:grid-cols-[256px_minmax(0,1fr)]">
-          <div className="border-b border-slate-100 bg-slate-50/60 p-5 lg:border-b-0 lg:border-r lg:border-slate-100 dark:border-slate-800 dark:bg-slate-950/40">
+        <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
+          <div className="w-full shrink-0 border-b border-slate-100 bg-slate-50/60 p-5 lg:w-56 lg:border-b-0 lg:border-r lg:border-slate-100 dark:border-slate-800 dark:bg-slate-950/40">
             <div className="flex rounded-2xl bg-slate-100 p-1 dark:bg-slate-800">
               <button
                 type="button"
@@ -583,7 +583,7 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
             </div>
           </div>
 
-          <div className="flex min-h-0 flex-col">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4 dark:border-slate-800">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400">Review before import</p>
@@ -667,143 +667,130 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
                   </div>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-left text-sm">
-                    <thead className="sticky top-0 z-10 bg-white/95 text-xs uppercase tracking-wide text-slate-400 backdrop-blur dark:bg-slate-900/95">
-                      <tr>
-                        <th className="px-3 py-3">
+                <div className="overflow-hidden">
+                  {/* Flex-row "table" instead of a native <table>: HTML table
+                      layout ignores flex-1/min-w-0 on cells, so there's no
+                      reliable way to make one column (Ingredient) flex and
+                      truncate while the rest stay fixed-width without either
+                      a horizontal scrollbar or silently clipped content. */}
+                  <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-slate-100 bg-white/95 px-3 py-3 text-xs uppercase tracking-wide text-slate-400 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
+                    <div className="w-10 shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={selectedCount === rows.length && rows.length > 0}
+                        className="h-4 w-4 rounded border-slate-300 accent-emerald-600 focus:ring-emerald-500"
+                        onChange={(e) =>
+                          setRows((current) => current.map((row) => ({ ...row, selected: e.target.checked })))
+                        }
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">Ingredient</div>
+                    <div className="w-[120px] shrink-0">Supplier</div>
+                    <div className="w-20 shrink-0">Price</div>
+                    <div className="w-20 shrink-0">Size</div>
+                    <div className="w-[90px] shrink-0">Unit</div>
+                    <div className="w-[90px] shrink-0">Unit cost</div>
+                    <div className="w-[130px] shrink-0">Status</div>
+                  </div>
+                  <div className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
+                    {rows.map((row) => (
+                      <div
+                        key={row.id}
+                        className={cn(
+                          'flex items-start gap-2 px-3 py-3 transition-colors',
+                          row.selected ? 'hover:bg-slate-50/70 dark:hover:bg-slate-800/30' : 'bg-slate-50/80 opacity-60 dark:bg-slate-950/40'
+                        )}
+                      >
+                        <div className="flex w-10 shrink-0 items-center pt-2">
                           <input
                             type="checkbox"
-                            checked={selectedCount === rows.length && rows.length > 0}
+                            checked={row.selected}
                             className="h-4 w-4 rounded border-slate-300 accent-emerald-600 focus:ring-emerald-500"
-                            onChange={(e) =>
-                              setRows((current) => current.map((row) => ({ ...row, selected: e.target.checked })))
-                            }
+                            onChange={(e) => updateRow(row.id, { selected: e.target.checked })}
                           />
-                        </th>
-                        <th className="min-w-[180px] px-3 py-3">Ingredient</th>
-                        <th className="px-3 py-3">Brand</th>
-                        <th className="px-3 py-3">Category</th>
-                        <th className="w-32 px-3 py-3">Supplier</th>
-                        <th className="w-28 px-3 py-3">Package price</th>
-                        <th className="w-28 px-3 py-3">Package size</th>
-                        <th className="w-24 px-3 py-3">Unit</th>
-                        <th className="w-32 px-3 py-3">Calculated unit cost</th>
-                        <th className="w-36 shrink-0 px-3 py-3">Match status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
-                      {rows.map((row) => (
-                        <tr
-                          key={row.id}
-                          className={cn(
-                            'align-top transition-colors',
-                            row.selected ? 'hover:bg-slate-50/70 dark:hover:bg-slate-800/30' : 'bg-slate-50/80 opacity-60 dark:bg-slate-950/40'
-                          )}
-                        >
-                          <td className="px-3 py-3">
-                            <input
-                              type="checkbox"
-                              checked={row.selected}
-                              className="h-4 w-4 rounded border-slate-300 accent-emerald-600 focus:ring-emerald-500"
-                              onChange={(e) => updateRow(row.id, { selected: e.target.checked })}
-                            />
-                          </td>
-                          <td className="px-3 py-3">
-                            <input
-                              value={row.ingredientName}
-                              onChange={(e) => updateRow(row.id, { ingredientName: e.target.value })}
-                              className="w-44 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-700 dark:bg-slate-800"
-                            />
-                          </td>
-                          <td className="px-3 py-3">
-                            <input
-                              value={row.brand}
-                              onChange={(e) => updateRow(row.id, { brand: e.target.value })}
-                              className="w-32 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-700 dark:bg-slate-800"
-                            />
-                          </td>
-                          <td className="px-3 py-3">
-                            <input
-                              value={row.category}
-                              onChange={(e) => updateRow(row.id, { category: e.target.value })}
-                              className="w-28 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-700 dark:bg-slate-800"
-                            />
-                          </td>
-                          <td className="px-3 py-3">
-                            <input
-                              value={row.supplier}
-                              onChange={(e) => updateRow(row.id, { supplier: e.target.value })}
-                              className="w-44 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-700 dark:bg-slate-800"
-                              placeholder="Supplier"
-                            />
-                          </td>
-                          <td className="px-3 py-3">
-                            <input
-                              value={row.packagePrice}
-                              onChange={(e) => updateRow(row.id, { packagePrice: e.target.value })}
-                              className="w-24 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-700 dark:bg-slate-800"
-                            />
-                          </td>
-                          <td className="px-3 py-3">
-                            <input
-                              value={row.packageQuantity}
-                              onChange={(e) => updateRow(row.id, { packageQuantity: e.target.value })}
-                              className="w-24 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-700 dark:bg-slate-800"
-                            />
-                          </td>
-                          <td className="px-3 py-3">
-                            <CustomSelect
-                              value={row.packageUnit}
-                              onChange={(value) => updateRow(row.id, { packageUnit: value })}
-                              options={[
-                                { value: 'kg', label: 'kg' },
-                                { value: 'g', label: 'g' },
-                                { value: 'L', label: 'L' },
-                                { value: 'ml', label: 'ml' },
-                                { value: 'unit', label: 'unit' },
-                                { value: 'dozen', label: 'dozen' },
-                              ]}
-                              placeholder="Unit"
-                              size="sm"
-                              className="w-24"
-                            />
-                          </td>
-                          <td className="px-3 py-3">
-                            <p className="font-bold text-emerald-700 dark:text-emerald-300">
-                              {formatIngredientMoney(row.calculatedUnitPrice)}
-                            </p>
-                            <p className="text-xs text-slate-400">
-                              / {row.priceUnit || getDefaultIngredientPriceUnit(row.packageUnit)}
-                            </p>
-                          </td>
-                          <td className="px-3 py-3">
-                            <span
-                              className={cn(
-                                'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-semibold',
-                                row.matchStatus === 'update'
-                                  ? 'border-sky-200 bg-sky-50 text-sky-700'
-                                  : row.matchStatus === 'duplicate'
-                                    ? 'border-amber-200 bg-amber-50 text-amber-700'
-                                    : row.matchStatus === 'review'
-                                      ? 'border-red-200 bg-red-50 text-red-700'
-                                      : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                              )}
-                            >
-                              <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                              {row.matchStatus === 'update'
-                                ? 'Update existing'
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <input
+                            value={row.ingredientName}
+                            onChange={(e) => updateRow(row.id, { ingredientName: e.target.value })}
+                            title={row.ingredientName}
+                            className="w-full truncate rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-700 dark:bg-slate-800"
+                          />
+                        </div>
+                        <div className="w-[120px] shrink-0">
+                          <input
+                            value={row.supplier}
+                            onChange={(e) => updateRow(row.id, { supplier: e.target.value })}
+                            title={row.supplier}
+                            className="w-full truncate rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-700 dark:bg-slate-800"
+                            placeholder="Supplier"
+                          />
+                        </div>
+                        <div className="w-20 shrink-0">
+                          <input
+                            value={row.packagePrice}
+                            onChange={(e) => updateRow(row.id, { packagePrice: e.target.value })}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-700 dark:bg-slate-800"
+                          />
+                        </div>
+                        <div className="w-20 shrink-0">
+                          <input
+                            value={row.packageQuantity}
+                            onChange={(e) => updateRow(row.id, { packageQuantity: e.target.value })}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 dark:border-slate-700 dark:bg-slate-800"
+                          />
+                        </div>
+                        <div className="w-[90px] shrink-0">
+                          <CustomSelect
+                            value={row.packageUnit}
+                            onChange={(value) => updateRow(row.id, { packageUnit: value })}
+                            options={[
+                              { value: 'kg', label: 'kg' },
+                              { value: 'g', label: 'g' },
+                              { value: 'L', label: 'L' },
+                              { value: 'ml', label: 'ml' },
+                              { value: 'unit', label: 'unit' },
+                              { value: 'dozen', label: 'dozen' },
+                            ]}
+                            placeholder="Unit"
+                            size="sm"
+                            className="w-full"
+                          />
+                        </div>
+                        <div className="w-[90px] shrink-0">
+                          <p className="truncate font-bold text-emerald-700 dark:text-emerald-300">
+                            {formatIngredientMoney(row.calculatedUnitPrice)}
+                          </p>
+                          <p className="truncate text-xs text-slate-400">
+                            / {row.priceUnit || getDefaultIngredientPriceUnit(row.packageUnit)}
+                          </p>
+                        </div>
+                        <div className="w-[130px] shrink-0 pt-1">
+                          <span
+                            className={cn(
+                              'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-1 text-[10px] font-semibold',
+                              row.matchStatus === 'update'
+                                ? 'border-sky-200 bg-sky-50 text-sky-700'
                                 : row.matchStatus === 'duplicate'
-                                  ? 'Possible duplicate'
+                                  ? 'border-amber-200 bg-amber-50 text-amber-700'
                                   : row.matchStatus === 'review'
-                                    ? 'Needs review'
-                                    : 'New ingredient'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                                    ? 'border-red-200 bg-red-50 text-red-700'
+                                    : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                            )}
+                          >
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
+                            {row.matchStatus === 'update'
+                              ? 'Update'
+                              : row.matchStatus === 'duplicate'
+                                ? 'Duplicate'
+                                : row.matchStatus === 'review'
+                                  ? 'Review'
+                                  : 'New'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
