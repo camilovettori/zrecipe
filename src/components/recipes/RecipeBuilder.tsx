@@ -231,6 +231,7 @@ function IngredientRow({
   lineCost,
   costStatus,
   isZeroPrice,
+  usedWeightBridge,
   batchMultiplier,
   canUseYieldFactor,
   onUpdate,
@@ -242,6 +243,7 @@ function IngredientRow({
   lineCost: number
   costStatus: IngredientCostStatus
   isZeroPrice: boolean
+  usedWeightBridge: boolean
   batchMultiplier: number
   canUseYieldFactor: boolean
   onUpdate: (patch: Partial<RecipeIngredientDraft>) => void
@@ -358,6 +360,14 @@ function IngredientRow({
                 <span
                   title="Priced at €0 — confirm this is intentional"
                   className="shrink-0 rounded-full p-0.5 text-slate-300"
+                >
+                  <Info className="h-3 w-3" />
+                </span>
+              )}
+              {usedWeightBridge && item.subRecipeWeightG && (
+                <span
+                  title={`Converted using this sub-recipe's total weight: ${item.quantity}${item.unit} of a ${Math.round(item.subRecipeWeightG)}g batch`}
+                  className="shrink-0 rounded-full p-0.5 text-emerald-500"
                 >
                   <Info className="h-3 w-3" />
                 </span>
@@ -842,6 +852,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
         lineCost: detailed.cost,
         costStatus: detailed.status,
         isZeroPrice: detailed.isZeroPrice ?? false,
+        usedWeightBridge: detailed.usedWeightBridge ?? false,
       }
     }),
     [recipe.ingredients]
@@ -2445,6 +2456,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                     lineCost={computedIngredients[idx]?.lineCost ?? 0}
                     costStatus={computedIngredients[idx]?.costStatus ?? 'ok'}
                     isZeroPrice={computedIngredients[idx]?.isZeroPrice ?? false}
+                    usedWeightBridge={computedIngredients[idx]?.usedWeightBridge ?? false}
                     batchMultiplier={effectiveN}
                     canUseYieldFactor={limits.canUseYieldFactor}
                     onUpdate={(patch) => updateIngredient(item.id, patch)}

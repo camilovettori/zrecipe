@@ -39,6 +39,60 @@ function firstNonEmpty(...values: Array<string | null | undefined>): string | nu
   return null
 }
 
+function normalizeUnit(u: string | null | undefined): string | null {
+  if (!u) return null
+  const lower = u.trim().toLowerCase()
+  if (lower === 'kg') return 'kg'
+  if (lower === 'g') return 'g'
+  if (lower === 'l' || lower === 'ltr' || lower === 'litre' || lower === 'liter') return 'L'
+  if (lower === 'ml') return 'ml'
+  if (lower === 'unit' || lower === 'ea' || lower === 'each') return 'unit'
+  if (lower === 'dozen') return 'dozen'
+  return lower || null
+}
+
+// CSV column name -> allergen ID, matching EU_ALLERGENS in src/lib/allergens.ts
+// (SERIAL IDs 1-14 from the allergens migration). The client's CSV breaks tree
+// nuts into per-nut columns (Walnuts Nuts, Almonds Nuts, etc.) rather than a
+// single "Nuts" column — all of those collapse to the one "Nuts" allergen (10).
+// "Peanuts Nuts" is kept separate as allergen 11: EU 1169/2011 treats peanuts
+// and tree nuts as two distinct mandatory allergens, not one family.
+const ALLERGEN_CSV_MAP: Record<string, number> = {
+  Celery: 1,
+  Gluten: 2,
+  Crustaceans: 3,
+  Eggs: 4,
+  Fish: 5,
+  Lupin: 6,
+  Milk: 7,
+  Molluscs: 8,
+  Mustard: 9,
+  Nuts: 10,
+  'Walnuts Nuts': 10,
+  'Almonds Nuts': 10,
+  'Hazelnuts Nuts': 10,
+  'Cashew Nuts': 10,
+  'Pecan Nuts': 10,
+  'Brazil Nuts': 10,
+  'Pistachio Nuts': 10,
+  'Macadamia Nuts': 10,
+  'Peanuts Nuts': 11,
+  'Sesame Seeds': 12,
+  Soybeans: 13,
+  Sulphites: 14,
+}
+
+function extractAllergenIds(row: Record<string, string>): number[] {
+  const ids = new Set<number>()
+  for (const [csvColumn, allergenId] of Object.entries(ALLERGEN_CSV_MAP)) {
+    const value = row[csvColumn]?.trim().toLowerCase()
+    if (value === 'yes' || value === 'y' || value === '1' || value === 'true') {
+      ids.add(allergenId)
+    }
+  }
+  return Array.from(ids)
+}
+
 async function extractRowsFromText(text: string) {
   const anthropic = getAnthropic()
   const prompt = `You extract supplier price list rows for a food business.
@@ -233,32 +287,71 @@ export async function POST(request: NextRequest) {
       const rows = (parsed.data ?? []).filter((row) => Object.keys(row).length > 0)
 
       const items = rows.map((row) => {
+        // Client explicitly asked to ignore "Label Name" — always use the
+        // supplier's own product description as the ingredient name.
         const ingredientName = firstNonEmpty(
-          row['Ingredient'],
-          row['Ingredient Name'],
-          row['Name'],
-          row['Item'],
-          row['Label Name'],
           row['Supplier Product Description'],
-          row['Description']
+          row['Description'],
+          row['Ingredient Name'],
+          row['Ingredient'],
+          row['Name'],
+          row['Item']
         ) ?? ''
         const packagePrice = parseNumber(
           firstNonEmpty(row['Package Price'], row['Price'], row['Cost'], row['Supplier Price'])
         )
-        const packageQuantity = parseNumber(
-          firstNonEmpty(row['Package Quantity'], row['Quantity'], row['Purchase Weight'], row['Pack Size'], row['Size'])
+
+        // Purchase Weight and Units are mutually exclusive on this client's
+        // CSV: weight-based lines (e.g. "Almonds 1kg") populate Purchase
+        // Weight and leave Units blank; count-based lines (e.g. "Coffee cups
+        // x1000") do the opposite. A generic Package Quantity/Quantity/Pack
+        // Size/Size column — used by other suppliers' CSVs — still wins if
+        // present, so this doesn't regress support for other formats.
+        const genericQuantity = parseNumber(
+          firstNonEmpty(row['Package Quantity'], row['Quantity'], row['Pack Size'], row['Size'])
         )
+        const purchaseWeight = parseNumber(row['Purchase Weight'])
+        const unitCount = parseNumber(row['Units'])
+        const measureUnit = firstNonEmpty(row['Measure Unit'], row['Package Unit'], row['Unit'])
+
+        let packageQuantity: number | null
+        let packageUnit: string | null
+
+        if (genericQuantity != null) {
+          packageQuantity = genericQuantity
+          packageUnit = normalizeUnit(measureUnit)
+        } else if (purchaseWeight != null && purchaseWeight > 0) {
+          packageQuantity = purchaseWeight
+          packageUnit = normalizeUnit(measureUnit) ?? 'g'
+        } else if (unitCount != null && unitCount > 0) {
+          packageQuantity = unitCount
+          packageUnit = 'unit'
+        } else {
+          packageQuantity = null
+          packageUnit = normalizeUnit(measureUnit)
+        }
+
+        const productCode = firstNonEmpty(
+          row['Product Code'],
+          row['SKU'],
+          row['Code'],
+          row['Item No'],
+          row['Article']
+        )
+
         return {
           ingredient_name: ingredientName,
+          product_code: productCode,
           brand: row['Brand'] ?? null,
           category: row['Category'] ?? null,
           supplier: row['Supplier'] ?? null,
           package_price: packagePrice,
           package_quantity: packageQuantity,
-          package_unit: firstNonEmpty(row['Package Unit'], row['Measure Unit'], row['Unit']),
+          package_unit: packageUnit,
           price_unit: firstNonEmpty(row['Price Unit'], row['Normalized Unit']),
-          needs_review: !ingredientName || packagePrice == null,
-          notes: row['Product Code'] ? `Code: ${row['Product Code']}` : null,
+          needs_review: !ingredientName || packagePrice == null || packagePrice === 0 || packageQuantity == null,
+          notes: null,
+          allergen_ids: extractAllergenIds(row),
         }
       })
 

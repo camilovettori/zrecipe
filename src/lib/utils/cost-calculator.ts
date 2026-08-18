@@ -1,4 +1,4 @@
-﻿import { convertUnit, isConvertible } from './unit-converter'
+﻿import { convertUnit, isConvertible, getUnitFamily } from './unit-converter'
 
 export type CostIngredientInput = {
   id?: string
@@ -16,6 +16,15 @@ export type CostIngredientInput = {
    * "may be out of date" warning, it does not zero the cost.
    */
   staleSubRecipeCost?: boolean
+  /**
+   * Total EP weight (grams) of a sub-recipe ingredient's own recipe, when
+   * this line references a sub-recipe priced per count unit (e.g. yield =
+   * 1 unit / batch). Lets a parent line that uses weight (g/kg) bridge to
+   * that per-unit price via (quantityInG / subRecipeWeightG) * current_price,
+   * instead of hitting a unit_mismatch. Never used to bridge weight against
+   * a volume-priced price_unit — that would require an unstated density.
+   */
+  subRecipeWeightG?: number | null
 }
 
 export type CostInputs = {
@@ -55,6 +64,9 @@ export type IngredientCostLine = {
    *  free ingredient) rather than never priced. Rare for food — worth a
    *  soft, non-alarming UI hint, but NOT an incomplete-cost condition. */
   isZeroPrice?: boolean
+  /** True when this line's cost came from the weight→unit sub-recipe bridge
+   *  (see subRecipeWeightG) rather than a direct unit conversion. */
+  usedWeightBridge?: boolean
 }
 
 export type CostResult = {
@@ -131,6 +143,32 @@ export function calculateIngredientCost(item: CostIngredientInput): IngredientCo
   }
 
   if (!isConvertible(item.unit, priceUnit)) {
+    // Weight→unit bridge: a parent line using weight (g/kg) against a
+    // sub-recipe priced per count unit (e.g. yield = 1 unit / 600g batch)
+    // can still be costed via the sub-recipe's own total EP weight, instead
+    // of being excluded as a unit mismatch. Restricted to weight→count only
+    // — never bridges weight against a volume-priced unit, which would need
+    // an unstated ingredient density (see CLAUDE.md costing rule 3).
+    const bridgeWeightG = item.subRecipeWeightG
+    if (
+      bridgeWeightG != null &&
+      bridgeWeightG > 0 &&
+      getUnitFamily(item.unit) === 'weight' &&
+      getUnitFamily(priceUnit) === 'count'
+    ) {
+      const apQuantityInG = convertUnit(apQuantity, item.unit, 'g')
+      const fraction = apQuantityInG / bridgeWeightG
+      return {
+        id: item.id,
+        name: label,
+        cost: money(fraction * currentPrice),
+        status: 'ok',
+        isCostComplete: true,
+        isZeroPrice: currentPrice === 0,
+        usedWeightBridge: true,
+      }
+    }
+
     return {
       id: item.id,
       name: label,

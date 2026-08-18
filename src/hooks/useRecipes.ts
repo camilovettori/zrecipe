@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { convertUnit } from '@/lib/utils/unit-converter'
+import { convertUnit, getUnitFamily } from '@/lib/utils/unit-converter'
 import { calculateCost, calculateIngredientCost, type IngredientCostLine } from '@/lib/utils/cost-calculator'
 import { type IngredientLookup } from '@/hooks/useInvoices'
 import { resolveTenantId } from '@/hooks/useTenant'
@@ -34,6 +34,10 @@ export interface RecipeIngredientDraft {
   /** True when this line's sub-recipe price is a fallback snapshot rather
    *  than a live recalculation from the sub-recipe's current ingredients. */
   subRecipeCostStale?: boolean
+  /** Total EP weight (grams) of the referenced sub-recipe, when this line is
+   *  a sub-recipe. Lets a weight-based line (g/kg) bridge to a sub-recipe
+   *  priced per count unit instead of hitting a unit mismatch. */
+  subRecipeWeightG?: number | null
 }
 
 export interface RecipeEditorData {
@@ -129,6 +133,7 @@ type DBIngredientRow = {
 
 type DBSubRecipeRef = SubRecipeCostRow & {
   name: string
+  sub_ingredient_weight_g?: number | null
 }
 
 type DBRecipeIngredientRow = {
@@ -279,6 +284,7 @@ function ingredientCostInput(item: RecipeIngredientDraft) {
     current_price: item.currentPrice ?? null,
     price_unit: item.priceUnit ?? item.unit,
     staleSubRecipeCost: item.subRecipeCostStale ?? false,
+    subRecipeWeightG: item.subRecipeWeightG ?? null,
   }
 }
 
@@ -482,6 +488,7 @@ function mapRecipeRow(row: DBRecipeRow, tenantLaborHourlyRate = 15): RecipeRecor
         yield_percent: item.yield_percent != null ? Number(item.yield_percent) : 100,
         yield_override: item.yield_override ?? false,
         subRecipeCostStale,
+        subRecipeWeightG: subRecipeRef?.sub_ingredient_weight_g ?? null,
       }
       line.lineCost = calculateLineCost(line)
       return line
@@ -657,6 +664,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
                 name,
                 sub_ingredient_cost_per_unit,
                 sub_ingredient_unit,
+                sub_ingredient_weight_g,
                 yield_quantity,
                 yield_unit,
                 labor_enabled,
@@ -787,6 +795,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
               name,
               sub_ingredient_cost_per_unit,
               sub_ingredient_unit,
+              sub_ingredient_weight_g,
               yield_quantity,
               yield_unit,
               labor_enabled,
@@ -883,6 +892,21 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           ? recipeCost.totalCost / yieldInSubUnit
           : null
 
+      // Total EP weight of this recipe in grams — summed only from its
+      // weight-family ingredient lines (g/kg/oz/lb). Volume ingredients are
+      // deliberately excluded rather than converted, since weight↔volume
+      // needs an unstated density (see CLAUDE.md costing rule 3). Stored so
+      // a parent recipe can bridge "used Xg of this" against a sub-recipe
+      // that's priced per count unit (see cost-calculator.ts).
+      const subIngredientWeightG = (() => {
+        if (!input.isSubIngredient) return null
+        const totalG = input.ingredients.reduce((sum, ing) => {
+          if (getUnitFamily(ing.unit) !== 'weight') return sum
+          return sum + convertUnit(ing.quantity, ing.unit, 'g')
+        }, 0)
+        return totalG > 0 ? totalG : null
+      })()
+
       const res = await fetch('/api/recipes/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -914,6 +938,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           isSubIngredient: input.isSubIngredient,
           subIngredientUnit,
           subIngredientCostPerUnit,
+          subIngredientWeightG,
           storageInstructions: input.storageInstructions ?? null,
           ingredients: input.ingredients,
         }),

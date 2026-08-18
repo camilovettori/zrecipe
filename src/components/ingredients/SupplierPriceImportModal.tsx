@@ -18,6 +18,7 @@ type ExtractedImportRow = {
   id: string
   selected: boolean
   ingredientName: string
+  productCode: string
   brand: string
   category: string
   supplier: string
@@ -26,6 +27,7 @@ type ExtractedImportRow = {
   packageUnit: string
   priceUnit: string
   notes: string
+  allergenIds: number[]
   matchStatus: 'new' | 'update' | 'duplicate' | 'review'
   matchedIngredientId: string | null
   calculatedUnitPrice: number | null
@@ -79,6 +81,7 @@ function buildRow(row: Partial<ExtractedImportRow> & { ingredientName: string },
     id: row.id ?? crypto.randomUUID(),
     selected: row.selected ?? true,
     ingredientName: row.ingredientName,
+    productCode: row.productCode ?? '',
     brand: row.brand ?? '',
     category: row.category ?? '',
     supplier: row.supplier ?? '',
@@ -87,6 +90,7 @@ function buildRow(row: Partial<ExtractedImportRow> & { ingredientName: string },
     packageUnit,
     priceUnit,
     notes: row.notes ?? '',
+    allergenIds: row.allergenIds ?? [],
     matchStatus: normalized.isValid ? match.matchStatus : 'review',
     matchedIngredientId: match.matchedIngredientId,
     calculatedUnitPrice: normalized.normalizedPrice,
@@ -168,6 +172,7 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
     supplier_name?: string | null
     items?: Array<{
       ingredient_name?: string
+      product_code?: string | null
       brand?: string | null
       category?: string | null
       supplier?: string | null
@@ -177,6 +182,7 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
       price_unit?: string | null
       needs_review?: boolean
       notes?: string | null
+      allergen_ids?: number[]
     }>
   }) => {
     const supplierFallback = payload.supplier_name ?? ''
@@ -185,6 +191,7 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
       const baseRow = buildRow(
         {
           ingredientName,
+          productCode: item.product_code ?? '',
           brand: item.brand ?? '',
           category: item.category ?? '',
           supplier: item.supplier ?? supplierFallback,
@@ -193,6 +200,7 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
           packageUnit: item.package_unit ?? '',
           priceUnit: item.price_unit ?? '',
           notes: item.notes ?? '',
+          allergenIds: item.allergen_ids ?? [],
         },
         ingredients
       )
@@ -382,6 +390,8 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
           last_supplier_id: supplierId ?? currentIngredient?.last_supplier_id ?? null,
         }
 
+        let ingredientId: string | null = null
+
         if (currentIngredient) {
           const changed = hasMeaningfulPriceChange(currentIngredient.current_price, normalized.normalizedPrice)
           const { error } = await supabase
@@ -389,6 +399,8 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
             .update(payload)
             .eq('id', currentIngredient.id)
           if (error) throw error
+
+          ingredientId = currentIngredient.id
 
           if (changed) {
             await supabase.from('ingredient_price_history').insert({
@@ -407,6 +419,8 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
             .single()
           if (error) throw error
 
+          ingredientId = data?.id ?? null
+
           if (data?.id) {
             await supabase.from('ingredient_price_history').insert({
               ingredient_id: data.id,
@@ -416,6 +430,22 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
               recorded_at: today,
             })
           }
+        }
+
+        // Uses the same tenant-scoped browser client as everything else here
+        // (never a service-role client — that must stay server-only). RLS on
+        // ingredient_allergens already allows this because the ingredient
+        // row above was just created/updated under this same tenant.
+        if (ingredientId && row.allergenIds.length > 0) {
+          const { error: allergenError } = await supabase.from('ingredient_allergens').upsert(
+            row.allergenIds.map((allergenId) => ({
+              ingredient_id: ingredientId,
+              allergen_id: allergenId,
+              status: 'contains',
+            })),
+            { onConflict: 'ingredient_id,allergen_id' }
+          )
+          if (allergenError) throw allergenError
         }
       }
 
@@ -691,6 +721,7 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
                     <div className="w-[90px] shrink-0">Unit</div>
                     <div className="w-[90px] shrink-0">Unit cost</div>
                     <div className="w-[130px] shrink-0">Status</div>
+                    <div className="w-24 shrink-0">Code</div>
                   </div>
                   <div className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
                     {rows.map((row) => (
@@ -787,6 +818,9 @@ export default function SupplierPriceImportModal({ open, onClose, ingredients }:
                                   ? 'Review'
                                   : 'New'}
                           </span>
+                        </div>
+                        <div className="w-24 shrink-0 truncate pt-2 text-xs text-slate-400" title={row.productCode}>
+                          {row.productCode || '—'}
                         </div>
                       </div>
                     ))}
