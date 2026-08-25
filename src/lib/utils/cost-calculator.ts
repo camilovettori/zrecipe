@@ -123,6 +123,16 @@ function money(value: number) {
 // that distinction only exists because current_price is `null` until a price
 // is actually set.
 export function calculateIngredientCost(item: CostIngredientInput): IngredientCostLine {
+  if (item.subRecipeWeightG != null) {
+    console.log('[bridge-debug] calculateIngredientCost called with:', {
+      name: item.name,
+      quantity: item.quantity,
+      unit: item.unit,
+      current_price: item.current_price,
+      price_unit: item.price_unit,
+      subRecipeWeightG: item.subRecipeWeightG,
+    })
+  }
   const label = item.name ?? 'Ingredient'
   const hasPrice = item.current_price != null
   const currentPrice = Number(item.current_price ?? 0)

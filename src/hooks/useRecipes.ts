@@ -425,7 +425,11 @@ function buildRecipeRecordFromInput(
   }
 }
 
-function mapRecipeRow(row: DBRecipeRow, tenantLaborHourlyRate = 15): RecipeRecord {
+function mapRecipeRow(
+  row: DBRecipeRow,
+  tenantLaborHourlyRate = 15,
+  subRecipeWeights: Record<string, number | null> = {}
+): RecipeRecord {
   const recipeIngredients = Array.isArray(row.recipe_ingredients)
     ? row.recipe_ingredients
     : row.recipe_ingredients
@@ -488,7 +492,14 @@ function mapRecipeRow(row: DBRecipeRow, tenantLaborHourlyRate = 15): RecipeRecor
         yield_percent: item.yield_percent != null ? Number(item.yield_percent) : 100,
         yield_override: item.yield_override ?? false,
         subRecipeCostStale,
-        subRecipeWeightG: subRecipeRef?.sub_ingredient_weight_g ?? null,
+        // The nested join's sub_ingredient_weight_g can be missing from the
+        // response when PostgREST's schema cache hasn't picked up this
+        // column for this relationship path yet — see the direct top-level
+        // lookup in refreshRecipes/getRecipeWithIngredients that bridges it.
+        subRecipeWeightG:
+          (item.sub_recipe_id ? subRecipeWeights[item.sub_recipe_id] : null) ??
+          subRecipeRef?.sub_ingredient_weight_g ??
+          null,
       }
       line.lineCost = calculateLineCost(line)
       return line
@@ -564,8 +575,55 @@ function mapRecipeRow(row: DBRecipeRow, tenantLaborHourlyRate = 15): RecipeRecor
   }
 }
 
-function mapSummary(row: DBRecipeRow, laborHourlyRate = 15): RecipeSummary {
-  const recipe = mapRecipeRow(row, laborHourlyRate)
+function collectSubRecipeIds(rows: DBRecipeRow[]): string[] {
+  const ids = rows.flatMap((row) => {
+    const items = Array.isArray(row.recipe_ingredients)
+      ? row.recipe_ingredients
+      : row.recipe_ingredients
+        ? [row.recipe_ingredients]
+        : []
+    return items.map((item) => item.sub_recipe_id)
+  })
+  return Array.from(new Set(ids.filter((id): id is string => !!id)))
+}
+
+/**
+ * Direct top-level lookup for sub_ingredient_weight_g, bypassing the nested
+ * recipes->recipes join used for recipe_ingredients.sub_recipe. PostgREST's
+ * schema cache can lag behind on newly added columns for a specific
+ * relationship path even after it's visible on a direct select — this
+ * sidesteps that instead of trusting the (possibly stale) nested join.
+ */
+async function fetchSubRecipeWeights(
+  supabase: ReturnType<typeof createClient>,
+  subRecipeIds: string[]
+): Promise<Record<string, number | null>> {
+  const weights: Record<string, number | null> = {}
+  if (subRecipeIds.length === 0) return weights
+
+  const { data, error } = await supabase
+    .from('recipes')
+    .select('id, sub_ingredient_weight_g')
+    .in('id', subRecipeIds)
+
+  if (error) {
+    console.warn('[fetchSubRecipeWeights] lookup failed:', error.message)
+    return weights
+  }
+
+  ;(data as unknown as Array<{ id: string; sub_ingredient_weight_g: number | null }> | null)?.forEach((w) => {
+    weights[w.id] = w.sub_ingredient_weight_g ?? null
+  })
+
+  return weights
+}
+
+function mapSummary(
+  row: DBRecipeRow,
+  laborHourlyRate = 15,
+  subRecipeWeights: Record<string, number | null> = {}
+): RecipeSummary {
+  const recipe = mapRecipeRow(row, laborHourlyRate, subRecipeWeights)
   return {
     id: recipe.id,
     name: recipe.name,
@@ -714,7 +772,10 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
         throw fetchError
       }
 
-      setRecipes((data as unknown as DBRecipeRow[] | null)?.map((row) => mapSummary(row, laborHourlyRate)) ?? [])
+      const rows = (data as unknown as DBRecipeRow[] | null) ?? []
+      const subRecipeWeights = await fetchSubRecipeWeights(supabase, collectSubRecipeIds(rows))
+
+      setRecipes(rows.map((row) => mapSummary(row, laborHourlyRate, subRecipeWeights)))
     } catch (err) {
       console.error('[refreshRecipes] caught:', err)
       setError(err instanceof Error ? err.message : 'Failed to load recipes')
@@ -844,7 +905,12 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
       throw fetchError
     }
 
-    return data ? mapRecipeRow(data as unknown as DBRecipeRow) : null
+    if (!data) return null
+
+    const row = data as unknown as DBRecipeRow
+    const subRecipeWeights = await fetchSubRecipeWeights(supabase, collectSubRecipeIds([row]))
+
+    return mapRecipeRow(row, undefined, subRecipeWeights)
   }, [])
 
   const saveRecipe = useCallback(
