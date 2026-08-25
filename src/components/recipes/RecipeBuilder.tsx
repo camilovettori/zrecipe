@@ -121,6 +121,8 @@ function createIngredientLine(partial?: Partial<RecipeIngredientDraft>): RecipeI
     yield_percent: partial?.yield_percent ?? 100,
     yield_override: partial?.yield_override ?? false,
     ep_weight_manual: partial?.ep_weight_manual ?? null,
+    subRecipeCostStale: partial?.subRecipeCostStale ?? false,
+    subRecipeWeightG: partial?.subRecipeWeightG ?? null,
     lineCost: 0,
   }
   line.lineCost = calculateLineCost(line)
