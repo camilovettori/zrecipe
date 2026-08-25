@@ -492,11 +492,14 @@ function mapRecipeRow(
         yield_percent: item.yield_percent != null ? Number(item.yield_percent) : 100,
         yield_override: item.yield_override ?? false,
         subRecipeCostStale,
-        // The nested join's sub_ingredient_weight_g can be missing from the
-        // response when PostgREST's schema cache hasn't picked up this
-        // column for this relationship path yet — see the direct top-level
-        // lookup in refreshRecipes/getRecipeWithIngredients that bridges it.
+        // Computed live from the sub-recipe's own ingredient rows first,
+        // since the nested join's sub_ingredient_weight_g can be missing
+        // from the response when PostgREST's schema cache hasn't picked up
+        // this column for this relationship path yet. Falls back to the
+        // direct top-level lookup (fetchSubRecipeWeights), then the nested
+        // join column itself.
         subRecipeWeightG:
+          liveSubRecipeCost?.weightG ??
           (item.sub_recipe_id ? subRecipeWeights[item.sub_recipe_id] : null) ??
           subRecipeRef?.sub_ingredient_weight_g ??
           null,

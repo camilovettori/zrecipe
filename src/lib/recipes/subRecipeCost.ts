@@ -1,5 +1,5 @@
 import { calculateCost, type CostIngredientInput } from '@/lib/utils/cost-calculator'
-import { convertUnit } from '@/lib/utils/unit-converter'
+import { convertUnit, isConvertible } from '@/lib/utils/unit-converter'
 import { resolveIngredientPrice, type PriceHistoryEntry } from '@/lib/ingredients/resolveIngredientPrice'
 
 // Framework-agnostic on purpose (no React/Supabase client imports) so it can
@@ -11,6 +11,11 @@ export interface SubRecipeCostResult {
   costPerUnit: number | null
   unit: string | null
   source: SubRecipeCostSource
+  /** Total EP weight (grams) of the sub-recipe, computed live from its
+   *  ingredient rows — lets a parent line bridge weight-based usage against
+   *  a sub-recipe priced per count unit. Null when it couldn't be computed
+   *  (no ingredient rows, or none convertible to grams). */
+  weightG?: number | null
 }
 
 type Rel<T> = T | T[] | null | undefined
@@ -104,6 +109,21 @@ export function computeLiveSubRecipeCost(row: SubRecipeCostRow | null | undefine
     }
   })
 
+  // Total EP weight of the sub-recipe in grams, computed live from its
+  // ingredient lines rather than trusting the stored sub_ingredient_weight_g
+  // column, which can be missing from nested-join responses when
+  // PostgREST's schema cache hasn't picked up that column for this
+  // relationship path yet. Used by the parent recipe to bridge weight-based
+  // usage (e.g. 150g of frosting) against a sub-recipe priced per count unit.
+  const liveWeightG = ingredientRows.reduce((sum, line) => {
+    const qty = Number(line.quantity)
+    const unit = line.unit as string
+    if (isConvertible(unit, 'g')) {
+      return sum + (convertUnit(qty, unit, 'g') ?? 0)
+    }
+    return sum
+  }, 0)
+
   const laborMode = row.labor_mode === 'time' ? 'time' : 'fixed'
   const overheadMode = row.overhead_mode === 'percent' ? 'percent' : 'fixed'
 
@@ -129,8 +149,8 @@ export function computeLiveSubRecipeCost(row: SubRecipeCostRow | null | undefine
 
   if (!(yieldInSubUnit > 0)) {
     return snapshotCost != null
-      ? { costPerUnit: snapshotCost, unit: fallbackUnit, source: 'snapshot' }
-      : { costPerUnit: null, unit: subIngredientUnit, source: 'unavailable' }
+      ? { costPerUnit: snapshotCost, unit: fallbackUnit, source: 'snapshot', weightG: liveWeightG > 0 ? liveWeightG : null }
+      : { costPerUnit: null, unit: subIngredientUnit, source: 'unavailable', weightG: liveWeightG > 0 ? liveWeightG : null }
   }
 
   const costPerUnit = costs.totalCost / yieldInSubUnit
@@ -138,5 +158,6 @@ export function computeLiveSubRecipeCost(row: SubRecipeCostRow | null | undefine
     costPerUnit,
     unit: subIngredientUnit,
     source: costs.incompleteCost ? 'live_incomplete' : 'live',
+    weightG: liveWeightG > 0 ? liveWeightG : null,
   }
 }
