@@ -17,14 +17,20 @@ export type CostIngredientInput = {
    */
   staleSubRecipeCost?: boolean
   /**
-   * Total EP weight (grams) of a sub-recipe ingredient's own recipe, when
-   * this line references a sub-recipe priced per count unit (e.g. yield =
-   * 1 unit / batch). Lets a parent line that uses weight (g/kg) bridge to
-   * that per-unit price via (quantityInG / subRecipeWeightG) * current_price,
-   * instead of hitting a unit_mismatch. Never used to bridge weight against
-   * a volume-priced price_unit — that would require an unstated density.
+   * Total EP weight (grams) of a sub-recipe ingredient's own recipe. Used
+   * only to describe the sub-recipe's batch size (e.g. a UI tooltip) —
+   * costing for weight-based sub-recipe usage goes through
+   * subRecipeCostPerGram instead, never reconstructed from this value.
    */
   subRecipeWeightG?: number | null
+  /**
+   * The sub-recipe's total cost divided by its live EP weight in grams
+   * (see computeLiveSubRecipeCost). Already €/gram, so it is the preferred
+   * input for a parent line that uses this sub-recipe by weight (g/kg/oz/lb)
+   * — multiply directly by the quantity in grams, no per-yield-unit
+   * reconstruction involved.
+   */
+  subRecipeCostPerGram?: number | null
 }
 
 export type CostInputs = {
@@ -143,29 +149,44 @@ export function calculateIngredientCost(item: CostIngredientInput): IngredientCo
   }
 
   if (!isConvertible(item.unit, priceUnit)) {
-    // Weight→unit bridge: a parent line using weight (g/kg) against a
-    // sub-recipe priced per count unit (e.g. yield = 1 unit / 600g batch)
-    // can still be costed via the sub-recipe's own total EP weight, instead
-    // of being excluded as a unit mismatch. Restricted to weight→count only
-    // — never bridges weight against a volume-priced unit, which would need
-    // an unstated ingredient density (see CLAUDE.md costing rule 3).
-    const bridgeWeightG = item.subRecipeWeightG
+    // A parent line using weight (g/kg/oz/lb) against a sub-recipe can still
+    // be costed via the sub-recipe's own €/gram rate, instead of being
+    // excluded as a unit mismatch. subRecipeCostPerGram is already
+    // gram-denominated (totalCost / liveWeightG), so this never needs to
+    // reconstruct a rate from currentPrice or check priceUnit's family —
+    // restricting to weight-family item.unit is what keeps this from ever
+    // bridging volume against weight, which would need an unstated density
+    // (see CLAUDE.md costing rule 3).
     if (
-      bridgeWeightG != null &&
-      bridgeWeightG > 0 &&
-      getUnitFamily(item.unit) === 'weight' &&
-      getUnitFamily(priceUnit) === 'count'
+      item.subRecipeCostPerGram != null &&
+      item.subRecipeCostPerGram >= 0 &&
+      getUnitFamily(item.unit) === 'weight'
     ) {
       const apQuantityInG = convertUnit(apQuantity, item.unit, 'g')
-      const fraction = apQuantityInG / bridgeWeightG
       return {
         id: item.id,
         name: label,
-        cost: money(fraction * currentPrice),
+        cost: money(apQuantityInG * item.subRecipeCostPerGram),
         status: 'ok',
         isCostComplete: true,
-        isZeroPrice: currentPrice === 0,
+        isZeroPrice: item.subRecipeCostPerGram === 0,
         usedWeightBridge: true,
+      }
+    }
+
+    // A weight-based sub-recipe line whose per-gram rate isn't available
+    // (e.g. its live EP weight couldn't be computed) must never fall back to
+    // reconstructing a rate from currentPrice/subRecipeWeightG — that
+    // reconstruction is exactly what silently understated costs before.
+    if (item.subRecipeWeightG != null && item.subRecipeWeightG > 0 && getUnitFamily(item.unit) === 'weight') {
+      return {
+        id: item.id,
+        name: label,
+        cost: 0,
+        status: 'unit_mismatch',
+        isCostComplete: false,
+        message: 'Sub-recipe weight unavailable',
+        warning: `${label}: sub-recipe's per-gram cost could not be computed — cost excluded, needs review`,
       }
     }
 

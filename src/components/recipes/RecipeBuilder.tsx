@@ -123,6 +123,7 @@ function createIngredientLine(partial?: Partial<RecipeIngredientDraft>): RecipeI
     ep_weight_manual: partial?.ep_weight_manual ?? null,
     subRecipeCostStale: partial?.subRecipeCostStale ?? false,
     subRecipeWeightG: partial?.subRecipeWeightG ?? null,
+    subRecipeCostPerGram: partial?.subRecipeCostPerGram ?? null,
     lineCost: 0,
   }
   line.lineCost = calculateLineCost(line)

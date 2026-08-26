@@ -12,10 +12,18 @@ export interface SubRecipeCostResult {
   unit: string | null
   source: SubRecipeCostSource
   /** Total EP weight (grams) of the sub-recipe, computed live from its
-   *  ingredient rows — lets a parent line bridge weight-based usage against
-   *  a sub-recipe priced per count unit. Null when it couldn't be computed
-   *  (no ingredient rows, or none convertible to grams). */
+   *  ingredient rows. Used only to display the sub-recipe's batch size in
+   *  the UI — costing for weight-based parent usage goes through
+   *  costPerGram instead. Null when it couldn't be computed (no ingredient
+   *  rows, or none convertible to grams). */
   weightG?: number | null
+  /** The sub-recipe's total cost divided by its live EP weight in grams —
+   *  the only correct rate for a parent line that uses this sub-recipe by
+   *  weight (g/kg/oz/lb). Unlike costPerUnit (which is per YIELD unit, e.g.
+   *  per portion), this is already €/gram, so a weight-based parent line
+   *  can multiply it directly by its own quantity-in-grams with no further
+   *  reconstruction. Null when it couldn't be computed — never guessed. */
+  costPerGram: number | null
 }
 
 type Rel<T> = T | T[] | null | undefined
@@ -77,7 +85,7 @@ export function computeLiveSubRecipeCost(row: SubRecipeCostRow | null | undefine
   const fallbackUnit = row?.sub_ingredient_unit ?? null
   const snapshotCost = row?.sub_ingredient_cost_per_unit ?? null
 
-  if (!row) return { costPerUnit: null, unit: null, source: 'unavailable' }
+  if (!row) return { costPerUnit: null, unit: null, source: 'unavailable', costPerGram: null }
 
   const ingredientRows = Array.isArray(row.recipe_ingredients)
     ? row.recipe_ingredients
@@ -87,8 +95,8 @@ export function computeLiveSubRecipeCost(row: SubRecipeCostRow | null | undefine
 
   if (ingredientRows.length === 0) {
     return snapshotCost != null
-      ? { costPerUnit: snapshotCost, unit: fallbackUnit, source: 'snapshot' }
-      : { costPerUnit: null, unit: fallbackUnit, source: 'unavailable' }
+      ? { costPerUnit: snapshotCost, unit: fallbackUnit, source: 'snapshot', costPerGram: null }
+      : { costPerUnit: null, unit: fallbackUnit, source: 'unavailable', costPerGram: null }
   }
 
   const lineInputs: CostIngredientInput[] = ingredientRows.map((line) => {
@@ -146,11 +154,14 @@ export function computeLiveSubRecipeCost(row: SubRecipeCostRow | null | undefine
 
   const subIngredientUnit = row.sub_ingredient_unit || 'unit'
   const yieldInSubUnit = convertUnit(Number(row.yield_quantity ?? 0), row.yield_unit ?? 'unit', subIngredientUnit)
+  // costPerGram depends only on totalCost and liveWeightG, not on yield —
+  // computable even when yieldInSubUnit is invalid.
+  const costPerGram = liveWeightG > 0 ? costs.totalCost / liveWeightG : null
 
   if (!(yieldInSubUnit > 0)) {
     return snapshotCost != null
-      ? { costPerUnit: snapshotCost, unit: fallbackUnit, source: 'snapshot', weightG: liveWeightG > 0 ? liveWeightG : null }
-      : { costPerUnit: null, unit: subIngredientUnit, source: 'unavailable', weightG: liveWeightG > 0 ? liveWeightG : null }
+      ? { costPerUnit: snapshotCost, unit: fallbackUnit, source: 'snapshot', weightG: liveWeightG > 0 ? liveWeightG : null, costPerGram }
+      : { costPerUnit: null, unit: subIngredientUnit, source: 'unavailable', weightG: liveWeightG > 0 ? liveWeightG : null, costPerGram }
   }
 
   const costPerUnit = costs.totalCost / yieldInSubUnit
@@ -159,5 +170,6 @@ export function computeLiveSubRecipeCost(row: SubRecipeCostRow | null | undefine
     unit: subIngredientUnit,
     source: costs.incompleteCost ? 'live_incomplete' : 'live',
     weightG: liveWeightG > 0 ? liveWeightG : null,
+    costPerGram,
   }
 }

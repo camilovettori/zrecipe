@@ -35,9 +35,13 @@ export interface RecipeIngredientDraft {
    *  than a live recalculation from the sub-recipe's current ingredients. */
   subRecipeCostStale?: boolean
   /** Total EP weight (grams) of the referenced sub-recipe, when this line is
-   *  a sub-recipe. Lets a weight-based line (g/kg) bridge to a sub-recipe
-   *  priced per count unit instead of hitting a unit mismatch. */
+   *  a sub-recipe. Used only to display the sub-recipe's batch size in the
+   *  UI — costing goes through subRecipeCostPerGram instead. */
   subRecipeWeightG?: number | null
+  /** The referenced sub-recipe's total cost divided by its live EP weight in
+   *  grams. Lets a weight-based line (g/kg) bridge directly to this €/gram
+   *  rate instead of hitting a unit mismatch. */
+  subRecipeCostPerGram?: number | null
 }
 
 export interface RecipeEditorData {
@@ -285,6 +289,7 @@ function ingredientCostInput(item: RecipeIngredientDraft) {
     price_unit: item.priceUnit ?? item.unit,
     staleSubRecipeCost: item.subRecipeCostStale ?? false,
     subRecipeWeightG: item.subRecipeWeightG ?? null,
+    subRecipeCostPerGram: item.subRecipeCostPerGram ?? null,
   }
 }
 
@@ -503,6 +508,9 @@ function mapRecipeRow(
           (item.sub_recipe_id ? subRecipeWeights[item.sub_recipe_id] : null) ??
           subRecipeRef?.sub_ingredient_weight_g ??
           null,
+        // Only computable from a live recalculation (see computeLiveSubRecipeCost)
+        // — no persisted fallback exists, since it's derived, not stored.
+        subRecipeCostPerGram: liveSubRecipeCost?.costPerGram ?? null,
       }
       line.lineCost = calculateLineCost(line)
       return line
