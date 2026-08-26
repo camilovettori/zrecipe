@@ -136,7 +136,7 @@ export interface RecipeRecord extends RecipeEditorData {
   cost: RecipeCostSummary
 }
 
-type DBIngredientRow = {
+export type DBIngredientRow = {
   id: string
   name: string
   brand?: string | null
@@ -146,12 +146,12 @@ type DBIngredientRow = {
   price_history?: Array<PriceHistoryEntry & { brand?: string | null }> | null
 }
 
-type DBSubRecipeRef = SubRecipeCostRow & {
+export type DBSubRecipeRef = SubRecipeCostRow & {
   name: string
   sub_ingredient_weight_g?: number | null
 }
 
-type DBRecipeIngredientRow = {
+export type DBRecipeIngredientRow = {
   id: string
   recipe_id: string
   ingredient_id?: string | null
@@ -166,7 +166,7 @@ type DBRecipeIngredientRow = {
   sub_recipe?: DBSubRecipeRef[] | DBSubRecipeRef | null
 }
 
-type DBRecipeRow = {
+export type DBRecipeRow = {
   id: string
   tenant_id: string
   name: string
@@ -444,7 +444,7 @@ function buildRecipeRecordFromInput(
   }
 }
 
-function mapRecipeRow(
+export function mapRecipeRow(
   row: DBRecipeRow,
   tenantLaborHourlyRate = 15,
   subRecipeWeights: Record<string, number | null> = {},
@@ -506,12 +506,26 @@ function mapRecipeRow(
       const liveSubRecipeCost =
         mappedSubRecipeCost ?? (!ingredient && subRecipeRef ? computeLiveSubRecipeCost(subRecipeRef) : null)
 
+      // A sub-recipe line with genuinely NOTHING to price it from — no map
+      // entry (map missing/incomplete) and no nested embed to fall back to,
+      // which is always the case on the list path (see refreshRecipes; the
+      // nested `sub_recipe` embed only exists for getRecipeWithIngredients).
+      // calculateIngredientCost already flags this line missing_price since
+      // currentPrice stays null below, but that alone reads the same as any
+      // ordinary "never priced" ingredient — mark it stale too, the same
+      // signal used when a live recalculation falls back to a snapshot, so
+      // it's distinguishable from a merely-unpriced line and never silently
+      // reads as a settled €0.
+      const subRecipeDataMissing =
+        !ingredient && !!item.sub_recipe_id && mappedSubRecipeCost === undefined && !subRecipeRef
+
       const currentPrice = ingredient?.currentPrice ?? liveSubRecipeCost?.costPerUnit ?? null
       const priceUnit =
         ingredient?.priceUnit ?? liveSubRecipeCost?.unit ?? subRecipeRef?.sub_ingredient_unit ?? item.unit
       const subRecipeCostStale =
-        liveSubRecipeCost != null &&
-        (liveSubRecipeCost.source === 'snapshot' || liveSubRecipeCost.source === 'live_incomplete')
+        subRecipeDataMissing ||
+        (liveSubRecipeCost != null &&
+          (liveSubRecipeCost.source === 'snapshot' || liveSubRecipeCost.source === 'live_incomplete'))
 
       const line: RecipeIngredientDraft = {
         id: item.id,
@@ -677,7 +691,7 @@ async function fetchSubRecipeWeights(
  * price_history constrained the same way as the parent query) and, per its
  * existing precedent, no sub-sub-recipe fallback.
  */
-async function fetchSubRecipeCostMap(
+export async function fetchSubRecipeCostMap(
   supabase: ReturnType<typeof createClient>,
   subRecipeIds: string[]
 ): Promise<Map<string, SubRecipeCostResult>> {
@@ -735,8 +749,18 @@ async function fetchSubRecipeCostMap(
     .limit(1, { referencedTable: 'recipe_ingredients.ingredient.price_history' })
 
   if (error) {
-    console.warn('[fetchSubRecipeCostMap] lookup failed:', error.message)
-    return map
+    // Never swallow this into an empty map — an empty map is indistinguishable
+    // from "this tenant has no sub-recipes," and every line referencing one
+    // would silently drop to missing_price/€0 excluded with no error shown.
+    // Throwing lets refreshRecipes' existing catch block surface its `error`
+    // state instead, exactly like the main recipes query's fetchError does.
+    console.error('[fetchSubRecipeCostMap] lookup failed:', {
+      message: error.message,
+      code:    error.code,
+      details: error.details,
+      hint:    error.hint,
+    })
+    throw error
   }
 
   ;(data as unknown as SubRecipeCostRow[] | null)?.forEach((row) => {
@@ -746,7 +770,7 @@ async function fetchSubRecipeCostMap(
   return map
 }
 
-function mapSummary(
+export function mapSummary(
   row: DBRecipeRow,
   laborHourlyRate = 15,
   subRecipeCostMap?: Map<string, SubRecipeCostResult>
