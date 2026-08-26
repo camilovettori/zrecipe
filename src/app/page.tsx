@@ -99,6 +99,13 @@ const STEPS = [
   },
 ]
 
+// Shared with both the numbered step grid and the step-3 photo band below it.
+const STEP_ACCENTS = [
+  'text-primary-600 bg-primary-50 border-primary-100',
+  'text-accent-500 bg-accent-50 border-accent-100',
+  'text-brand-terra bg-brand-terra/10 border-brand-terra/15',
+]
+
 const STARTER_FEATURES = [
   'Up to 25 recipes',
   'Up to 75 ingredients',
@@ -356,23 +363,41 @@ export default function LandingPage() {
 
             <div className="relative mt-12 grid gap-5 sm:grid-cols-3">
               <div className="absolute left-[16.666%] right-[16.666%] top-11 hidden border-t border-dashed border-slate-200 sm:block" />
-              {STEPS.map(({ number, title, description }, index) => {
-                const stepAccent = [
-                  'text-primary-600 bg-primary-50 border-primary-100',
-                  'text-accent-500 bg-accent-50 border-accent-100',
-                  'text-brand-terra bg-brand-terra/10 border-brand-terra/15',
-                ][index]
-
-                return (
+              {STEPS.map(({ number, title, description }, index) => (
                 <div key={number} className="relative rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
-                  <span className={`inline-flex h-20 w-20 items-center justify-center rounded-2xl border font-display text-5xl font-bold leading-none ${stepAccent}`}>
+                  <span className={`inline-flex h-20 w-20 items-center justify-center rounded-2xl border font-display text-5xl font-bold leading-none ${STEP_ACCENTS[index]}`}>
                     {number}
                   </span>
                   <h3 className="mt-3 font-sans text-lg font-semibold text-slate-900">{title}</h3>
                   <p className="mt-2 text-sm leading-relaxed text-slate-600">{description}</p>
                 </div>
-                )
-              })}
+              ))}
+            </div>
+
+            {/* Step 3 spotlight: printing the kitchen card in a real bakery.
+                Image on the left, text on the right — alternating against the
+                "Product Screenshot" band further down the page (text-left,
+                image-right), so the two photo bands create a left-right
+                rhythm rather than repeating the same side twice. */}
+            <div className="mt-12 grid items-center gap-10 lg:grid-cols-2 lg:gap-14">
+              <div className="relative overflow-hidden rounded-2xl shadow-2xl ring-1 ring-white/10">
+                <Image
+                  src="/images/baker-kitchen-card.png"
+                  alt="A baker reading a printed ZRecipe kitchen card at a bakery prep bench"
+                  width={1200}
+                  height={800}
+                  sizes="(min-width: 1024px) 50vw, 100vw"
+                  loading="lazy"
+                  className="w-full"
+                />
+              </div>
+              <div className="text-center lg:text-left">
+                <span className={`inline-flex h-16 w-16 items-center justify-center rounded-2xl border font-display text-3xl font-bold leading-none ${STEP_ACCENTS[2]}`}>
+                  {STEPS[2].number}
+                </span>
+                <h3 className="mt-4 font-display text-2xl font-bold tracking-tight text-slate-900">{STEPS[2].title}</h3>
+                <p className="mt-3 text-base leading-relaxed text-slate-600">{STEPS[2].description}</p>
+              </div>
             </div>
           </Reveal>
         </section>
