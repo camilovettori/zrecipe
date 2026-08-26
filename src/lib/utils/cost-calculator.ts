@@ -31,6 +31,15 @@ export type CostIngredientInput = {
    * reconstruction involved.
    */
   subRecipeCostPerGram?: number | null
+  /**
+   * True when the referenced sub-recipe has volume-measured (ml/L) ingredient
+   * lines that were excluded from its computed weight sum, and no manual
+   * batch weight has been set — i.e. subRecipeCostPerGram is null specifically
+   * because the denominator would otherwise be incomplete, not because the
+   * sub-recipe has no weight data at all. Only used to pick a more actionable
+   * unit_mismatch message; never affects the cost itself.
+   */
+  subRecipeHasSkippedVolumeLines?: boolean
 }
 
 export type CostInputs = {
@@ -174,19 +183,20 @@ export function calculateIngredientCost(item: CostIngredientInput): IngredientCo
       }
     }
 
-    // A weight-based sub-recipe line whose per-gram rate isn't available
-    // (e.g. its live EP weight couldn't be computed) must never fall back to
-    // reconstructing a rate from currentPrice/subRecipeWeightG — that
-    // reconstruction is exactly what silently understated costs before.
-    if (item.subRecipeWeightG != null && item.subRecipeWeightG > 0 && getUnitFamily(item.unit) === 'weight') {
+    // A weight-based sub-recipe line whose per-gram rate isn't available must
+    // never fall back to reconstructing a rate from currentPrice — that
+    // reconstruction is exactly what silently understated costs before. When
+    // the specific reason is skipped volume lines, tell the user what to do
+    // about it instead of a generic mismatch.
+    if (getUnitFamily(item.unit) === 'weight' && item.subRecipeHasSkippedVolumeLines) {
       return {
         id: item.id,
         name: label,
         cost: 0,
         status: 'unit_mismatch',
         isCostComplete: false,
-        message: 'Sub-recipe weight unavailable',
-        warning: `${label}: sub-recipe's per-gram cost could not be computed — cost excluded, needs review`,
+        message: "Set this sub-recipe's batch weight",
+        warning: `${label}: this sub-recipe has volume-measured ingredients, so its batch weight must be set manually — cost excluded, needs review`,
       }
     }
 

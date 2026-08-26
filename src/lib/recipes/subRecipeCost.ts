@@ -1,5 +1,5 @@
 import { calculateCost, type CostIngredientInput } from '@/lib/utils/cost-calculator'
-import { convertUnit, isConvertible } from '@/lib/utils/unit-converter'
+import { convertUnit, isConvertible, getUnitFamily } from '@/lib/utils/unit-converter'
 import { resolveIngredientPrice, type PriceHistoryEntry } from '@/lib/ingredients/resolveIngredientPrice'
 
 // Framework-agnostic on purpose (no React/Supabase client imports) so it can
@@ -24,6 +24,18 @@ export interface SubRecipeCostResult {
    *  can multiply it directly by its own quantity-in-grams with no further
    *  reconstruction. Null when it couldn't be computed — never guessed. */
   costPerGram: number | null
+  /** How weightG (and therefore costPerGram) was resolved:
+   *  'manual' — sub_ingredient_weight_manual_g, always wins when set.
+   *  'computed' — sum of weight-family lines, only trusted when no
+   *    volume-family line was skipped from that sum (see
+   *    hasSkippedVolumeLines) — a partial sum would inflate the rate.
+   *  'unavailable' — neither is usable; costPerGram is null. */
+  weightSource: 'manual' | 'computed' | 'unavailable'
+  /** True when at least one ingredient line is volume-family (ml/L) and was
+   *  therefore excluded from the weight sum — converting it would require an
+   *  unstated density. Lets the UI ask for a manual batch weight specifically,
+   *  instead of a generic "unit mismatch". */
+  hasSkippedVolumeLines: boolean
 }
 
 type Rel<T> = T | T[] | null | undefined
@@ -57,6 +69,9 @@ export interface SubRecipeCostRow {
   id: string
   sub_ingredient_cost_per_unit?: number | null
   sub_ingredient_unit?: string | null
+  /** User-entered EP batch weight (grams), measured on a scale. Always wins
+   *  over the computed sum — see SubRecipeCostResult.weightSource. */
+  sub_ingredient_weight_manual_g?: number | null
   yield_quantity?: number | null
   yield_unit?: string | null
   labor_enabled?: boolean | null
@@ -85,7 +100,12 @@ export function computeLiveSubRecipeCost(row: SubRecipeCostRow | null | undefine
   const fallbackUnit = row?.sub_ingredient_unit ?? null
   const snapshotCost = row?.sub_ingredient_cost_per_unit ?? null
 
-  if (!row) return { costPerUnit: null, unit: null, source: 'unavailable', costPerGram: null }
+  if (!row) {
+    return {
+      costPerUnit: null, unit: null, source: 'unavailable', costPerGram: null,
+      weightSource: 'unavailable', hasSkippedVolumeLines: false,
+    }
+  }
 
   const ingredientRows = Array.isArray(row.recipe_ingredients)
     ? row.recipe_ingredients
@@ -95,8 +115,8 @@ export function computeLiveSubRecipeCost(row: SubRecipeCostRow | null | undefine
 
   if (ingredientRows.length === 0) {
     return snapshotCost != null
-      ? { costPerUnit: snapshotCost, unit: fallbackUnit, source: 'snapshot', costPerGram: null }
-      : { costPerUnit: null, unit: fallbackUnit, source: 'unavailable', costPerGram: null }
+      ? { costPerUnit: snapshotCost, unit: fallbackUnit, source: 'snapshot', costPerGram: null, weightSource: 'unavailable', hasSkippedVolumeLines: false }
+      : { costPerUnit: null, unit: fallbackUnit, source: 'unavailable', costPerGram: null, weightSource: 'unavailable', hasSkippedVolumeLines: false }
   }
 
   const lineInputs: CostIngredientInput[] = ingredientRows.map((line) => {
@@ -121,16 +141,22 @@ export function computeLiveSubRecipeCost(row: SubRecipeCostRow | null | undefine
   // ingredient lines rather than trusting the stored sub_ingredient_weight_g
   // column, which can be missing from nested-join responses when
   // PostgREST's schema cache hasn't picked up that column for this
-  // relationship path yet. Used by the parent recipe to bridge weight-based
-  // usage (e.g. 150g of frosting) against a sub-recipe priced per count unit.
-  const liveWeightG = ingredientRows.reduce((sum, line) => {
+  // relationship path yet. A volume-family line (ml/L) can never be added to
+  // this sum without an unstated density, so it's skipped — but skipping it
+  // also shrinks the denominator, which would inflate costPerGram if the sum
+  // were trusted anyway. hasSkippedVolumeLines flags exactly that case so the
+  // caller falls back to a manual weight (or Needs Review) instead.
+  let liveWeightSumG = 0
+  let hasSkippedVolumeLines = false
+  for (const line of ingredientRows) {
     const qty = Number(line.quantity)
     const unit = line.unit as string
     if (isConvertible(unit, 'g')) {
-      return sum + (convertUnit(qty, unit, 'g') ?? 0)
+      liveWeightSumG += convertUnit(qty, unit, 'g') ?? 0
+    } else if (getUnitFamily(unit) === 'volume') {
+      hasSkippedVolumeLines = true
     }
-    return sum
-  }, 0)
+  }
 
   const laborMode = row.labor_mode === 'time' ? 'time' : 'fixed'
   const overheadMode = row.overhead_mode === 'percent' ? 'percent' : 'fixed'
@@ -152,16 +178,29 @@ export function computeLiveSubRecipeCost(row: SubRecipeCostRow | null | undefine
     yieldUnit: 'unit',
   })
 
+  // Precedence: a manual weight always wins (the user weighed the actual
+  // batch). Otherwise the computed sum is only trusted when nothing was
+  // skipped from it — a partial sum is worse than no denominator at all,
+  // since it silently inflates costPerGram instead of flagging Needs Review.
+  const manualWeightG = row.sub_ingredient_weight_manual_g
+  const hasManualWeight = manualWeightG != null && manualWeightG > 0
+  const weightG = hasManualWeight
+    ? manualWeightG
+    : (!hasSkippedVolumeLines && liveWeightSumG > 0 ? liveWeightSumG : null)
+  const weightSource: SubRecipeCostResult['weightSource'] = hasManualWeight
+    ? 'manual'
+    : (!hasSkippedVolumeLines && liveWeightSumG > 0 ? 'computed' : 'unavailable')
+
   const subIngredientUnit = row.sub_ingredient_unit || 'unit'
   const yieldInSubUnit = convertUnit(Number(row.yield_quantity ?? 0), row.yield_unit ?? 'unit', subIngredientUnit)
-  // costPerGram depends only on totalCost and liveWeightG, not on yield —
+  // costPerGram depends only on totalCost and weightG, not on yield —
   // computable even when yieldInSubUnit is invalid.
-  const costPerGram = liveWeightG > 0 ? costs.totalCost / liveWeightG : null
+  const costPerGram = weightG != null && weightG > 0 ? costs.totalCost / weightG : null
 
   if (!(yieldInSubUnit > 0)) {
     return snapshotCost != null
-      ? { costPerUnit: snapshotCost, unit: fallbackUnit, source: 'snapshot', weightG: liveWeightG > 0 ? liveWeightG : null, costPerGram }
-      : { costPerUnit: null, unit: subIngredientUnit, source: 'unavailable', weightG: liveWeightG > 0 ? liveWeightG : null, costPerGram }
+      ? { costPerUnit: snapshotCost, unit: fallbackUnit, source: 'snapshot', weightG, costPerGram, weightSource, hasSkippedVolumeLines }
+      : { costPerUnit: null, unit: subIngredientUnit, source: 'unavailable', weightG, costPerGram, weightSource, hasSkippedVolumeLines }
   }
 
   const costPerUnit = costs.totalCost / yieldInSubUnit
@@ -169,7 +208,9 @@ export function computeLiveSubRecipeCost(row: SubRecipeCostRow | null | undefine
     costPerUnit,
     unit: subIngredientUnit,
     source: costs.incompleteCost ? 'live_incomplete' : 'live',
-    weightG: liveWeightG > 0 ? liveWeightG : null,
+    weightG,
     costPerGram,
+    weightSource,
+    hasSkippedVolumeLines,
   }
 }

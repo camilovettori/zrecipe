@@ -117,6 +117,7 @@ export async function POST(request: NextRequest) {
       sub_ingredient_unit: body.subIngredientUnit || 'unit',
       sub_ingredient_cost_per_unit: body.subIngredientCostPerUnit ?? null,
       sub_ingredient_weight_g: body.subIngredientWeightG ?? null,
+      sub_ingredient_weight_manual_g: body.subIngredientWeightManualG ?? null,
       storage_instructions: body.storageInstructions ?? null,
     }
 

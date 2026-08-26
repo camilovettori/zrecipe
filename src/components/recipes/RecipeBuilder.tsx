@@ -124,6 +124,7 @@ function createIngredientLine(partial?: Partial<RecipeIngredientDraft>): RecipeI
     subRecipeCostStale: partial?.subRecipeCostStale ?? false,
     subRecipeWeightG: partial?.subRecipeWeightG ?? null,
     subRecipeCostPerGram: partial?.subRecipeCostPerGram ?? null,
+    subRecipeHasSkippedVolumeLines: partial?.subRecipeHasSkippedVolumeLines ?? false,
     lineCost: 0,
   }
   line.lineCost = calculateLineCost(line)
@@ -156,6 +157,7 @@ function blankRecipe(): RecipeEditorData {
     imageUrls: [],
     isSubIngredient: false,
     subIngredientUnit: 'g',
+    subIngredientWeightManualG: null,
     storageInstructions: null,
     instructions: [createStep()],
     ingredients: [],
@@ -188,6 +190,7 @@ function mapRecipeToState(recipe: RecipeRecord): RecipeEditorData {
     imageUrls: recipe.imageUrls ?? (recipe.imageUrl ? [recipe.imageUrl] : []),
     isSubIngredient: recipe.isSubIngredient ?? false,
     subIngredientUnit: recipe.subIngredientUnit ?? 'g',
+    subIngredientWeightManualG: recipe.subIngredientWeightManualG ?? null,
     storageInstructions: recipe.storageInstructions ?? null,
     instructions: recipe.instructions.length > 0 ? recipe.instructions : [createStep()],
     ingredients: recipe.ingredients.length > 0

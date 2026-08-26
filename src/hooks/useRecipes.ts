@@ -42,6 +42,11 @@ export interface RecipeIngredientDraft {
    *  grams. Lets a weight-based line (g/kg) bridge directly to this €/gram
    *  rate instead of hitting a unit mismatch. */
   subRecipeCostPerGram?: number | null
+  /** True when the referenced sub-recipe has volume-measured ingredients that
+   *  were excluded from its weight sum and no manual batch weight is set —
+   *  lets the UI ask for a batch weight specifically instead of a generic
+   *  unit mismatch. */
+  subRecipeHasSkippedVolumeLines?: boolean
 }
 
 export interface RecipeEditorData {
@@ -69,6 +74,12 @@ export interface RecipeEditorData {
   imageUrls: string[]
   isSubIngredient: boolean
   subIngredientUnit: string
+  /** User-entered EP batch weight (grams) of this recipe when used as a
+   *  sub-recipe, measured on a scale. Takes precedence over the computed
+   *  sum of weight-family lines — required when the recipe has
+   *  volume-measured (ml/L) ingredients, since those need an unstated
+   *  density to convert to grams. */
+  subIngredientWeightManualG: number | null
   storageInstructions?: string | null
   instructions: RecipeStepDraft[]
   ingredients: RecipeIngredientDraft[]
@@ -185,6 +196,7 @@ type DBRecipeRow = {
   is_sub_ingredient?: boolean | null
   sub_ingredient_unit?: string | null
   sub_ingredient_cost_per_unit?: number | null
+  sub_ingredient_weight_manual_g?: number | null
   storage_instructions?: string | null
   recipe_ingredients?: DBRecipeIngredientRow[] | DBRecipeIngredientRow | null
   created_at: string
@@ -290,6 +302,7 @@ function ingredientCostInput(item: RecipeIngredientDraft) {
     staleSubRecipeCost: item.subRecipeCostStale ?? false,
     subRecipeWeightG: item.subRecipeWeightG ?? null,
     subRecipeCostPerGram: item.subRecipeCostPerGram ?? null,
+    subRecipeHasSkippedVolumeLines: item.subRecipeHasSkippedVolumeLines ?? false,
   }
 }
 
@@ -422,6 +435,7 @@ function buildRecipeRecordFromInput(
     imageUrls: input.imageUrls,
     isSubIngredient: input.isSubIngredient,
     subIngredientUnit: input.subIngredientUnit,
+    subIngredientWeightManualG: input.subIngredientWeightManualG,
     instructions: input.instructions,
     ingredients,
     createdAt,
@@ -511,6 +525,7 @@ function mapRecipeRow(
         // Only computable from a live recalculation (see computeLiveSubRecipeCost)
         // — no persisted fallback exists, since it's derived, not stored.
         subRecipeCostPerGram: liveSubRecipeCost?.costPerGram ?? null,
+        subRecipeHasSkippedVolumeLines: liveSubRecipeCost?.hasSkippedVolumeLines ?? false,
       }
       line.lineCost = calculateLineCost(line)
       return line
@@ -577,6 +592,7 @@ function mapRecipeRow(
     imageUrls: row.image_urls?.length ? row.image_urls : (row.image_url ? [row.image_url] : []),
     isSubIngredient: row.is_sub_ingredient ?? false,
     subIngredientUnit: row.sub_ingredient_unit ?? 'g',
+    subIngredientWeightManualG: row.sub_ingredient_weight_manual_g ?? null,
     storageInstructions: row.storage_instructions ?? null,
     instructions,
     ingredients,
@@ -707,6 +723,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
             is_sub_ingredient,
             sub_ingredient_unit,
             sub_ingredient_cost_per_unit,
+            sub_ingredient_weight_manual_g,
             recipe_ingredients!recipe_ingredients_recipe_id_fkey (
               id,
               recipe_id,
@@ -734,6 +751,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
                 sub_ingredient_cost_per_unit,
                 sub_ingredient_unit,
                 sub_ingredient_weight_g,
+                sub_ingredient_weight_manual_g,
                 yield_quantity,
                 yield_unit,
                 labor_enabled,
@@ -840,6 +858,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           is_sub_ingredient,
           sub_ingredient_unit,
           sub_ingredient_cost_per_unit,
+          sub_ingredient_weight_manual_g,
           storage_instructions,
           recipe_ingredients!recipe_ingredients_recipe_id_fkey (
             id,
@@ -868,6 +887,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
               sub_ingredient_cost_per_unit,
               sub_ingredient_unit,
               sub_ingredient_weight_g,
+              sub_ingredient_weight_manual_g,
               yield_quantity,
               yield_unit,
               labor_enabled,
@@ -1016,6 +1036,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
           subIngredientUnit,
           subIngredientCostPerUnit,
           subIngredientWeightG,
+          subIngredientWeightManualG: input.subIngredientWeightManualG ?? null,
           storageInstructions: input.storageInstructions ?? null,
           ingredients: input.ingredients,
         }),
