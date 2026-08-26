@@ -65,7 +65,7 @@ import { YieldFactorPopover } from './YieldFactorPopover'
 import { YieldFactorModal } from './YieldFactorModal'
 import { findYieldFactor } from '@/lib/data/yield-factors'
 import { compressImage } from '@/lib/utils/image-compress'
-import { isConvertible } from '@/lib/utils/unit-converter'
+import { isConvertible, convertUnit, getUnitFamily } from '@/lib/utils/unit-converter'
 import { normalizeBrand } from '@/lib/utils/normalizeBrand'
 import CostBreakdown from './CostBreakdown'
 import LaborConfigModal from './LaborConfigModal'
@@ -611,6 +611,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const [newIngredientError, setNewIngredientError] = useState<string | null>(null)
   const [noteModalIngredientId, setNoteModalIngredientId] = useState<string | null>(null)
   const [substituteIngredientId, setSubstituteIngredientId] = useState<string | null>(null)
+  const [batchWeightError, setBatchWeightError] = useState<string | null>(null)
   const [assetOrigin, setAssetOrigin] = useState('')
 
   useEffect(() => { setAssetOrigin(window.location.origin) }, [])
@@ -866,6 +867,24 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
   // Keep ref in sync so autosave always reads fresh computed ingredients
   useEffect(() => { computedIngredientsRef.current = computedIngredients }, [computedIngredients])
+
+  // Mirrors useRecipes.ts's subIngredientWeightG save-time computation exactly
+  // (weight-family lines only, no yield-percent adjustment) so the helper text
+  // shown here always matches the number that will actually be saved and used
+  // for weight-based sub-recipe costing.
+  const subRecipeWeightInfo = useMemo(() => {
+    let weighableG = 0
+    let hasVolumeLines = false
+    for (const ing of recipe.ingredients) {
+      const family = getUnitFamily(ing.unit)
+      if (family === 'weight') {
+        weighableG += convertUnit(ing.quantity, ing.unit, 'g')
+      } else if (family === 'volume') {
+        hasVolumeLines = true
+      }
+    }
+    return { hasVolumeLines, computedWeightG: weighableG > 0 ? weighableG : null }
+  }, [recipe.ingredients])
 
   // Recompute allergen summary whenever the ingredient list changes
   useEffect(() => {
@@ -1856,6 +1875,15 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
           className="flex-1 min-w-0 bg-transparent text-base font-bold text-slate-900 outline-none placeholder:font-normal placeholder:text-slate-400"
         />
 
+        {recipe.isSubIngredient && subRecipeWeightInfo.hasVolumeLines && !(recipe.subIngredientWeightManualG != null && recipe.subIngredientWeightManualG > 0) && (
+          <span
+            className="hidden items-center gap-1 text-xs text-amber-600 sm:flex"
+            title="This sub-recipe has volume-measured ingredients — set a batch weight so recipes using it by weight can be costed."
+          >
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Set batch weight
+          </span>
+        )}
         {saveStatus === 'dirty' && !saving && (
           <span className="hidden items-center gap-1 text-xs text-amber-600 sm:flex">
             <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
@@ -2335,6 +2363,69 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                 <span className="text-xs text-slate-400">(use as an ingredient in other recipes)</span>
               </label>
             </div>
+
+            {recipe.isSubIngredient && (
+              <div className="mt-3 pl-6">
+                <label
+                  htmlFor="sub-recipe-batch-weight"
+                  className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
+                >
+                  Batch weight <span className="font-normal normal-case text-slate-400">(optional)</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="sub-recipe-batch-weight"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={recipe.subIngredientWeightManualG ?? ''}
+                    placeholder={
+                      subRecipeWeightInfo.computedWeightG != null
+                        ? String(Math.round(subRecipeWeightInfo.computedWeightG))
+                        : undefined
+                    }
+                    onChange={(e) => {
+                      const raw = e.target.value
+                      if (raw === '') {
+                        setBatchWeightError(null)
+                        updateRecipeField('subIngredientWeightManualG', null)
+                        return
+                      }
+                      const v = parseFloat(raw)
+                      if (isNaN(v) || v <= 0) {
+                        setBatchWeightError('Enter a weight greater than 0')
+                        return
+                      }
+                      setBatchWeightError(null)
+                      updateRecipeField('subIngredientWeightManualG', v)
+                    }}
+                    className={cn(
+                      'w-28 rounded-xl border bg-white px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500',
+                      batchWeightError ? 'border-red-300' : 'border-slate-200'
+                    )}
+                  />
+                  <span className="text-sm text-slate-500">g</span>
+                </div>
+
+                {batchWeightError && (
+                  <p className="mt-1 text-xs text-red-500">{batchWeightError}</p>
+                )}
+
+                {subRecipeWeightInfo.hasVolumeLines ? (
+                  <p className="mt-1.5 flex items-start gap-1 text-xs text-amber-600">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      This recipe has ingredients measured in ml. Weigh the finished batch and enter it here —
+                      otherwise recipes using this one by weight can&apos;t be costed.
+                    </span>
+                  </p>
+                ) : subRecipeWeightInfo.computedWeightG != null ? (
+                  <p className="mt-1.5 text-xs text-slate-400">
+                    Leave blank to use the calculated weight: {Math.round(subRecipeWeightInfo.computedWeightG)}g
+                  </p>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -2501,11 +2592,31 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                     return sum + base / yf
                   }, 0)
                   if (epG === 0) return null
+                  // epG above sums weight (g/kg) and volume (ml/L) lines together
+                  // (a density=1 simplification), but costing for sub-recipe weight
+                  // usage only ever uses the weight-family portion (see
+                  // useRecipes.ts subIngredientWeightG) — split it out here so the
+                  // two numbers stop silently disagreeing.
+                  const volumeMl = computedIngredients.reduce((sum, ing) => {
+                    if (ing.unit !== 'ml' && ing.unit !== 'L') return sum
+                    const base = ing.unit === 'L' ? ing.quantity * 1000 : ing.quantity
+                    return sum + base * ((ing.yield_percent ?? 100) / 100)
+                  }, 0)
+                  const weighableG = epG - volumeMl
+                  const formatWeight = (g: number) => g >= 1000 ? `${(g / 1000).toFixed(2)}kg` : `${Math.round(g)}g`
+                  const formatVolume = (ml: number) => ml >= 1000 ? `${(ml / 1000).toFixed(2)}L` : `${Math.round(ml)}ml`
                   return (
                     <div className="mt-2 space-y-0.5 text-xs text-slate-400">
                       <div className="flex items-center justify-between">
                         <span>Recipe weight (EP)</span>
-                        <span>{epG >= 1000 ? `${(epG / 1000).toFixed(2)}kg` : `${Math.round(epG)}g`}</span>
+                        <span>
+                          {formatWeight(epG)}
+                          {volumeMl > 0 && (
+                            <span className="ml-1 text-slate-400">
+                              ({formatWeight(weighableG)} weighable + {formatVolume(volumeMl)})
+                            </span>
+                          )}
+                        </span>
                       </div>
                       {apG > epG + 0.5 && (
                         <div className="flex items-center justify-between">
