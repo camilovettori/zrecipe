@@ -33,6 +33,10 @@ export const DEFAULT_KITCHEN_CARD_OPTIONS: KitchenCardOptions = {
 const STORAGE_KEY = 'zrecipe:kitchenCardOptions'
 const LANDSCAPE_PHOTO_MAX_HEIGHT_MM = 132
 const PORTRAIT_PHOTO_MAX_HEIGHT_MM = 72
+// Extra @page top margin reserved, on every physical page, for the fixed
+// repeated header shown when a card spills onto a second page — see
+// buildKitchenCardHtml's pageMargin/repeatHeaderStyle.
+const REPEAT_HEADER_RESERVED_MM = 14
 
 export function loadKitchenCardOptions(): KitchenCardOptions {
   if (typeof window === 'undefined') return DEFAULT_KITCHEN_CARD_OPTIONS
@@ -222,9 +226,11 @@ function notesBox(text: string): string {
 //
 // Hierarchy is preserved in every tier (title > section label > body >
 // secondary/notes text).
-type SizeTier = 'spacious' | 'normal' | 'dense'
+export type SizeTier = 'spacious' | 'normal' | 'dense'
 
-interface TierSizes {
+export const TIER_ORDER: SizeTier[] = ['spacious', 'normal', 'dense']
+
+export interface TierSizes {
   title: number
   badge: number
   sectionTitle: number
@@ -243,7 +249,7 @@ interface TierSizes {
   sectionMarginTop: number
 }
 
-const SIZE_TIERS: Record<SizeTier, TierSizes> = {
+export const SIZE_TIERS: Record<SizeTier, TierSizes> = {
   // Few sections active, lots of empty space — go big and bold.
   spacious: {
     title: 42, badge: 14, sectionTitle: 22, tableHeader: 13,
@@ -303,20 +309,91 @@ function estimateContentScore(data: KitchenCardData, options: KitchenCardOptions
   return score
 }
 
-function pickSizeTier(data: KitchenCardData, options: KitchenCardOptions): SizeTier {
+// estimateContentScore/pickSizeTier remain the STARTING GUESS only — a cheap
+// first paint the modal shows immediately. The modal then measures the
+// actual rendered height in a hidden iframe and, if this guess turns out to
+// be wrong (the actual bug: an "estimate" was standing in for pixels and
+// occasionally the DOM disagreed), steps down through the tiers, then a
+// continuous scale within 'dense', and finally allows a second page — see
+// ResolvedKitchenCardSizing below. estimateContentScore/pickSizeTier are
+// never, by themselves, allowed to decide what gets clipped.
+export function pickSizeTier(data: KitchenCardData, options: KitchenCardOptions): SizeTier {
   const score = estimateContentScore(data, options)
   if (score <= 16) return 'spacious'
   if (score <= 34) return 'normal'
   return 'dense'
 }
 
-function buildBaseStyle(sizes: TierSizes): string {
+// ── Measured sizing: floor, scale, pagination ──────────────────────────────
+//
+// This is a bench document read under poor light with flour on it —
+// illegible is not "fits". Body text (the fields a chef actually reads step
+// by step) may never render below this floor; if content still doesn't fit
+// at the floor, the card gets a second page instead of shrinking further or
+// clipping.
+export const BODY_FONT_FLOOR_PX = 10
+
+// The exact fields the floor protects. "Body text" per the task: the lines a
+// chef follows one at a time. "Protected" adds title, allergen text, and the
+// meta bar — none of these may become the smallest thing on the card, so
+// they share the same floor even though they aren't literally "the recipe
+// steps." tableHeader/sectionTitle/notesTitle/allergenTitle/ingNotes are
+// section-label chrome, not step-by-step content, and are free to shrink
+// further — they're already smaller than body text in every tier and staying
+// legible-but-small there doesn't put the chef at risk of missing a step or
+// an allergen.
+const BODY_FLOOR_FIELDS: Array<keyof TierSizes> = [
+  'methodLi', 'ingName', 'notesText', 'notesListLi', 'shoppingName',
+]
+const PROTECTED_FLOOR_FIELDS: Array<keyof TierSizes> = [
+  ...BODY_FLOOR_FIELDS, 'title', 'allergenContains', 'allergenMay', 'badge',
+]
+
+// The smallest scale that can be applied to the dense tier before its
+// smallest body-floor field would drop below BODY_FONT_FLOOR_PX. Below this,
+// the modal must paginate instead of continuing to shrink.
+export const DENSE_MIN_SCALE =
+  BODY_FONT_FLOOR_PX / Math.min(...BODY_FLOOR_FIELDS.map((field) => SIZE_TIERS.dense[field]))
+
+// Fields that are pure numeric sizes (px or unitless multipliers that scale
+// proportionally with everything else). methodLineHeight is a ratio, not a
+// pixel size — scaling it down along with font-size would tighten line
+// spacing right when text is already smallest, hurting readability for no
+// space win worth mentioning, so it's left untouched.
+function scaleTierSizes(base: TierSizes, scale: number): TierSizes {
+  if (scale === 1) return base
+  const scaled = { ...base } as TierSizes
+  for (const key of Object.keys(base) as Array<keyof TierSizes>) {
+    if (key === 'methodLineHeight') continue
+    scaled[key] = base[key] * scale
+  }
+  for (const field of PROTECTED_FLOOR_FIELDS) {
+    scaled[field] = Math.max(scaled[field], BODY_FONT_FLOOR_PX)
+  }
+  return scaled
+}
+
+// The result of the modal's measure-then-decide loop (see
+// KitchenCardOptionsModal.tsx). Omitting this argument to buildKitchenCardHtml
+// reproduces exactly today's behaviour (heuristic tier, scale 1, one page) —
+// callers that don't measure get the old best-guess output unchanged.
+export interface ResolvedKitchenCardSizing {
+  tier: SizeTier
+  /** 1 = tier's sizes unscaled. Only meaningful below 1 for tier === 'dense'
+   *  — see DENSE_MIN_SCALE. */
+  scale: number
+  /** true => allow content to flow onto a second printed page instead of
+   *  being clipped or shrunk past the floor. */
+  paginate: boolean
+}
+
+function buildBaseStyle(sizes: TierSizes, paginate: boolean): string {
   const sectionMarginBottom = Math.round(sizes.sectionMarginTop * 0.43)
   return `
   * { margin:0; padding:0; box-sizing:border-box; }
   html, body { height:100%; }
   body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; color:#1e293b; }
-  .page { padding:28px; display:flex; flex-direction:column; overflow:hidden; }
+  .page { padding:28px; display:flex; flex-direction:column; ${paginate ? '' : 'overflow:hidden;'} }
   .header { display:flex; justify-content:space-between; align-items:flex-start; flex-shrink:0; border-bottom:3px solid #059669; padding-bottom:14px; margin-bottom:16px; }
   .title { font-size:${sizes.title}px; font-weight:800; line-height:1.15; }
   .meta { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
@@ -335,7 +412,7 @@ function buildBaseStyle(sizes: TierSizes): string {
   .ing-notes { font-size:${sizes.ingNotes}px; color:#64748b; font-style:italic; }
   .ing-qty { text-align:right; font-weight:600; white-space:nowrap; }
   ol.method { list-style:none; padding:0; }
-  ol.method li { font-size:${sizes.methodLi}px; line-height:${sizes.methodLineHeight}; margin-bottom:7px; }
+  ol.method li { font-size:${sizes.methodLi}px; line-height:${sizes.methodLineHeight}; margin-bottom:7px; break-inside:avoid; page-break-inside:avoid; }
   ul.notes-list { list-style:none; padding:0; margin:0; }
   ul.notes-list li { position:relative; padding-left:14px; font-size:${sizes.notesListLi}px; font-weight:600; color:#1e293b; margin-bottom:7px; line-height:1.4; }
   ul.notes-list li::before { content:'•'; position:absolute; left:0; color:#059669; font-weight:700; }
@@ -363,11 +440,14 @@ export function buildKitchenCardHtml(
   data: KitchenCardData,
   options: KitchenCardOptions,
   logoUrl: string,
-  isCustomLogo = false
+  isCustomLogo = false,
+  sizingOverride?: ResolvedKitchenCardSizing
 ): string {
   const images = data.imageUrls.filter(Boolean).slice(0, 8)
-  const sizeTier = pickSizeTier(data, options)
-  const baseStyle = buildBaseStyle(SIZE_TIERS[sizeTier])
+  const sizeTier = sizingOverride?.tier ?? pickSizeTier(data, options)
+  const scale = sizingOverride?.scale ?? 1
+  const paginate = sizingOverride?.paginate ?? false
+  const baseStyle = buildBaseStyle(scaleTierSizes(SIZE_TIERS[sizeTier], scale), paginate)
   const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
   const yieldUnitTrimmed = (data.yieldUnit ?? '').trim()
   const isGenericUnit = !yieldUnitTrimmed || ['unit', 'units'].includes(yieldUnitTrimmed.toLowerCase())
@@ -399,6 +479,17 @@ export function buildKitchenCardHtml(
     <span>Recipe: ${esc(data.name)} &middot; ${today}</span>
     <span>www.zrecipe.ie — food costing software</span>
   </div>`
+
+  // Only rendered when paginate — a compact bar (name + yield), NOT tier-sized,
+  // positioned fixed within an enlarged @page top margin (see pageMargin
+  // below) so a print engine repeats it on every physical page, including a
+  // detached page 2. @page margins apply per-page by definition, which is
+  // what makes this reliable without measuring anything — a manual in-flow
+  // spacer would only reserve room on page 1, not on however many pages the
+  // content actually flows onto.
+  const pageRepeatHeader = paginate
+    ? `<div class="page-repeat-header"><span>${esc(data.name)}</span><span>${esc(yieldBadge)}</span></div>`
+    : ''
 
   let bodyHtml: string
 
@@ -438,15 +529,35 @@ export function buildKitchenCardHtml(
 
   const pageSize = options.orientation === 'landscape' ? 'A4 landscape' : 'A4'
   // A4 minus the 15 mm @page margins: 267 × 180 mm landscape,
-  // 180 × 267 mm portrait. A fixed frame keeps the footer on page one.
+  // 180 × 267 mm portrait. A fixed frame keeps the footer on page one when
+  // everything fits. When paginate is true, the same selectors instead drop
+  // the fixed/max height and overflow:hidden so content can flow past one
+  // physical page — overflow:hidden must NEVER be the thing that decides
+  // what the chef reads.
   const pageFrame = options.orientation === 'landscape'
-    ? `.page { width:267mm; height:180mm; min-height:180mm; max-height:180mm; }
-       .layout { min-height:0; overflow:hidden; break-inside:avoid; page-break-inside:avoid; }`
-    : `.page { width:180mm; height:267mm; min-height:267mm; max-height:267mm; }
-       .portrait-content { flex:1; min-height:0; overflow:hidden; break-inside:avoid; page-break-inside:avoid; }`
+    ? (paginate
+        ? `.page { width:267mm; height:auto; min-height:180mm; max-height:none; overflow:visible; }
+           .layout { min-height:0; overflow:visible; }`
+        : `.page { width:267mm; height:180mm; min-height:180mm; max-height:180mm; }
+           .layout { min-height:0; overflow:hidden; break-inside:avoid; page-break-inside:avoid; }`)
+    : (paginate
+        ? `.page { width:180mm; height:auto; min-height:267mm; max-height:none; overflow:visible; }
+           .portrait-content { flex:1; min-height:0; overflow:visible; }`
+        : `.page { width:180mm; height:267mm; min-height:267mm; max-height:267mm; }
+           .portrait-content { flex:1; min-height:0; overflow:hidden; break-inside:avoid; page-break-inside:avoid; }`)
   const photosColWidth = options.orientation === 'landscape'
     ? `.photos-col { width:42%; height:100%; max-height:${LANDSCAPE_PHOTO_MAX_HEIGHT_MM}mm; min-height:0; flex-shrink:0; align-self:stretch; display:flex; overflow:hidden; break-inside:avoid; page-break-inside:avoid; }
-       .content-col { flex:1; min-width:0; min-height:0; overflow:hidden; }`
+       .content-col { flex:1; min-width:0; min-height:0; overflow:${paginate ? 'visible' : 'hidden'}; }`
+    : ''
+  // A print engine repeats @page margins on every physical page, which is
+  // what reserves room for .page-repeat-header on a detached page 2 without
+  // needing to know where the browser will actually put the break.
+  const pageMargin = paginate ? `${15 + REPEAT_HEADER_RESERVED_MM}mm 15mm 15mm 15mm` : '15mm'
+  const repeatHeaderStyle = paginate
+    ? `.page-repeat-header { display:none; }
+       @media print {
+         .page-repeat-header { display:flex; position:fixed; top:8mm; left:15mm; right:15mm; align-items:center; justify-content:space-between; gap:12px; padding-bottom:6px; border-bottom:1px solid #e2e8f0; font-size:11px; font-weight:700; color:#059669; }
+       }`
     : ''
 
   return `<!DOCTYPE html>
@@ -455,17 +566,19 @@ export function buildKitchenCardHtml(
   <meta charset="utf-8" />
   <title>${esc(data.name)}${data.batchLabel ? ` — ${esc(data.batchLabel)}` : ''} — Kitchen Card</title>
   <style>
-    @page { size: ${pageSize}; margin: 15mm; }
+    @page { size: ${pageSize}; margin: ${pageMargin}; }
     ${baseStyle}
     ${pageFrame}
     ${photosColWidth}
+    ${repeatHeaderStyle}
     @media print {
-      html, body { width:100%; height:auto; overflow:hidden; }
-      .page { break-after:avoid; page-break-after:avoid; }
+      html, body { width:100%; height:auto; ${paginate ? '' : 'overflow:hidden;'} }
+      .page { ${paginate ? '' : 'break-after:avoid; page-break-after:avoid;'} }
     }
   </style>
 </head>
 <body>
+  ${pageRepeatHeader}
   ${bodyHtml}
   <button class="print-btn no-print" onclick="window.print()">🖨 Print</button>
 </body>

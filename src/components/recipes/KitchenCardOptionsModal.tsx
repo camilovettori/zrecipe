@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
 import { useSubscription } from '@/hooks/useSubscription'
@@ -9,14 +9,27 @@ import {
   buildKitchenCardHtml,
   loadKitchenCardOptions,
   saveKitchenCardOptions,
+  pickSizeTier,
+  TIER_ORDER,
+  DENSE_MIN_SCALE,
   type KitchenCardData,
   type KitchenCardOptions,
   type KitchenCardOrientation,
+  type ResolvedKitchenCardSizing,
+  type SizeTier,
 } from '@/lib/print/kitchenCard'
 import { cn } from '@/lib/utils'
 
 const MM_TO_PX = 3.7795275591
 const PREVIEW_WIDTH = 760
+// Binary-search steps for the continuous scale within the dense tier — each
+// step is one hidden-iframe render+measure round trip. 5 steps narrows the
+// [DENSE_MIN_SCALE, 1) range to ~0.006 of scale, far finer than a visible
+// font-size difference, without piling up render round trips.
+const SCALE_SEARCH_STEPS = 5
+// scrollHeight/clientHeight can disagree by a sub-pixel on some engines even
+// when content visually fits — this tolerance avoids a false "overflow".
+const FIT_TOLERANCE_PX = 1
 
 const INCLUDE_TOGGLES: Array<{ key: keyof KitchenCardOptions; label: string }> = [
   { key: 'includeMetaBar', label: 'Recipe info bar' },
@@ -28,6 +41,130 @@ const INCLUDE_TOGGLES: Array<{ key: keyof KitchenCardOptions; label: string }> =
   { key: 'includeAllergens', label: 'Allergens' },
   { key: 'includeShoppingList', label: 'Shopping list' },
 ]
+
+type FitOutcome = 'fits' | 'shrunk' | 'twoPages'
+
+interface ResolvedFit {
+  html: string
+  outcome: FitOutcome
+}
+
+// Toggles worth naming when a card needs a second page — deliberately
+// excludes Method and Ingredients, since suggesting a chef turn those off
+// would defeat the point of a kitchen card. Ordered by rough size impact:
+// a full duplicate ingredient list, then per-ingredient note text, then
+// photos (portrait only — in landscape they live in their own column and
+// never compete with .content-col for space), then the free-text notes box.
+function suggestReductionToggles(
+  data: KitchenCardData,
+  options: KitchenCardOptions
+): string[] {
+  const candidates: Array<[weight: number, label: string]> = []
+  if (options.includeShoppingList && data.ingredients.length > 0) {
+    candidates.push([data.ingredients.length, 'Shopping list'])
+  }
+  if (options.includeIngredientNotes) {
+    const noted = data.ingredients.filter((ing) => ing.notes.trim()).length
+    if (noted > 0) candidates.push([noted, 'Ingredient notes'])
+  }
+  if (options.includePhotos && options.orientation === 'portrait' && data.imageUrls.filter(Boolean).length > 0) {
+    candidates.push([3, 'Photos'])
+  }
+  if (options.includeNotes && data.description.trim()) {
+    candidates.push([data.description.length / 40, 'Recipe Notes'])
+  }
+  return candidates
+    .sort((a, b) => b[0] - a[0])
+    .slice(0, 2)
+    .map(([, label]) => label)
+}
+
+function waitForIframeLoad(iframe: HTMLIFrameElement): Promise<void> {
+  return new Promise((resolve) => {
+    iframe.onload = () => resolve()
+  })
+}
+
+// Renders `html` into the hidden measuring iframe and reports whether the
+// content fits within one page. Measures the same element buildKitchenCardHtml
+// clips (.content-col for landscape, .portrait-content for portrait):
+// scrollHeight always reports the element's true, unclipped content height
+// regardless of its own overflow/height CSS, so this works whether or not
+// the candidate HTML happens to already have overflow:hidden applied.
+// Defensive fallback: if contentDocument is ever unreadable (it shouldn't be
+// — srcdoc content is same-origin to the parent per spec), treat it as
+// fitting rather than silently forcing every card down to the smallest tier.
+async function measureFits(
+  iframe: HTMLIFrameElement,
+  html: string,
+  orientation: KitchenCardOrientation
+): Promise<boolean> {
+  const loaded = waitForIframeLoad(iframe)
+  iframe.srcdoc = html
+  await loaded
+  const doc = iframe.contentDocument
+  if (!doc) return true
+  const selector = orientation === 'landscape' ? '.content-col' : '.portrait-content'
+  const el = doc.querySelector(selector) as HTMLElement | null
+  if (!el) return true
+  return el.scrollHeight <= el.clientHeight + FIT_TOLERANCE_PX
+}
+
+// The measure-then-decide loop: start from the existing heuristic tier (kept
+// as the starting guess, not thrown away), step down through the remaining
+// tiers if it overflows, then a continuous scale within 'dense' down to the
+// floor, and only then allow a second page. Every candidate is actually
+// rendered and measured in the hidden iframe — never assumed.
+async function resolveKitchenCardFit(
+  data: KitchenCardData,
+  options: KitchenCardOptions,
+  logoUrl: string,
+  isCustomLogo: boolean,
+  measureIframe: HTMLIFrameElement
+): Promise<ResolvedFit> {
+  const startTier = pickSizeTier(data, options)
+  const startIdx = TIER_ORDER.indexOf(startTier)
+
+  for (let i = startIdx; i < TIER_ORDER.length; i++) {
+    const tier: SizeTier = TIER_ORDER[i]
+    const sizing: ResolvedKitchenCardSizing = { tier, scale: 1, paginate: false }
+    const html = buildKitchenCardHtml(data, options, logoUrl, isCustomLogo, sizing)
+    if (await measureFits(measureIframe, html, options.orientation)) {
+      return { html, outcome: tier === startTier ? 'fits' : 'shrunk' }
+    }
+  }
+
+  // Dense at scale 1 still overflowed. Check the floor first: if even the
+  // smallest legible size doesn't fit, no scale between will either (content
+  // height is monotonic in font scale), so there's no point binary-searching.
+  const floorSizing: ResolvedKitchenCardSizing = { tier: 'dense', scale: DENSE_MIN_SCALE, paginate: false }
+  const floorHtml = buildKitchenCardHtml(data, options, logoUrl, isCustomLogo, floorSizing)
+  const floorFits = await measureFits(measureIframe, floorHtml, options.orientation)
+
+  if (!floorFits) {
+    const sizing: ResolvedKitchenCardSizing = { tier: 'dense', scale: DENSE_MIN_SCALE, paginate: true }
+    const html = buildKitchenCardHtml(data, options, logoUrl, isCustomLogo, sizing)
+    return { html, outcome: 'twoPages' }
+  }
+
+  // Binary search for the largest scale in (DENSE_MIN_SCALE, 1) that still
+  // fits — the floor is known to fit, scale 1 is known not to.
+  let lo = DENSE_MIN_SCALE
+  let hi = 1
+  for (let step = 0; step < SCALE_SEARCH_STEPS; step++) {
+    const mid = (lo + hi) / 2
+    const sizing: ResolvedKitchenCardSizing = { tier: 'dense', scale: mid, paginate: false }
+    const html = buildKitchenCardHtml(data, options, logoUrl, isCustomLogo, sizing)
+    if (await measureFits(measureIframe, html, options.orientation)) {
+      lo = mid
+    } else {
+      hi = mid
+    }
+  }
+
+  const sizing: ResolvedKitchenCardSizing = { tier: 'dense', scale: lo, paginate: false }
+  return { html: buildKitchenCardHtml(data, options, logoUrl, isCustomLogo, sizing), outcome: 'shrunk' }
+}
 
 export default function KitchenCardOptionsModal({
   open,
@@ -42,6 +179,7 @@ export default function KitchenCardOptionsModal({
 }) {
   const [options, setOptions] = useState<KitchenCardOptions>(DEFAULT_KITCHEN_CARD_OPTIONS)
   const { hasBrandingRights, customLogoUrl } = useSubscription()
+  const measureIframeRef = useRef<HTMLIFrameElement>(null)
 
   useEffect(() => {
     if (open) setOptions(loadKitchenCardOptions())
@@ -53,10 +191,35 @@ export default function KitchenCardOptionsModal({
   const isCustomLogo = hasBrandingRights && !!customLogoUrl
   const resolvedLogoUrl = hasBrandingRights && customLogoUrl ? customLogoUrl : logoUrl
 
-  const html = useMemo(
-    () => buildKitchenCardHtml(data, options, resolvedLogoUrl, isCustomLogo),
-    [data, options, resolvedLogoUrl, isCustomLogo]
-  )
+  // Cheap synchronous first paint using today's heuristic (no override) — the
+  // measured/resolved result below replaces this once it's ready, so there's
+  // never a blank preview while the hidden iframe does its render+measure
+  // round trips. In the common case where the heuristic guess was already
+  // right, `resolved.html` ends up byte-identical to this anyway.
+  const [resolved, setResolved] = useState<ResolvedFit>(() => ({
+    html: buildKitchenCardHtml(data, options, resolvedLogoUrl, isCustomLogo),
+    outcome: 'fits',
+  }))
+  const [resolving, setResolving] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    const measureIframe = measureIframeRef.current
+    if (!measureIframe) return
+
+    let cancelled = false
+    setResolving(true)
+    resolveKitchenCardFit(data, options, resolvedLogoUrl, isCustomLogo, measureIframe).then((result) => {
+      if (cancelled) return
+      setResolved(result)
+      setResolving(false)
+    })
+
+    return () => { cancelled = true }
+  }, [open, data, options, resolvedLogoUrl, isCustomLogo])
+
+  const html = resolved.html
+  const fitOutcome = resolved.outcome
 
   const pageWidthMm = options.orientation === 'landscape' ? 297 : 210
   const pageHeightMm = options.orientation === 'landscape' ? 210 : 297
@@ -78,6 +241,17 @@ export default function KitchenCardOptionsModal({
     printWindow.document.close()
     onClose()
   }, [options, html, onClose])
+
+  const fitMessage = fitOutcome === 'twoPages'
+    ? (() => {
+        const suggestions = suggestReductionToggles(data, options)
+        return suggestions.length > 0
+          ? `This card needs 2 pages — turn off ${suggestions.join(' or ')} to fit one`
+          : 'This card needs 2 pages to fit everything'
+      })()
+    : fitOutcome === 'shrunk'
+      ? 'Text reduced to fit one page'
+      : null
 
   return (
     <Dialog.Root open={open} onOpenChange={(next) => !next && onClose()}>
@@ -179,8 +353,40 @@ export default function KitchenCardOptionsModal({
             </div>
           </div>
 
+          {/* Hidden off-screen measuring instrument — same page pixel size as
+              the real preview, used only to render candidate sizings and read
+              their true scrollHeight. Never shown to the user. */}
+          <iframe
+            ref={measureIframeRef}
+            title="Kitchen Card fit measurement"
+            aria-hidden="true"
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: '-99999px',
+              width: pageWidthPx,
+              height: pageHeightPx,
+              border: 'none',
+              visibility: 'hidden',
+            }}
+          />
+
           <div className="flex items-center justify-between gap-3 border-t border-slate-100 p-4">
-            <p className="text-xs text-slate-400">Remembers your last choices</p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-slate-400">Remembers your last choices</p>
+              {fitMessage && (
+                <span
+                  className={cn(
+                    'rounded-full px-2.5 py-1 text-xs font-medium',
+                    fitOutcome === 'twoPages'
+                      ? 'bg-amber-50 text-amber-700'
+                      : 'bg-slate-100 text-slate-500'
+                  )}
+                >
+                  {fitMessage}
+                </span>
+              )}
+            </div>
             <div className="flex gap-2">
               <button
                 type="button"
@@ -192,9 +398,10 @@ export default function KitchenCardOptionsModal({
               <button
                 type="button"
                 onClick={handlePrint}
-                className="rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
+                disabled={resolving}
+                className="rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Print
+                {resolving ? 'Checking fit…' : 'Print'}
               </button>
             </div>
           </div>
