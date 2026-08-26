@@ -8,7 +8,7 @@ import { type IngredientLookup } from '@/hooks/useInvoices'
 import { resolveTenantId } from '@/hooks/useTenant'
 import { type IngredientAllergen, type AllergenStatus } from '@/lib/allergens'
 import { resolveIngredientPrice, type PriceHistoryEntry } from '@/lib/ingredients/resolveIngredientPrice'
-import { computeLiveSubRecipeCost, type SubRecipeCostRow } from '@/lib/recipes/subRecipeCost'
+import { computeLiveSubRecipeCost, type SubRecipeCostRow, type SubRecipeCostResult } from '@/lib/recipes/subRecipeCost'
 
 export interface RecipeStepDraft {
   id: string
@@ -447,7 +447,17 @@ function buildRecipeRecordFromInput(
 function mapRecipeRow(
   row: DBRecipeRow,
   tenantLaborHourlyRate = 15,
-  subRecipeWeights: Record<string, number | null> = {}
+  subRecipeWeights: Record<string, number | null> = {},
+  /**
+   * Pre-computed sub-recipe costs, keyed by sub-recipe id — one
+   * computeLiveSubRecipeCost() call per distinct sub-recipe rather than one
+   * per referencing line (see collectSubRecipeIds / the flat sub-recipe
+   * fetch in refreshRecipes). When a line's sub_recipe_id has an entry here
+   * it wins; otherwise this falls back to computing from the line's own
+   * nested `sub_recipe` embed exactly as before, so getRecipeWithIngredients
+   * (which still fetches that embed and never passes this map) is unchanged.
+   */
+  subRecipeCostMap?: Map<string, SubRecipeCostResult>
 ): RecipeRecord {
   const recipeIngredients = Array.isArray(row.recipe_ingredients)
     ? row.recipe_ingredients
@@ -486,7 +496,15 @@ function mapRecipeRow(
       // is only used as a fallback (e.g. the sub-recipe has no ingredient rows
       // in this fetch, or its own yield data is invalid) — subRecipeCostStale
       // flags whenever that fallback fired so the UI can surface it.
-      const liveSubRecipeCost = !ingredient && subRecipeRef ? computeLiveSubRecipeCost(subRecipeRef) : null
+      //
+      // Prefer the pre-computed map (one computeLiveSubRecipeCost call shared
+      // across every line/recipe referencing this sub-recipe) over computing
+      // it fresh per line — falls back to the per-line nested embed when no
+      // map entry exists, which is always the case for getRecipeWithIngredients.
+      const mappedSubRecipeCost =
+        !ingredient && item.sub_recipe_id ? subRecipeCostMap?.get(item.sub_recipe_id) : undefined
+      const liveSubRecipeCost =
+        mappedSubRecipeCost ?? (!ingredient && subRecipeRef ? computeLiveSubRecipeCost(subRecipeRef) : null)
 
       const currentPrice = ingredient?.currentPrice ?? liveSubRecipeCost?.costPerUnit ?? null
       const priceUnit =
@@ -645,12 +663,95 @@ async function fetchSubRecipeWeights(
   return weights
 }
 
+/**
+ * Fetches every distinct sub-recipe referenced by `subRecipeIds` ONCE, flat —
+ * not nested inside each referencing recipe_ingredients row. The old nested
+ * `sub_recipe:recipes!sub_recipe_id(...)` embed re-expanded the whole
+ * sub-recipe (its own recipe_ingredients, their ingredients, their
+ * price_history) for every line/recipe that referenced it; PostgREST doesn't
+ * deduplicate embedded entities, so a sub-recipe used 10 times was
+ * transferred 10 times. Runs computeLiveSubRecipeCost exactly once per
+ * distinct sub-recipe instead of once per referencing line — see
+ * mapRecipeRow's subRecipeCostMap lookup. Preserves the same one-level-deep
+ * shape the nested embed had (the sub-recipe's own ingredient lines, with
+ * price_history constrained the same way as the parent query) and, per its
+ * existing precedent, no sub-sub-recipe fallback.
+ */
+async function fetchSubRecipeCostMap(
+  supabase: ReturnType<typeof createClient>,
+  subRecipeIds: string[]
+): Promise<Map<string, SubRecipeCostResult>> {
+  const map = new Map<string, SubRecipeCostResult>()
+  if (subRecipeIds.length === 0) return map
+
+  const { data, error } = await supabase
+    .from('recipes')
+    .select(
+      `
+        id,
+        sub_ingredient_cost_per_unit,
+        sub_ingredient_unit,
+        sub_ingredient_weight_g,
+        sub_ingredient_weight_manual_g,
+        yield_quantity,
+        yield_unit,
+        labor_enabled,
+        labor_cost,
+        labor_mode,
+        labor_hourly_rate,
+        prep_time_minutes,
+        overhead_enabled,
+        overhead_cost,
+        overhead_mode,
+        overhead_percent,
+        waste_percent,
+        recipe_ingredients!recipe_ingredients_recipe_id_fkey (
+          quantity,
+          unit,
+          yield_percent,
+          ingredient:ingredients (
+            current_price,
+            price_unit,
+            price_history:ingredient_price_history (
+              id, price, unit, is_selected_price, recorded_at
+            )
+          )
+        )
+      `
+    )
+    .in('id', subRecipeIds)
+    .order('is_selected_price', {
+      ascending: false,
+      referencedTable: 'recipe_ingredients.ingredient.price_history',
+    })
+    .order('recorded_at', {
+      ascending: false,
+      referencedTable: 'recipe_ingredients.ingredient.price_history',
+    })
+    .order('id', {
+      ascending: false,
+      referencedTable: 'recipe_ingredients.ingredient.price_history',
+    })
+    .limit(1, { referencedTable: 'recipe_ingredients.ingredient.price_history' })
+
+  if (error) {
+    console.warn('[fetchSubRecipeCostMap] lookup failed:', error.message)
+    return map
+  }
+
+  ;(data as unknown as SubRecipeCostRow[] | null)?.forEach((row) => {
+    map.set(row.id, computeLiveSubRecipeCost(row))
+  })
+
+  return map
+}
+
 function mapSummary(
   row: DBRecipeRow,
   laborHourlyRate = 15,
-  subRecipeWeights: Record<string, number | null> = {}
+  subRecipeCostMap?: Map<string, SubRecipeCostResult>
 ): RecipeSummary {
-  const recipe = mapRecipeRow(row, laborHourlyRate, subRecipeWeights)
+  const recipe = mapRecipeRow(row, laborHourlyRate, {}, subRecipeCostMap)
   return {
     id: recipe.id,
     name: recipe.name,
@@ -687,12 +788,13 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
       // ingredient brand, price_history constrained to the single row
       // resolveIngredientPrice will actually pick (is_selected_price first,
       // else most recent — verified this returns identical results to the
-      // full history, see resolveIngredientPrice.test.ts), and no
-      // doubly-nested sub-recipe-of-a-sub-recipe fallback (verified against
-      // production data: nothing today nests two levels deep, so this never
-      // changes a real cost — getRecipeWithIngredients / the detail page
-      // still fetches that fully). The tenant-settings lookup doesn't depend
-      // on the recipes query, so they run concurrently.
+      // full history, see resolveIngredientPrice.test.ts). No nested
+      // `sub_recipe:recipes!sub_recipe_id(...)` embed either — PostgREST
+      // re-expands that block (the sub-recipe's own ingredients + their
+      // price_history) in full for EVERY referencing line, so a sub-recipe
+      // used by several recipes was transferred several times over. It's
+      // fetched once instead, flat, right below. The tenant-settings lookup
+      // doesn't depend on the recipes query, so they run concurrently.
       const [{ data: tenantData, error: tenantError }, { data, error: fetchError }] = await Promise.all([
         supabase
           .from('tenants')
@@ -724,6 +826,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
               is_sub_ingredient,
               updated_at,
               recipe_ingredients!recipe_ingredients_recipe_id_fkey (
+                sub_recipe_id,
                 quantity,
                 unit,
                 yield_percent,
@@ -732,36 +835,6 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
                   price_unit,
                   price_history:ingredient_price_history (
                     id, price, unit, is_selected_price, recorded_at
-                  )
-                ),
-                sub_recipe:recipes!sub_recipe_id (
-                  sub_ingredient_cost_per_unit,
-                  sub_ingredient_unit,
-                  sub_ingredient_weight_g,
-                  sub_ingredient_weight_manual_g,
-                  yield_quantity,
-                  yield_unit,
-                  labor_enabled,
-                  labor_cost,
-                  labor_mode,
-                  labor_hourly_rate,
-                  prep_time_minutes,
-                  overhead_enabled,
-                  overhead_cost,
-                  overhead_mode,
-                  overhead_percent,
-                  waste_percent,
-                  recipe_ingredients!recipe_ingredients_recipe_id_fkey (
-                    quantity,
-                    unit,
-                    yield_percent,
-                    ingredient:ingredients (
-                      current_price,
-                      price_unit,
-                      price_history:ingredient_price_history (
-                        id, price, unit, is_selected_price, recorded_at
-                      )
-                    )
                   )
                 )
               )
@@ -788,22 +861,7 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
             ascending: false,
             referencedTable: 'recipe_ingredients.ingredient.price_history',
           })
-          .limit(1, { referencedTable: 'recipe_ingredients.ingredient.price_history' })
-          .order('is_selected_price', {
-            ascending: false,
-            referencedTable: 'recipe_ingredients.sub_recipe.recipe_ingredients.ingredient.price_history',
-          })
-          .order('recorded_at', {
-            ascending: false,
-            referencedTable: 'recipe_ingredients.sub_recipe.recipe_ingredients.ingredient.price_history',
-          })
-          .order('id', {
-            ascending: false,
-            referencedTable: 'recipe_ingredients.sub_recipe.recipe_ingredients.ingredient.price_history',
-          })
-          .limit(1, {
-            referencedTable: 'recipe_ingredients.sub_recipe.recipe_ingredients.ingredient.price_history',
-          }),
+          .limit(1, { referencedTable: 'recipe_ingredients.ingredient.price_history' }),
       ])
 
       if (tenantError) {
@@ -823,7 +881,9 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
       const laborHourlyRate = Number(tenantData?.labor_hourly_rate ?? 15)
       const rows = (data as unknown as DBRecipeRow[] | null) ?? []
 
-      setRecipes(rows.map((row) => mapSummary(row, laborHourlyRate)))
+      const subRecipeCostMap = await fetchSubRecipeCostMap(supabase, collectSubRecipeIds(rows))
+
+      setRecipes(rows.map((row) => mapSummary(row, laborHourlyRate, subRecipeCostMap)))
     } catch (err) {
       console.error('[refreshRecipes] caught:', err)
       setError(err instanceof Error ? err.message : 'Failed to load recipes')
