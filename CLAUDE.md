@@ -166,11 +166,27 @@ Never violate these rules:
 
 
 
-4\. Missing package\_unit must not default silently to kg.
+4\. A sub-recipe has exactly one canonical rate for weight-based use in a parent recipe:
+
+&#x20;  - costPerGram = totalCost / totalEpWeightInGrams
+
+&#x20;  - totalCost includes labour, overhead and waste.
+
+&#x20;  - A parent line costs: quantityConvertedToGrams \* costPerGram.
+
+&#x20;  - NEVER reconstruct this from a per-yield-unit rate. The per-yield-unit rate (sub\_ingredient\_cost\_per\_unit) is only for count-based parent usage.
+
+&#x20;  - When costPerGram cannot be computed, show Needs Review. Never fall back to a reconstruction, and never emit a silently understated cost.
+
+&#x20;  - TEST FIXTURE RULE: any test covering sub-recipe costing MUST use a fixture with yield > 1. At yield = 1 the correct and incorrect formulas coincide, so a yield-1 fixture cannot detect this class of bug. This is not a style preference — it is the specific blind spot that let the same bug ship three times (€995, €0.00, €0.01).
 
 
 
-5\. Sub-recipe costing canonical formula:
+5\. Missing package\_unit must not default silently to kg.
+
+
+
+6\. Sub-recipe costing canonical formula:
 
 &#x20;  - subRecipeCostPerBaseUnit = totalRecipeCost / recipeWeightInBaseUnit
 
@@ -178,7 +194,7 @@ Never violate these rules:
 
 
 
-6\. If a recipe is marked as sub-recipe:
+7\. If a recipe is marked as sub-recipe:
 
 &#x20;  - Hide selling price
 
@@ -192,7 +208,7 @@ Never violate these rules:
 
 
 
-7\. Needs price is derived state:
+8\. Needs price is derived state:
 
 &#x20;  - current\_price null/zero or no valid selected/latest history
 

@@ -125,6 +125,29 @@ test('missing costPerGram: status unit_mismatch, cost 0 — never falls back to 
   assert.equal(line.isCostComplete, false)
 })
 
+test('yield-1 fixtures cannot detect the scale-mixing bug — fixture guard', () => {
+  // (a) At yield = 1, costPerPortion === totalCost, so the correct rate
+  // (totalCost / weightG) and the old buggy rate ((quantity / weightG) * costPerPortion)
+  // collapse onto the same arithmetic: costPerPortion cancels out to be totalCost itself.
+  // This is why Cream Cheese Frost (yield = 1) let the €0.01 bug ship three times —
+  // the test fixture could not distinguish correct code from buggy code.
+  const YIELD_1_TOTAL_COST = 12.5
+  const YIELD_1_WEIGHT_G = 500
+  const YIELD_1_QUANTITY_G = 40
+  const yield1CostPerPortion = YIELD_1_TOTAL_COST / 1 // yield = 1 unit
+
+  const correctFormula = YIELD_1_QUANTITY_G * (YIELD_1_TOTAL_COST / YIELD_1_WEIGHT_G)
+  const oldBuggyFormula = (YIELD_1_QUANTITY_G / YIELD_1_WEIGHT_G) * yield1CostPerPortion
+  assert.equal(correctFormula, oldBuggyFormula)
+
+  // (b) At yield = 44 (Tahini Granola), the per-portion rate is 44x smaller than
+  // totalCost, so the buggy formula understates the line by exactly that factor.
+  // This is the divergence a yield-1 fixture can never exercise.
+  const correctFormula44 = 40 * SUB_COST_PER_GRAM
+  const oldBuggyFormula44 = (40 / SUB_WEIGHT_G) * SUB_COST_PER_PORTION
+  assert.ok(Math.abs(correctFormula44 / oldBuggyFormula44 - SUB_YIELD_PORTIONS) < 1e-9)
+})
+
 test('weight-to-volume is still refused — no density assumption is invented', () => {
   const line = calculateIngredientCost({
     quantity: 200,
