@@ -679,117 +679,136 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
     try {
       const supabase = createClient()
       const tenantId = await resolveTenantId()
-      const { data: tenantData, error: tenantError } = await supabase
-        .from('tenants')
-        .select('labor_hourly_rate')
-        .eq('id', tenantId)
-        .maybeSingle()
+
+      // LIST payload only — see mapSummary(). Trimmed to what the cards render
+      // plus whatever calculateRecipeCost genuinely needs to get a real
+      // margin: no `instructions` (can be large free text) or other fields
+      // RecipeSummary never reads, no per-line notes/sort_order/yield_override/
+      // ingredient brand, price_history constrained to the single row
+      // resolveIngredientPrice will actually pick (is_selected_price first,
+      // else most recent — verified this returns identical results to the
+      // full history, see resolveIngredientPrice.test.ts), and no
+      // doubly-nested sub-recipe-of-a-sub-recipe fallback (verified against
+      // production data: nothing today nests two levels deep, so this never
+      // changes a real cost — getRecipeWithIngredients / the detail page
+      // still fetches that fully). The tenant-settings lookup doesn't depend
+      // on the recipes query, so they run concurrently.
+      const [{ data: tenantData, error: tenantError }, { data, error: fetchError }] = await Promise.all([
+        supabase
+          .from('tenants')
+          .select('labor_hourly_rate')
+          .eq('id', tenantId)
+          .maybeSingle(),
+        supabase
+          .from('recipes')
+          .select(
+            `
+              id,
+              name,
+              description,
+              category,
+              yield_quantity,
+              yield_unit,
+              prep_time_minutes,
+              labor_enabled,
+              labor_cost,
+              labor_mode,
+              labor_hourly_rate,
+              overhead_enabled,
+              overhead_cost,
+              overhead_mode,
+              overhead_percent,
+              waste_percent,
+              selling_price,
+              image_url,
+              is_sub_ingredient,
+              updated_at,
+              recipe_ingredients!recipe_ingredients_recipe_id_fkey (
+                quantity,
+                unit,
+                yield_percent,
+                ingredient:ingredients (
+                  current_price,
+                  price_unit,
+                  price_history:ingredient_price_history (
+                    id, price, unit, is_selected_price, recorded_at
+                  )
+                ),
+                sub_recipe:recipes!sub_recipe_id (
+                  sub_ingredient_cost_per_unit,
+                  sub_ingredient_unit,
+                  sub_ingredient_weight_g,
+                  sub_ingredient_weight_manual_g,
+                  yield_quantity,
+                  yield_unit,
+                  labor_enabled,
+                  labor_cost,
+                  labor_mode,
+                  labor_hourly_rate,
+                  prep_time_minutes,
+                  overhead_enabled,
+                  overhead_cost,
+                  overhead_mode,
+                  overhead_percent,
+                  waste_percent,
+                  recipe_ingredients!recipe_ingredients_recipe_id_fkey (
+                    quantity,
+                    unit,
+                    yield_percent,
+                    ingredient:ingredients (
+                      current_price,
+                      price_unit,
+                      price_history:ingredient_price_history (
+                        id, price, unit, is_selected_price, recorded_at
+                      )
+                    )
+                  )
+                )
+              )
+            `
+          )
+          .eq('tenant_id', tenantId)
+          .eq('is_active', true)
+          .order('updated_at', { ascending: false })
+          // Third sort key (id.desc) makes the server-side pick fully
+          // deterministic on a recorded_at tie, matching
+          // resolveIngredientPrice's own tiebreak (entry.id > newest.id)
+          // exactly — otherwise Postgres could return either tied row and
+          // the constrained query could silently diverge from the full-
+          // history result on that edge case.
+          .order('is_selected_price', {
+            ascending: false,
+            referencedTable: 'recipe_ingredients.ingredient.price_history',
+          })
+          .order('recorded_at', {
+            ascending: false,
+            referencedTable: 'recipe_ingredients.ingredient.price_history',
+          })
+          .order('id', {
+            ascending: false,
+            referencedTable: 'recipe_ingredients.ingredient.price_history',
+          })
+          .limit(1, { referencedTable: 'recipe_ingredients.ingredient.price_history' })
+          .order('is_selected_price', {
+            ascending: false,
+            referencedTable: 'recipe_ingredients.sub_recipe.recipe_ingredients.ingredient.price_history',
+          })
+          .order('recorded_at', {
+            ascending: false,
+            referencedTable: 'recipe_ingredients.sub_recipe.recipe_ingredients.ingredient.price_history',
+          })
+          .order('id', {
+            ascending: false,
+            referencedTable: 'recipe_ingredients.sub_recipe.recipe_ingredients.ingredient.price_history',
+          })
+          .limit(1, {
+            referencedTable: 'recipe_ingredients.sub_recipe.recipe_ingredients.ingredient.price_history',
+          }),
+      ])
 
       if (tenantError) {
         console.warn('[refreshRecipes] tenant settings error:', tenantError.message)
       }
-
-      const laborHourlyRate = Number(tenantData?.labor_hourly_rate ?? 15)
-      const { data, error: fetchError } = await supabase
-        .from('recipes')
-        .select(
-          `
-            id,
-            tenant_id,
-            name,
-            description,
-            category,
-            instructions,
-            yield_quantity,
-            yield_unit,
-            prep_time_minutes,
-            cook_time_minutes,
-            labor_enabled,
-            labor_cost,
-            labor_mode,
-            labor_job_title,
-            labor_hourly_rate,
-            overhead_enabled,
-            overhead_cost,
-            overhead_mode,
-            overhead_percent,
-            waste_percent,
-            selling_price,
-            vat_enabled,
-            vat_rate,
-            image_url,
-            image_urls,
-            is_active,
-            is_sub_ingredient,
-            sub_ingredient_unit,
-            sub_ingredient_cost_per_unit,
-            sub_ingredient_weight_manual_g,
-            recipe_ingredients!recipe_ingredients_recipe_id_fkey (
-              id,
-              recipe_id,
-              ingredient_id,
-              sub_recipe_id,
-              quantity,
-              unit,
-              notes,
-              sort_order,
-              yield_percent,
-              yield_override,
-              ingredient:ingredients (
-                id,
-                name,
-                brand,
-                current_price,
-                price_unit,
-                price_history:ingredient_price_history (
-                  id, price, unit, brand, is_selected_price, recorded_at
-                )
-              ),
-              sub_recipe:recipes!sub_recipe_id (
-                id,
-                name,
-                sub_ingredient_cost_per_unit,
-                sub_ingredient_unit,
-                sub_ingredient_weight_g,
-                sub_ingredient_weight_manual_g,
-                yield_quantity,
-                yield_unit,
-                labor_enabled,
-                labor_cost,
-                labor_mode,
-                labor_hourly_rate,
-                prep_time_minutes,
-                overhead_enabled,
-                overhead_cost,
-                overhead_mode,
-                overhead_percent,
-                waste_percent,
-                recipe_ingredients!recipe_ingredients_recipe_id_fkey (
-                  id,
-                  quantity,
-                  unit,
-                  yield_percent,
-                  ingredient:ingredients (
-                    current_price,
-                    price_unit,
-                    price_history:ingredient_price_history (
-                      id, price, unit, is_selected_price, recorded_at
-                    )
-                  ),
-                  sub_recipe:recipes!sub_recipe_id (
-                    sub_ingredient_cost_per_unit,
-                    sub_ingredient_unit
-                  )
-                )
-              )
-            ),
-            created_at,
-            updated_at
-          `
-        )
-        .eq('tenant_id', tenantId)
-        .eq('is_active', true)
-        .order('updated_at', { ascending: false })
 
       if (fetchError) {
         console.error('[refreshRecipes] Supabase error:', {
@@ -801,10 +820,10 @@ export function useRecipes(options?: { autoLoad?: boolean }) {
         throw fetchError
       }
 
+      const laborHourlyRate = Number(tenantData?.labor_hourly_rate ?? 15)
       const rows = (data as unknown as DBRecipeRow[] | null) ?? []
-      const subRecipeWeights = await fetchSubRecipeWeights(supabase, collectSubRecipeIds(rows))
 
-      setRecipes(rows.map((row) => mapSummary(row, laborHourlyRate, subRecipeWeights)))
+      setRecipes(rows.map((row) => mapSummary(row, laborHourlyRate)))
     } catch (err) {
       console.error('[refreshRecipes] caught:', err)
       setError(err instanceof Error ? err.message : 'Failed to load recipes')
