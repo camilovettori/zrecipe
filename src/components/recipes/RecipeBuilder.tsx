@@ -1044,6 +1044,52 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     [buildAllergenTree, fetchAllergensCached]
   )
 
+  // ── Refresh allergens on tab refocus ───────────────────────────────────────
+  // allergenCacheRef assumes an ingredient's allergens are a pure function of
+  // its id — true only while that ingredient is unchanged. An ingredient's
+  // allergens are directly editable (and a brand change is itself an
+  // allergen-review trigger — see CLAUDE.md), so a user who edits an
+  // ingredient in another tab and returns here would otherwise keep seeing
+  // the stale allergens this component cached before they switched away.
+  // Dropping the cache and re-hydrating on refocus is ONE cheap batched
+  // request (not per-line, not on every render/recipe edit — see the guard
+  // below), and only touches allergenCacheRef: subRecipeFetchCacheRef (which
+  // caches a sub-recipe's own ingredient *list*, not allergen data) is left
+  // alone, since an allergen edit doesn't change what a sub-recipe contains.
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.visibilityState !== 'visible') return
+      // Skip until the initial load has hydrated once, and never fight an
+      // active AI import for control of the ingredient list (see the
+      // AI-import UX rule in CLAUDE.md).
+      if (!hasLoaded.current || aiImportActiveRef.current) return
+
+      allergenCacheRef.current.clear()
+      const currentIngredients = recipeRef.current.ingredients
+      if (currentIngredients.length === 0) return
+
+      void hydrateIngredientAllergens(currentIngredients).then((hydrated) => {
+        // A passive background refresh of cached display data, not a user
+        // edit — must not mark the recipe dirty or schedule an autosave.
+        suppressNextDirtyRef.current = true
+        // Merge by id and patch only `allergens` — the user may have edited
+        // quantities/units/lines while this async refresh was in flight, so
+        // this must not clobber `c.ingredients` with the snapshot taken when
+        // the refresh started.
+        setRecipe((c) => ({
+          ...c,
+          ingredients: c.ingredients.map((item) => {
+            const match = hydrated.find((h) => h.id === item.id)
+            return match ? { ...item, allergens: match.allergens } : item
+          }),
+        }))
+      })
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [hydrateIngredientAllergens])
+
   // ── State updaters ─────────────────────────────────────────────────────────
 
   const updateRecipeField = <K extends keyof RecipeEditorData>(field: K, value: RecipeEditorData[K]) => {
@@ -1346,6 +1392,11 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
         const allergenInsert = await supabase.from('ingredient_allergens').insert(allergenRows)
         if (allergenInsert.error) {
           console.error('[recipe builder] ingredient allergen insert failed:', allergenInsert.error)
+        } else {
+          // data.id is brand new, so it can't already be cached — this just
+          // saves addIngredient()'s fetchAllergensCached() call below a round
+          // trip for allergens we already know were persisted successfully.
+          allergenCacheRef.current.set(data.id, formData.allergens)
         }
       }
 
@@ -2880,8 +2931,13 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                 allergens: [],
               })
               // Async: refresh allergens for the new ingredient — goes through the
-              // page-lifetime cache, same as addIngredient above.
+              // page-lifetime cache, same as addIngredient above. Invalidate first:
+              // substitution is exactly the allergen-sensitive action EU 1169/2011
+              // review exists for, so this must never show a value cached earlier
+              // in the session (e.g. from this same ingredient appearing elsewhere
+              // in the recipe tree before its allergens were edited).
               if (replacement.kind === 'ingredient') {
+                allergenCacheRef.current.delete(replacement.data.id)
                 fetchAllergensCached([replacement.data.id]).then((data) => {
                   const allergens = data[replacement.data.id]
                   if (allergens?.length) {
