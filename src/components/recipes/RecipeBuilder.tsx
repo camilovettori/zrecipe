@@ -101,6 +101,38 @@ function allergensToEntries(allergens: RecipeAllergenSummary): IngredientAllerge
   ]
 }
 
+// Intermediate shape used by hydrateIngredientAllergens's two-pass walk (see
+// buildAllergenTree / resolveAllergenTree below): 'direct' lines resolve
+// straight from the fetched allergen map, 'subrecipe' lines resolve their
+// own summary from already-hydrated children, 'none' lines (no ingredient
+// or sub-recipe reference, or a cycle) always resolve to no allergens.
+type AllergenTreeNode =
+  | { kind: 'direct'; item: RecipeIngredientDraft; ingredientId: string }
+  | { kind: 'subrecipe'; item: RecipeIngredientDraft; children: AllergenTreeNode[] }
+  | { kind: 'none'; item: RecipeIngredientDraft }
+
+// Pure — takes the fetched allergen cache as a parameter (rather than closing
+// over a ref) so it needs no dependency array and never triggers a stale-closure
+// or exhaustive-deps concern in hydrateIngredientAllergens.
+function resolveAllergenTree(
+  nodes: AllergenTreeNode[],
+  allergenCache: Map<string, IngredientAllergen[]>
+): RecipeIngredientDraft[] {
+  return nodes.map((node) => {
+    if (node.kind === 'direct') {
+      return { ...node.item, allergens: allergenCache.get(node.ingredientId) ?? [] }
+    }
+    if (node.kind === 'subrecipe') {
+      const hydratedChildren = resolveAllergenTree(node.children, allergenCache)
+      const summary = computeRecipeAllergens(
+        Object.fromEntries(hydratedChildren.map((ing) => [ing.id, ing.allergens ?? []]))
+      )
+      return { ...node.item, allergens: allergensToEntries(summary) }
+    }
+    return { ...node.item, allergens: [] }
+  })
+}
+
 function createStep(text = ''): RecipeStepDraft {
   return { id: crypto.randomUUID(), text }
 }
@@ -631,6 +663,13 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const persistedRecipeIdRef = useRef<string | null>(isNew ? null : recipeId)
   const recipeRef = useRef(recipe)
   const computedIngredientsRef = useRef<typeof computedIngredients>([])
+  // Page-lifetime caches for allergen hydration — populated once per distinct
+  // ingredient/sub-recipe id and reused by every later hydrateIngredientAllergens
+  // call (initial load, AI import, add-ingredient, add-sub-recipe, substitute)
+  // so a sub-recipe or ingredient referenced more than once in the same session
+  // is only ever fetched once. See hydrateIngredientAllergens below.
+  const allergenCacheRef = useRef<Map<string, IngredientAllergen[]>>(new Map())
+  const subRecipeFetchCacheRef = useRef<Map<string, Promise<RecipeRecord | null>>>(new Map())
 
   const storageKey = `zrecipe:recipe-draft:${recipeId}`
 
@@ -751,27 +790,11 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
             )
           )
         )
-
-        // Fetch allergens — suppress the dirty trigger from the setRecipe below
-        const ingredientIds = hydratedIngredients
-          .filter((i: RecipeIngredientDraft) => i.ingredientId)
-          .map((i: RecipeIngredientDraft) => i.ingredientId as string)
-        if (ingredientIds.length > 0) {
-          try {
-            const data = await fetch(`/api/ingredients/allergens?ids=${ingredientIds.join(',')}`)
-              .then((r) => r.json() as Promise<Record<string, IngredientAllergen[]>>)
-            setRecipe((c) => ({
-              ...c,
-              ingredients: c.ingredients.map((i) =>
-                i.ingredientId && data[i.ingredientId]?.length
-                  ? { ...i, allergens: data[i.ingredientId] }
-                  : i
-              ),
-            }))
-          } catch {
-            // Allergens are optional; don't fail the recipe load
-          }
-        }
+        // hydrateIngredientAllergens() above already fetched and applied allergens
+        // for every line (direct + sub-recipe) in one batched call — mapRecipeToState
+        // carries that through into `recipe.ingredients` already, so no second
+        // allergens fetch/setRecipe pass is needed here (it used to re-fetch and
+        // re-apply the exact same ingredient ids a second time).
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unable to load recipe')
       } finally {
@@ -926,68 +949,99 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
      recipe.yieldUnit]
   )
 
+  // Batches every allergen lookup behind the page-lifetime cache — only ids
+  // not already cached actually hit the network, and always as a single
+  // `?ids=a,b,c` call rather than one request per id/per batch.
+  const fetchAllergensCached = useCallback(
+    async (ids: string[]): Promise<Record<string, IngredientAllergen[]>> => {
+      const distinct = Array.from(new Set(ids))
+      const missing = distinct.filter((id) => !allergenCacheRef.current.has(id))
+      if (missing.length > 0) {
+        try {
+          const fetched = await fetch(`/api/ingredients/allergens?ids=${missing.join(',')}`)
+            .then((response) => response.json() as Promise<Record<string, IngredientAllergen[]>>)
+          for (const id of missing) allergenCacheRef.current.set(id, fetched[id] ?? [])
+        } catch {
+          for (const id of missing) allergenCacheRef.current.set(id, [])
+        }
+      }
+      const result: Record<string, IngredientAllergen[]> = {}
+      for (const id of distinct) result[id] = allergenCacheRef.current.get(id) ?? []
+      return result
+    },
+    []
+  )
+
+  // Fetches a sub-recipe's full ingredient tree at most once per id for the
+  // lifetime of the page — a sub-recipe line duplicated within one recipe
+  // (or reused across separate hydrateIngredientAllergens calls) shares the
+  // same in-flight/resolved promise instead of re-issuing the request.
+  const fetchSubRecipeCached = useCallback(
+    (id: string): Promise<RecipeRecord | null> => {
+      let pending = subRecipeFetchCacheRef.current.get(id)
+      if (!pending) {
+        pending = getRecipeWithIngredients(id)
+        subRecipeFetchCacheRef.current.set(id, pending)
+      }
+      return pending
+    },
+    [getRecipeWithIngredients]
+  )
+
+  // Walks the whole ingredient tree ONE time — direct lines plus every
+  // distinct sub-recipe, recursively — collecting every ingredient id that
+  // needs an allergen lookup into `neededIds` and returning a tree shape
+  // that can be resolved into allergens once a single fetched map exists.
+  // Sibling branches run concurrently (Promise.all); duplicate sub-recipe
+  // references (the same id used by more than one line, at any depth) are
+  // deduped by fetchSubRecipeCached, so each distinct sub-recipe is only
+  // ever fetched once regardless of how many lines reference it.
+  const buildAllergenTree = useCallback(
+    async function buildAllergenTree(
+      items: RecipeIngredientDraft[],
+      visitedRecipeIds: Set<string>,
+      neededIds: Set<string>
+    ): Promise<AllergenTreeNode[]> {
+      return Promise.all(
+        items.map(async (item): Promise<AllergenTreeNode> => {
+          if (item.ingredientId) {
+            neededIds.add(item.ingredientId)
+            return { kind: 'direct', item, ingredientId: item.ingredientId }
+          }
+
+          if (item.subRecipeId) {
+            if (visitedRecipeIds.has(item.subRecipeId)) {
+              return { kind: 'none', item }
+            }
+            visitedRecipeIds.add(item.subRecipeId)
+
+            const subRecipe = await fetchSubRecipeCached(item.subRecipeId)
+            if (!subRecipe) return { kind: 'none', item }
+
+            const children = await buildAllergenTree(subRecipe.ingredients, visitedRecipeIds, neededIds)
+            return { kind: 'subrecipe', item, children }
+          }
+
+          return { kind: 'none', item }
+        })
+      )
+    },
+    [fetchSubRecipeCached]
+  )
+
   const hydrateIngredientAllergens = useCallback(
     async function hydrateIngredientAllergens(
       items: RecipeIngredientDraft[],
       visitedRecipeIds = new Set<string>()
     ): Promise<RecipeIngredientDraft[]> {
-      const directIngredientIds = items
-        .filter((item) => item.ingredientId)
-        .map((item) => item.ingredientId as string)
-
-      let directAllergenMap: Record<string, IngredientAllergen[]> = {}
-      if (directIngredientIds.length > 0) {
-        try {
-          directAllergenMap = await fetch(`/api/ingredients/allergens?ids=${directIngredientIds.join(',')}`)
-            .then((response) => response.json() as Promise<Record<string, IngredientAllergen[]>>)
-        } catch {
-          directAllergenMap = {}
-        }
+      const neededIds = new Set<string>()
+      const tree = await buildAllergenTree(items, visitedRecipeIds, neededIds)
+      if (neededIds.size > 0) {
+        await fetchAllergensCached(Array.from(neededIds))
       }
-
-      const hydrated: RecipeIngredientDraft[] = []
-
-      for (const item of items) {
-        if (item.ingredientId) {
-          hydrated.push({
-            ...item,
-            allergens: directAllergenMap[item.ingredientId] ?? [],
-          })
-          continue
-        }
-
-        if (item.subRecipeId) {
-          if (visitedRecipeIds.has(item.subRecipeId)) {
-            hydrated.push({ ...item, allergens: [] })
-            continue
-          }
-
-          const subRecipe = await getRecipeWithIngredients(item.subRecipeId)
-          if (!subRecipe) {
-            hydrated.push({ ...item, allergens: [] })
-            continue
-          }
-
-          const nextVisited = new Set(visitedRecipeIds)
-          nextVisited.add(item.subRecipeId)
-          const hydratedSubIngredients = await hydrateIngredientAllergens(subRecipe.ingredients, nextVisited)
-          const summary = computeRecipeAllergens(
-            Object.fromEntries(hydratedSubIngredients.map((ing) => [ing.id, ing.allergens ?? []]))
-          )
-
-          hydrated.push({
-            ...item,
-            allergens: allergensToEntries(summary),
-          })
-          continue
-        }
-
-        hydrated.push({ ...item, allergens: [] })
-      }
-
-      return hydrated
+      return resolveAllergenTree(tree, allergenCacheRef.current)
     },
-    [getRecipeWithIngredients]
+    [buildAllergenTree, fetchAllergensCached]
   )
 
   // ── State updaters ─────────────────────────────────────────────────────────
@@ -1122,21 +1176,20 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       toast.info(`Yield ${yieldPercent}% applied for ${ingredient.name} — ${yf.notes}`)
     }
 
-    // Async: fetch allergens for the added ingredient so the panel updates in real time
-    fetch(`/api/ingredients/allergens?id=${ingredient.id}`)
-      .then((r) => r.json() as Promise<Record<string, IngredientAllergen[]>>)
-      .then((data) => {
-        const allergens = data[ingredient.id]
-        if (allergens?.length) {
-          setRecipe((c) => ({
-            ...c,
-            ingredients: c.ingredients.map((i) =>
-              i.id === nextLine.id ? { ...i, allergens } : i
-            ),
-          }))
-        }
-      })
-      .catch(() => {})
+    // Async: fetch allergens for the added ingredient so the panel updates in real
+    // time — goes through the page-lifetime cache, so a re-added ingredient
+    // already seen this session resolves with no network call.
+    fetchAllergensCached([ingredient.id]).then((data) => {
+      const allergens = data[ingredient.id]
+      if (allergens?.length) {
+        setRecipe((c) => ({
+          ...c,
+          ingredients: c.ingredients.map((i) =>
+            i.id === nextLine.id ? { ...i, allergens } : i
+          ),
+        }))
+      }
+    })
   }
 
   const handleAiRecipeImported = (payload: ImportedRecipePayload) => {
@@ -2826,22 +2879,20 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                 notes: keepNote ? currentItem.notes : null,
                 allergens: [],
               })
-              // Async: refresh allergens for the new ingredient
+              // Async: refresh allergens for the new ingredient — goes through the
+              // page-lifetime cache, same as addIngredient above.
               if (replacement.kind === 'ingredient') {
-                fetch(`/api/ingredients/allergens?id=${replacement.data.id}`)
-                  .then((r) => r.json() as Promise<Record<string, import('@/lib/allergens').IngredientAllergen[]>>)
-                  .then((data) => {
-                    const allergens = data[replacement.data.id]
-                    if (allergens?.length) {
-                      setRecipe((c) => ({
-                        ...c,
-                        ingredients: c.ingredients.map((i) =>
-                          i.id === lineId ? { ...i, allergens } : i
-                        ),
-                      }))
-                    }
-                  })
-                  .catch(() => {})
+                fetchAllergensCached([replacement.data.id]).then((data) => {
+                  const allergens = data[replacement.data.id]
+                  if (allergens?.length) {
+                    setRecipe((c) => ({
+                      ...c,
+                      ingredients: c.ingredients.map((i) =>
+                        i.id === lineId ? { ...i, allergens } : i
+                      ),
+                    }))
+                  }
+                })
               } else {
                 const draftForHydration = createIngredientLine({
                   ...currentItem,
