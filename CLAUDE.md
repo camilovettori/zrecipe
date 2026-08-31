@@ -126,6 +126,40 @@ If schema change is needed, explain why first.
 
 
 
+\### Migration files do not reliably reflect production
+
+The get\_user\_tenant\_ids() function defined in
+
+supabase/migrations/20260528150000\_tenant\_data\_policies.sql (returns
+
+table(tenant\_id text), used via an exists()/alias/::text pattern) does NOT
+
+match what is actually live on the zconnect Supabase project (returns setof
+
+uuid, used via \`tenant\_id in (select get\_user\_tenant\_ids())\`) — confirmed by
+
+direct pg\_get\_functiondef/pg\_policies inspection, not by reading the
+
+migration. This project's migrations are applied manually in the SQL
+
+Editor, so a file existing in git is not proof of what ran, and what ran is
+
+not guaranteed to match the file.
+
+Do not trust 20260528150000, or any other migration file, as the source of
+
+truth for a function's real signature or a policy's real condition. Before
+
+writing any new RLS policy or anything that calls an existing Postgres
+
+function, verify the live definition first — \`select pg\_get\_functiondef(oid)
+
+from pg\_proc where proname = '...'\` and \`select \* from pg\_policies where
+
+tablename = '...'\` — and match that, not the git history.
+
+
+
 \## Core costing rules
 
 

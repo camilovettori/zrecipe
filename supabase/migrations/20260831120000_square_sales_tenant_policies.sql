@@ -1,7 +1,4 @@
--- Tenant-scoped RLS policies for the Square POS tables, matching the exact
--- get_user_tenant_ids() pattern already used for every other tenant table in
--- 20260528150000_tenant_data_policies.sql (recipes, ingredients, suppliers,
--- invoices, invoice_items, recipe_ingredients, ingredient_price_history).
+-- Tenant-scoped RLS policies for the Square POS tables.
 --
 -- square_connections/square_orders/square_order_line_items (added in
 -- 20260826193000_add_square_sales_integration.sql) enabled RLS but never
@@ -11,6 +8,17 @@
 -- client (which bypasses RLS regardless), so this doesn't change app
 -- behavior — it only closes the gap for any future authenticated/anon-role
 -- access.
+--
+-- IMPORTANT: this uses `tenant_id in (select get_user_tenant_ids())`, NOT
+-- the exists()/alias/::text pattern from 20260528150000_tenant_data_policies
+-- .sql. That migration's own get_user_tenant_ids() (returns table(tenant_id
+-- text)) does not match what's actually live in the zconnect database
+-- (returns setof uuid) — confirmed via direct pg_get_functiondef inspection,
+-- not by reading the migration file. See the CLAUDE.md note on this: do not
+-- trust 20260528150000 as a reference for this function's real signature.
+-- The pattern below was verified live against the recipes/ingredients/
+-- suppliers/invoices/recipe_ingredients policies already in production
+-- before writing this file.
 
 do $$
 begin
@@ -26,11 +34,7 @@ begin
       for select
       to authenticated
       using (
-        exists (
-          select 1
-          from public.get_user_tenant_ids() tenant_ids
-          where tenant_ids.tenant_id = square_connections.tenant_id::text
-        )
+        tenant_id in (select public.get_user_tenant_ids())
       );
   end if;
 
@@ -46,11 +50,7 @@ begin
       for insert
       to authenticated
       with check (
-        exists (
-          select 1
-          from public.get_user_tenant_ids() tenant_ids
-          where tenant_ids.tenant_id = square_connections.tenant_id::text
-        )
+        tenant_id in (select public.get_user_tenant_ids())
       );
   end if;
 
@@ -66,18 +66,10 @@ begin
       for update
       to authenticated
       using (
-        exists (
-          select 1
-          from public.get_user_tenant_ids() tenant_ids
-          where tenant_ids.tenant_id = square_connections.tenant_id::text
-        )
+        tenant_id in (select public.get_user_tenant_ids())
       )
       with check (
-        exists (
-          select 1
-          from public.get_user_tenant_ids() tenant_ids
-          where tenant_ids.tenant_id = square_connections.tenant_id::text
-        )
+        tenant_id in (select public.get_user_tenant_ids())
       );
   end if;
 
@@ -93,11 +85,7 @@ begin
       for delete
       to authenticated
       using (
-        exists (
-          select 1
-          from public.get_user_tenant_ids() tenant_ids
-          where tenant_ids.tenant_id = square_connections.tenant_id::text
-        )
+        tenant_id in (select public.get_user_tenant_ids())
       );
   end if;
 
@@ -113,11 +101,7 @@ begin
       for select
       to authenticated
       using (
-        exists (
-          select 1
-          from public.get_user_tenant_ids() tenant_ids
-          where tenant_ids.tenant_id = square_orders.tenant_id::text
-        )
+        tenant_id in (select public.get_user_tenant_ids())
       );
   end if;
 
@@ -133,11 +117,7 @@ begin
       for insert
       to authenticated
       with check (
-        exists (
-          select 1
-          from public.get_user_tenant_ids() tenant_ids
-          where tenant_ids.tenant_id = square_orders.tenant_id::text
-        )
+        tenant_id in (select public.get_user_tenant_ids())
       );
   end if;
 
@@ -153,18 +133,10 @@ begin
       for update
       to authenticated
       using (
-        exists (
-          select 1
-          from public.get_user_tenant_ids() tenant_ids
-          where tenant_ids.tenant_id = square_orders.tenant_id::text
-        )
+        tenant_id in (select public.get_user_tenant_ids())
       )
       with check (
-        exists (
-          select 1
-          from public.get_user_tenant_ids() tenant_ids
-          where tenant_ids.tenant_id = square_orders.tenant_id::text
-        )
+        tenant_id in (select public.get_user_tenant_ids())
       );
   end if;
 
@@ -180,11 +152,7 @@ begin
       for delete
       to authenticated
       using (
-        exists (
-          select 1
-          from public.get_user_tenant_ids() tenant_ids
-          where tenant_ids.tenant_id = square_orders.tenant_id::text
-        )
+        tenant_id in (select public.get_user_tenant_ids())
       );
   end if;
 
@@ -200,11 +168,7 @@ begin
       for select
       to authenticated
       using (
-        exists (
-          select 1
-          from public.get_user_tenant_ids() tenant_ids
-          where tenant_ids.tenant_id = square_order_line_items.tenant_id::text
-        )
+        tenant_id in (select public.get_user_tenant_ids())
       );
   end if;
 
@@ -220,11 +184,7 @@ begin
       for insert
       to authenticated
       with check (
-        exists (
-          select 1
-          from public.get_user_tenant_ids() tenant_ids
-          where tenant_ids.tenant_id = square_order_line_items.tenant_id::text
-        )
+        tenant_id in (select public.get_user_tenant_ids())
       );
   end if;
 
@@ -240,18 +200,10 @@ begin
       for update
       to authenticated
       using (
-        exists (
-          select 1
-          from public.get_user_tenant_ids() tenant_ids
-          where tenant_ids.tenant_id = square_order_line_items.tenant_id::text
-        )
+        tenant_id in (select public.get_user_tenant_ids())
       )
       with check (
-        exists (
-          select 1
-          from public.get_user_tenant_ids() tenant_ids
-          where tenant_ids.tenant_id = square_order_line_items.tenant_id::text
-        )
+        tenant_id in (select public.get_user_tenant_ids())
       );
   end if;
 
@@ -267,11 +219,7 @@ begin
       for delete
       to authenticated
       using (
-        exists (
-          select 1
-          from public.get_user_tenant_ids() tenant_ids
-          where tenant_ids.tenant_id = square_order_line_items.tenant_id::text
-        )
+        tenant_id in (select public.get_user_tenant_ids())
       );
   end if;
 end $$;
