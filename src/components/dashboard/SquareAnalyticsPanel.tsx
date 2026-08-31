@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { BarChart3, ChevronRight } from 'lucide-react'
+import { useSubscription } from '@/hooks/useSubscription'
 
 type SquareStatus = {
   connected: boolean
@@ -20,14 +21,17 @@ function money(cents: number, currency = 'EUR') {
 
 export default function SquareAnalyticsPanel() {
   const [status, setStatus] = useState<SquareStatus | null>(null)
+  const { limits, loading: subscriptionLoading } = useSubscription()
 
   useEffect(() => {
+    if (subscriptionLoading || !limits.canUseSquareIntegration) return
     fetch('/api/integrations/square/status', { cache: 'no-store' })
       .then((response) => response.ok ? response.json() : null)
       .then((data: SquareStatus | null) => setStatus(data))
       .catch(() => setStatus(null))
-  }, [])
+  }, [subscriptionLoading, limits.canUseSquareIntegration])
 
+  if (subscriptionLoading || !limits.canUseSquareIntegration) return null
   if (!status) return null
 
   if (!status.connected) {

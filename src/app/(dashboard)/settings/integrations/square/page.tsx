@@ -9,11 +9,14 @@ import {
   CheckCircle2,
   Link2,
   Loader2,
+  Lock,
   RefreshCw,
   Store,
   Unplug,
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
+import { useSubscription } from '@/hooks/useSubscription'
+import EmptyState from '@/components/shared/EmptyState'
 
 type SquareStatus = {
   connected: boolean
@@ -54,6 +57,7 @@ export default function SquareIntegrationSettingsPage() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
+  const { limits, loading: subscriptionLoading } = useSubscription()
 
   const loadStatus = async () => {
     try {
@@ -70,6 +74,11 @@ export default function SquareIntegrationSettingsPage() {
   }
 
   useEffect(() => {
+    if (subscriptionLoading) return
+    if (!limits.canUseSquareIntegration) {
+      setLoading(false)
+      return
+    }
     const params = new URLSearchParams(window.location.search)
     const error = params.get('square_error')
     const connected = params.get('square_connected')
@@ -77,7 +86,7 @@ export default function SquareIntegrationSettingsPage() {
     if (connected) toast.success('Square connected. Import your recent sales to start analytics.')
     if (error || connected) window.history.replaceState({}, '', '/settings/integrations/square')
     void loadStatus()
-  }, [])
+  }, [subscriptionLoading, limits.canUseSquareIntegration])
 
   const startConnect = () => {
     window.location.assign('/api/integrations/square/connect')
@@ -118,8 +127,23 @@ export default function SquareIntegrationSettingsPage() {
     }
   }
 
-  if (loading) {
+  if (loading || subscriptionLoading) {
     return <div className="flex min-h-64 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-emerald-600" /></div>
+  }
+
+  if (!limits.canUseSquareIntegration) {
+    return (
+      <div className="mx-auto max-w-4xl pb-12">
+        <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+          <EmptyState
+            icon={Lock}
+            title="Square POS is a Pro feature"
+            description="Upgrade to Pro or Business to connect Square sales analytics."
+            action={{ label: 'View plans', onClick: () => window.location.assign('/settings/billing') }}
+          />
+        </div>
+      </div>
+    )
   }
 
   const analytics = status?.analytics

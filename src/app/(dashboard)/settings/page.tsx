@@ -15,6 +15,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { resolveTenantContext } from '@/hooks/useTenant'
 import { getEffectiveSubscriptionStatus } from '@/lib/tenant'
+import { useSubscription } from '@/hooks/useSubscription'
 import { cn } from '@/lib/utils'
 
 const STATUS_BADGE: Record<string, { label: string; tone: string }> = {
@@ -64,9 +65,12 @@ function SettingsTile({
   )
 }
 
+const SQUARE_BADGE = { label: 'Pro', tone: 'bg-slate-100 text-slate-500' }
+
 export default function SettingsPage() {
   const [memberCount, setMemberCount] = useState<number | null>(null)
   const [subStatus, setSubStatus] = useState<string | null>(null)
+  const { limits, loading: subscriptionLoading } = useSubscription()
 
   useEffect(() => {
     const load = async () => {
@@ -149,6 +153,7 @@ export default function SettingsPage() {
           iconClass="bg-amber-50 text-amber-600"
           title="Square POS"
           description="Connect Square sales to your business analytics."
+          badge={!subscriptionLoading && !limits.canUseSquareIntegration ? SQUARE_BADGE : null}
         />
       </div>
     </div>
