@@ -1,48 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { requireSquareTenantAccess } from '@/lib/square/auth'
+import { requireSquareTenantAccess, SQUARE_PLAN_ERROR } from '@/lib/square/auth'
 import {
+  buildSquareLineItemRows,
+  buildSquareOrderRow,
   encryptSquareSecret,
   getValidSquareAccessToken,
   squareApi,
   type SquareConnectionRecord,
+  type SquareOrderForSync,
 } from '@/lib/square/server'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
-type SquareMoney = { amount?: number | bigint | string | null; currency?: string | null }
-type SquareLineItem = {
-  uid?: string
-  catalog_object_id?: string
-  catalog_version?: number | bigint | string | null
-  name?: string
-  quantity?: string | number
-  base_price_money?: SquareMoney
-  gross_sales_money?: SquareMoney
-  total_money?: SquareMoney
-  variation_name?: string
-  catalog_object?: { sku?: string }
-}
-type SquareOrder = {
-  id: string
-  location_id?: string
-  state?: string
-  source?: { name?: string }
-  created_at?: string
-  updated_at?: string
-  closed_at?: string
-  total_money?: SquareMoney
-  total_tax_money?: SquareMoney
-  total_discount_money?: SquareMoney
-  total_service_charge_money?: SquareMoney
-  line_items?: SquareLineItem[]
-}
+type SquareOrder = SquareOrderForSync & { total_service_charge_money?: { amount?: number | bigint | string | null; currency?: string | null } }
 type SquareLocations = Array<{ id?: string; name?: string; status?: string }>
-
-function cents(money?: SquareMoney) {
-  return Number(money?.amount ?? 0)
-}
 
 function isoDaysAgo(days: number) {
   const value = new Date()
@@ -134,58 +107,23 @@ export async function POST(request: NextRequest) {
 
       const orders = response.orders ?? []
       if (orders.length) {
-        const rows = orders.map((order) => ({
-          tenant_id: access.tenantId,
-          connection_id: connection.id,
-          square_order_id: order.id,
-          location_id: order.location_id ?? null,
-          state: order.state ?? 'UNKNOWN',
-          source_name: order.source?.name ?? null,
-          created_at_square: order.created_at ?? new Date().toISOString(),
-          updated_at_square: order.updated_at ?? null,
-          closed_at_square: order.closed_at ?? null,
-          currency: order.total_money?.currency ?? 'EUR',
-          gross_amount_cents: Math.max(0, cents(order.total_money) + cents(order.total_discount_money)),
-          discount_amount_cents: cents(order.total_discount_money),
-          tax_amount_cents: cents(order.total_tax_money),
-          net_amount_cents: Math.max(0, cents(order.total_money) - cents(order.total_tax_money)),
-          total_amount_cents: cents(order.total_money),
-          synced_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }))
+        const rows = orders.map((order) => buildSquareOrderRow(order, access.tenantId, connection.id))
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { error: orderError } = await (admin.from('square_orders') as any)
           .upsert(rows, { onConflict: 'tenant_id,square_order_id' })
         if (orderError) throw new Error(`Unable to store Square sales: ${orderError.message}`)
 
-        const orderIds = orders.map((order) => order.id)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { error: deleteLinesError } = await (admin.from('square_order_line_items') as any)
-          .delete()
-          .eq('tenant_id', access.tenantId)
-          .in('square_order_id', orderIds)
-        if (deleteLinesError) throw new Error(`Unable to refresh Square sale items: ${deleteLinesError.message}`)
-
-        const lineRows = orders.flatMap((order) => (order.line_items ?? []).map((line, index) => ({
-          tenant_id: access.tenantId,
-          square_order_id: order.id,
-          square_line_item_uid: line.uid ?? `${order.id}-${index}`,
-          catalog_object_id: line.catalog_object_id ?? null,
-          catalog_version: line.catalog_version != null ? Number(line.catalog_version) : null,
-          sku: line.catalog_object?.sku ?? null,
-          name: line.name || line.variation_name || 'Square item',
-          quantity: Number(line.quantity ?? 0),
-          gross_amount_cents: cents(line.gross_sales_money ?? line.base_price_money),
-          total_amount_cents: cents(line.total_money),
-          currency: line.total_money?.currency ?? order.total_money?.currency ?? 'EUR',
-          updated_at: new Date().toISOString(),
-        })))
+        const lineRows = orders.flatMap((order) => buildSquareLineItemRows(order, access.tenantId))
 
         for (const rowsChunk of chunk(lineRows, 500)) {
           if (!rowsChunk.length) continue
+          // Upsert keyed on Square's own line-item uid (unique per order) instead
+          // of delete-then-insert — re-syncing never has a window where a chunk
+          // failure leaves items deleted but not yet reinserted.
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const { error: lineError } = await (admin.from('square_order_line_items') as any).insert(rowsChunk)
+          const { error: lineError } = await (admin.from('square_order_line_items') as any)
+            .upsert(rowsChunk, { onConflict: 'tenant_id,square_order_id,square_line_item_uid' })
           if (lineError) throw new Error(`Unable to store Square sale items: ${lineError.message}`)
         }
 
@@ -224,6 +162,7 @@ export async function POST(request: NextRequest) {
         // Preserve the original error response if the failure itself cannot be recorded.
       }
     }
-    return NextResponse.json({ error: message }, { status: message === 'Unauthorized' ? 401 : 500 })
+    const status = message === 'Unauthorized' ? 401 : message === SQUARE_PLAN_ERROR ? 403 : 500
+    return NextResponse.json({ error: message }, { status })
   }
 }

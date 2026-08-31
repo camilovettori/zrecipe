@@ -28,7 +28,9 @@ type SquareTokenResponse = {
 }
 
 function configuredEnvironment(): SquareEnvironment {
-  return process.env.SQUARE_ENVIRONMENT === 'sandbox' ? 'sandbox' : 'production'
+  const value = process.env.SQUARE_ENVIRONMENT
+  if (value === 'production' || value === 'sandbox') return value
+  throw new Error("SQUARE_ENVIRONMENT must be exactly 'sandbox' or 'production' — no default.")
 }
 
 export function getSquareBaseUrl() {
@@ -209,3 +211,80 @@ export async function squareApi<T extends Record<string, unknown>>(
 }
 
 export type { SquareConnectionRecord }
+
+// ── Sync row shaping ────────────────────────────────────────────────────────
+// Pure Square-API-response -> DB-row mappers, factored out of the sync route
+// so they're unit-testable without a live DB or Square API (see
+// tests/squareSyncIdempotency.test.ts).
+
+export type SquareMoney = { amount?: number | bigint | string | null; currency?: string | null }
+
+export type SquareLineItemForSync = {
+  uid?: string
+  catalog_object_id?: string
+  catalog_version?: number | bigint | string | null
+  name?: string
+  quantity?: string | number
+  base_price_money?: SquareMoney
+  gross_sales_money?: SquareMoney
+  total_money?: SquareMoney
+  variation_name?: string
+  catalog_object?: { sku?: string }
+}
+
+export type SquareOrderForSync = {
+  id: string
+  location_id?: string
+  state?: string
+  source?: { name?: string }
+  created_at?: string
+  updated_at?: string
+  closed_at?: string
+  total_money?: SquareMoney
+  total_tax_money?: SquareMoney
+  total_discount_money?: SquareMoney
+  line_items?: SquareLineItemForSync[]
+}
+
+export function squareMoneyToCents(money?: SquareMoney) {
+  return Number(money?.amount ?? 0)
+}
+
+export function buildSquareOrderRow(order: SquareOrderForSync, tenantId: string, connectionId: string) {
+  return {
+    tenant_id: tenantId,
+    connection_id: connectionId,
+    square_order_id: order.id,
+    location_id: order.location_id ?? null,
+    state: order.state ?? 'UNKNOWN',
+    source_name: order.source?.name ?? null,
+    created_at_square: order.created_at ?? new Date().toISOString(),
+    updated_at_square: order.updated_at ?? null,
+    closed_at_square: order.closed_at ?? null,
+    currency: order.total_money?.currency ?? 'EUR',
+    gross_amount_cents: Math.max(0, squareMoneyToCents(order.total_money) + squareMoneyToCents(order.total_discount_money)),
+    discount_amount_cents: squareMoneyToCents(order.total_discount_money),
+    tax_amount_cents: squareMoneyToCents(order.total_tax_money),
+    net_amount_cents: Math.max(0, squareMoneyToCents(order.total_money) - squareMoneyToCents(order.total_tax_money)),
+    total_amount_cents: squareMoneyToCents(order.total_money),
+    synced_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }
+}
+
+export function buildSquareLineItemRows(order: SquareOrderForSync, tenantId: string) {
+  return (order.line_items ?? []).map((line, index) => ({
+    tenant_id: tenantId,
+    square_order_id: order.id,
+    square_line_item_uid: line.uid ?? `${order.id}-${index}`,
+    catalog_object_id: line.catalog_object_id ?? null,
+    catalog_version: line.catalog_version != null ? Number(line.catalog_version) : null,
+    sku: line.catalog_object?.sku ?? null,
+    name: line.name || line.variation_name || 'Square item',
+    quantity: Number(line.quantity ?? 0),
+    gross_amount_cents: squareMoneyToCents(line.gross_sales_money ?? line.base_price_money),
+    total_amount_cents: squareMoneyToCents(line.total_money),
+    currency: line.total_money?.currency ?? order.total_money?.currency ?? 'EUR',
+    updated_at: new Date().toISOString(),
+  }))
+}
