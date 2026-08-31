@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { requireSquareTenantAccess } from '@/lib/square/auth'
+import { requireSquareTenantAccess, SQUARE_PLAN_ERROR } from '@/lib/square/auth'
 
 export const runtime = 'nodejs'
 
@@ -52,6 +52,7 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to load Square connection.'
-    return NextResponse.json({ error: message }, { status: message === 'Unauthorized' ? 401 : 500 })
+    const status = message === 'Unauthorized' ? 401 : message === SQUARE_PLAN_ERROR ? 403 : 500
+    return NextResponse.json({ error: message }, { status })
   }
 }

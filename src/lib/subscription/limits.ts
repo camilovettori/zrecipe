@@ -18,6 +18,7 @@ export interface SubscriptionLimits {
   canBulkImportInvoices: boolean
   canImportSupplierPriceLists: boolean
   canUseSupplierCodes: boolean
+  canUseSquareIntegration: boolean
   aiRecipeIdeasPerMonth: number
   aiInvoiceExtractsPerMonth: number
   popupIntervalMinutes: number
@@ -41,6 +42,7 @@ export const STARTER_LIMITS: SubscriptionLimits = {
   canBulkImportInvoices: false,
   canImportSupplierPriceLists: false,
   canUseSupplierCodes: false,
+  canUseSquareIntegration: false,
   aiRecipeIdeasPerMonth: 5,
   aiInvoiceExtractsPerMonth: 0,
   popupIntervalMinutes: 10,
@@ -64,6 +66,7 @@ export const PRO_LIMITS: SubscriptionLimits = {
   canBulkImportInvoices: false,
   canImportSupplierPriceLists: true,
   canUseSupplierCodes: true,
+  canUseSquareIntegration: true,
   aiRecipeIdeasPerMonth: 50,
   aiInvoiceExtractsPerMonth: 50,
   popupIntervalMinutes: Infinity,
