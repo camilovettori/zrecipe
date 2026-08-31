@@ -41,10 +41,13 @@ export function hasBrandingRights(
   isComped: boolean | null | undefined,
   planTier: string | null | undefined = 'starter'
 ): boolean {
+  // Admin-comped workspaces retain the Pro entitlements that were granted to
+  // them, even if their historical subscription record is canceled/inactive.
+  if (isComped === true) return true
   if (subscriptionStatus === 'trialing') return true
   if (subscriptionStatus !== 'active') return false
   if (planTier === 'pro' || planTier === 'business') return true
-  return isComped === true && (planTier === 'pro' || planTier === 'business')
+  return false
 }
 
 export const TRIAL_PERIOD_DAYS = 14
@@ -80,11 +83,11 @@ export function getEffectiveTier(tenant: {
 }): PlanTier {
   const status = tenant.subscription_status ?? tenant.subscriptionStatus
   if (status === 'trialing') return 'pro'
+  if (tenant.is_comped === true || tenant.isComped === true) return 'pro'
 
   if (status === 'active') {
     const tier = tenant.plan_tier ?? tenant.planTier
     if (isPlanTier(tier)) return tier
-    if (tenant.is_comped === true || tenant.isComped === true) return 'pro'
     return 'starter'
   }
 
