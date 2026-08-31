@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireSquareTenantAccess, SQUARE_PLAN_ERROR } from '@/lib/square/auth'
 import {
-  buildSquareLineItemRows,
   buildSquareOrderRow,
   encryptSquareSecret,
   getValidSquareAccessToken,
   squareApi,
+  syncOrderLineItems,
   type SquareConnectionRecord,
   type SquareOrderForSync,
 } from '@/lib/square/server'
@@ -21,12 +21,6 @@ function isoDaysAgo(days: number) {
   const value = new Date()
   value.setDate(value.getDate() - days)
   return value.toISOString()
-}
-
-function chunk<T>(items: T[], size: number) {
-  const result: T[][] = []
-  for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size))
-  return result
 }
 
 export async function POST(request: NextRequest) {
@@ -114,17 +108,15 @@ export async function POST(request: NextRequest) {
           .upsert(rows, { onConflict: 'tenant_id,square_order_id' })
         if (orderError) throw new Error(`Unable to store Square sales: ${orderError.message}`)
 
-        const lineRows = orders.flatMap((order) => buildSquareLineItemRows(order, access.tenantId))
-
-        for (const rowsChunk of chunk(lineRows, 500)) {
-          if (!rowsChunk.length) continue
-          // Upsert keyed on Square's own line-item uid (unique per order) instead
-          // of delete-then-insert — re-syncing never has a window where a chunk
-          // failure leaves items deleted but not yet reinserted.
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const { error: lineError } = await (admin.from('square_order_line_items') as any)
-            .upsert(rowsChunk, { onConflict: 'tenant_id,square_order_id,square_line_item_uid' })
-          if (lineError) throw new Error(`Unable to store Square sale items: ${lineError.message}`)
+        // Per-order, not batched across the page: syncOrderLineItems upserts
+        // this order's current lines then prunes only this order's own stale
+        // uids, so one order's fresh uids can never protect (or accidentally
+        // delete) another order's rows. See its doc comment in server.ts for
+        // why upsert-then-prune is safe as two separate calls.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const lineItemTable = admin.from('square_order_line_items') as any
+        for (const order of orders) {
+          await syncOrderLineItems(lineItemTable, order, access.tenantId)
         }
 
         imported += orders.length

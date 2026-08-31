@@ -288,3 +288,85 @@ export function buildSquareLineItemRows(order: SquareOrderForSync, tenantId: str
     updated_at: new Date().toISOString(),
   }))
 }
+
+// Which currently-stored line-item uids for one order are no longer among
+// the uids Square just returned for that same order — i.e. voided/refunded
+// lines that should be pruned. Pure diff, factored out so the prune decision
+// is unit-testable independent of the DB round-trips around it.
+export function staleLineItemUids(existingUids: string[], freshUids: string[]) {
+  const fresh = new Set(freshUids)
+  return existingUids.filter((uid) => !fresh.has(uid))
+}
+
+export type SquareLineItemTable = {
+  upsert: (
+    rows: ReturnType<typeof buildSquareLineItemRows>,
+    opts: { onConflict: string }
+  ) => PromiseLike<{ error: { message: string } | null }>
+  select: (columns: string) => {
+    eq: (column: string, value: string) => {
+      eq: (column: string, value: string) => PromiseLike<{
+        data: Array<{ square_line_item_uid: string }> | null
+        error: { message: string } | null
+      }>
+    }
+  }
+  delete: () => {
+    eq: (column: string, value: string) => {
+      eq: (column: string, value: string) => {
+        in: (column: string, values: string[]) => PromiseLike<{ error: { message: string } | null }>
+      }
+    }
+  }
+}
+
+// Upserts one order's current line items, then prunes any previously-stored
+// line item for that exact (tenant_id, square_order_id) whose uid Square no
+// longer returns — a partial void/refund after a prior sync. Deliberately
+// two separate calls, upsert first and prune second, not one transaction:
+// if the process dies between them, the only possible outcome is "a stale
+// row survives a little longer" — it can never leave a currently-valid line
+// item missing. That's the opposite failure direction from the
+// delete-then-insert bug fixed in 70acc19 (where a failure between the two
+// steps could delete-and-never-reinsert a valid row), which is exactly why
+// this one is safe to leave as two steps. Do not reorder this to
+// prune-then-upsert, and do not "simplify" it back into one delete keyed
+// only on square_order_id — the prune below is intentionally scoped to a
+// single order's own fresh uids so one order's items can never protect (or
+// accidentally prune) another order's rows.
+export async function syncOrderLineItems(
+  table: SquareLineItemTable,
+  order: SquareOrderForSync,
+  tenantId: string
+) {
+  const freshRows = buildSquareLineItemRows(order, tenantId)
+
+  if (freshRows.length) {
+    const { error: upsertError } = await table.upsert(freshRows, {
+      onConflict: 'tenant_id,square_order_id,square_line_item_uid',
+    })
+    if (upsertError) throw new Error(`Unable to store Square sale items: ${upsertError.message}`)
+  }
+
+  const { data: existing, error: existingError } = await table
+    .select('square_line_item_uid')
+    .eq('tenant_id', tenantId)
+    .eq('square_order_id', order.id)
+  if (existingError) throw new Error(`Unable to check Square sale items for pruning: ${existingError.message}`)
+
+  const staleUids = staleLineItemUids(
+    (existing ?? []).map((row) => row.square_line_item_uid),
+    freshRows.map((row) => row.square_line_item_uid)
+  )
+
+  if (staleUids.length) {
+    const { error: deleteError } = await table
+      .delete()
+      .eq('tenant_id', tenantId)
+      .eq('square_order_id', order.id)
+      .in('square_line_item_uid', staleUids)
+    if (deleteError) throw new Error(`Unable to prune removed Square sale items: ${deleteError.message}`)
+  }
+
+  return { upserted: freshRows.length, pruned: staleUids.length }
+}
