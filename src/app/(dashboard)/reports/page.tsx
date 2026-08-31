@@ -16,6 +16,7 @@ import { resolveIngredientPrice, type PriceHistoryEntry } from '@/lib/ingredient
 import { cn } from '@/lib/utils'
 import { useSubscription } from '@/hooks/useSubscription'
 import EmptyState from '@/components/shared/EmptyState'
+import SquareAnalyticsPanel from '@/components/dashboard/SquareAnalyticsPanel'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -804,6 +805,8 @@ function OverviewTab({
           </p>
         </div>
       </div>
+
+      <SquareAnalyticsPanel />
 
       {/* Top performers + Needs attention */}
       <div className="grid gap-6 lg:grid-cols-2">

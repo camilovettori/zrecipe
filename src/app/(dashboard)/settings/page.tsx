@@ -8,6 +8,7 @@ import {
   CreditCard,
   ImageIcon,
   KeyRound,
+  Store,
   Shield,
   Users,
 } from 'lucide-react'
@@ -141,6 +142,13 @@ export default function SettingsPage() {
           title="Billing & Plan"
           description="Manage your subscription, usage and billing history."
           badge={billingBadge}
+        />
+        <SettingsTile
+          href="/settings/integrations/square"
+          icon={Store}
+          iconClass="bg-amber-50 text-amber-600"
+          title="Square POS"
+          description="Connect Square sales to your business analytics."
         />
       </div>
     </div>
