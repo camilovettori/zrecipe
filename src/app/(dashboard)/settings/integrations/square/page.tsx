@@ -12,6 +12,7 @@ import {
   Lock,
   RefreshCw,
   Store,
+  Tags,
   Unplug,
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
@@ -218,6 +219,10 @@ export default function SquareIntegrationSettingsPage() {
                   <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
                   {syncing ? 'Syncing sales…' : 'Sync last 90 days'}
                 </button>
+                <Link href="/settings/integrations/square/mapping" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
+                  <Tags className="h-4 w-4" />
+                  Map items to recipes
+                </Link>
                 <button onClick={disconnect} disabled={disconnecting} className="inline-flex items-center gap-2 rounded-xl border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-60">
                   {disconnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unplug className="h-4 w-4" />}
                   Disconnect
