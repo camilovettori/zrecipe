@@ -205,6 +205,20 @@ export default function IngredientForm({
 
   const nameField = register('name')
   const lastSavedRef = useRef<FormData>(defaultValues)
+  // Last CONFIRMED price (from an explicit save, or the DB value this
+  // ingredient was loaded with) — used only to decide whether to write a
+  // price_history row. Unlike `ingredient.current_price` / `lastSavedRef`,
+  // this must NOT move on silent autosave ticks, or an intermediate value
+  // typed and later corrected produces two spurious history rows instead
+  // of the one the user actually intended.
+  const priceHistoryBaselineRef = useRef<number | null>(ingredient?.current_price ?? null)
+
+  useEffect(() => {
+    priceHistoryBaselineRef.current = ingredient?.current_price ?? null
+    // Reset only when switching to a different ingredient (id change), never
+    // on the object-identity churn a silent autosave's onSaved produces.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ingredient?.id])
   const watched = useWatch({ control }) as FormData
   const categoryValue = (watched.category ?? '') as string
   const baseUnitValue = (watched.base_unit ?? '') as string
@@ -402,8 +416,6 @@ export default function IngredientForm({
         }
 
         if (ingredient) {
-          const priceChanged = hasMeaningfulPriceChange(ingredient.current_price, payload.current_price)
-
           // Manual verification is implicit: saving a valid price (already
           // guaranteed > 0 by the check above) on a flagged ingredient is
           // the verification action — no separate "mark as verified" toggle.
@@ -423,9 +435,15 @@ export default function IngredientForm({
 
           const savedRow = row as IngredientDbRow
 
-          if (priceChanged) {
-            const lastSavedPrice = lastSavedRef.current.current_price ?? null
-            if (hasMeaningfulPriceChange(lastSavedPrice, payload.current_price)) {
+          // Price history is a permanent audit trail of real purchases — it
+          // must only be written on a deliberate explicit Save, never on a
+          // silent autosave tick while the user may still be correcting the
+          // value. The comparison is anchored to priceHistoryBaselineRef
+          // (last confirmed price), not ingredient.current_price, because
+          // silent autosave already moved that prop forward via onSaved.
+          if (!silent) {
+            const priceChanged = hasMeaningfulPriceChange(priceHistoryBaselineRef.current, payload.current_price)
+            if (priceChanged) {
               try {
                 const tenantId = await resolveTenantId()
                 await supabase.from('ingredient_price_history').insert({
@@ -440,6 +458,7 @@ export default function IngredientForm({
                 // Best effort: ingredient save should never fail because history did.
               }
             }
+            priceHistoryBaselineRef.current = payload.current_price
           }
 
           lastSavedRef.current = { ...data, current_price: payload.current_price }
