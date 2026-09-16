@@ -70,6 +70,15 @@ interface IngredientFormProps {
   onAutoSaveStatus?: (status: AutoSaveStatus) => void
   onValidityChange?: (valid: boolean) => void
   onPricingPreviewChange?: (preview: IngredientCostPreview) => void
+  /**
+   * Fires whenever the purchase-cost fields (package price/quantity/unit,
+   * calculate-cost-per unit, or the manual override) go from settled to
+   * actively-being-edited, and back to settled once the ingredient prop
+   * next updates (load, or after a save). Lets the caller show the live
+   * pricing preview only while genuinely mid-edit, and the resolved/
+   * selected price otherwise — see fix-selected-price-display.
+   */
+  onPurchaseCostTouchedChange?: (touched: boolean) => void
 }
 
 type IngredientDbRow = {
@@ -155,6 +164,7 @@ export default function IngredientForm({
   onAutoSaveStatus,
   onValidityChange,
   onPricingPreviewChange,
+  onPurchaseCostTouchedChange,
 }: IngredientFormProps) {
   const router = useRouter()
   const isExisting = !!ingredient?.id
@@ -171,6 +181,14 @@ export default function IngredientForm({
   const [categoryRenameState, setCategoryRenameState] = useState<{ oldName: string } | null>(null)
   const [overrideUnitPrice, setOverrideUnitPrice] = useState(false)
   const [packagePriceInput, setPackagePriceInput] = useState('')
+  // True only while the user is actively mid-edit on a purchase-cost field
+  // since it last settled (ingredient load, or after a save). Deliberately
+  // NOT derived from react-hook-form's formState.isDirty — packagePriceInput
+  // isn't RHF-registered, and a pre-existing effect below programmatically
+  // marks `current_price` dirty on load via the package-price round-trip
+  // (2-decimal display rounding rarely reproduces the stored value exactly),
+  // so isDirty is already true before the user touches anything.
+  const [purchaseCostTouched, setPurchaseCostTouched] = useState(false)
   const [supplierQuery, setSupplierQuery] = useState(ingredient?.supplier?.name ?? '')
   const [supplierId, setSupplierId] = useState<string | null>(ingredient?.last_supplier_id ?? null)
   const [supplierDropdownOpen, setSupplierDropdownOpen] = useState(false)
@@ -235,6 +253,7 @@ export default function IngredientForm({
       priceUnitTouchedRef.current = false
       setSupplierQuery('')
       setSupplierId(null)
+      setPurchaseCostTouched(false)
       return
     }
 
@@ -249,6 +268,10 @@ export default function IngredientForm({
     priceUnitTouchedRef.current = false
     setSupplierQuery(ingredient.supplier?.name ?? '')
     setSupplierId(ingredient.last_supplier_id ?? null)
+    // Settled: this fires on every ingredient prop update, including after
+    // a save (onSaved gives it a new object identity), so a completed edit
+    // counts as "settled" the same as a fresh load.
+    setPurchaseCostTouched(false)
   }, [ingredient])
 
   const supplierSuggestions = useMemo(() => {
@@ -323,6 +346,10 @@ export default function IngredientForm({
   useEffect(() => {
     onPricingPreviewChange?.(effectivePricingPreview)
   }, [effectivePricingPreview, onPricingPreviewChange])
+
+  useEffect(() => {
+    onPurchaseCostTouchedChange?.(purchaseCostTouched)
+  }, [purchaseCostTouched, onPurchaseCostTouchedChange])
 
   useEffect(() => {
     if (overrideUnitPrice) return
@@ -866,7 +893,10 @@ export default function IngredientForm({
                     step="0.01"
                     min="0"
                     value={packagePriceInput}
-                    onChange={(e) => setPackagePriceInput(e.target.value)}
+                    onChange={(e) => {
+                      setPackagePriceInput(e.target.value)
+                      setPurchaseCostTouched(true)
+                    }}
                     placeholder="0.00"
                     className={cn(field, 'pl-7')}
                   />
@@ -879,6 +909,7 @@ export default function IngredientForm({
                 <input
                   {...register('package_size', {
                     setValueAs: (v: string) => (v === '' ? undefined : parseFloat(v)),
+                    onChange: () => setPurchaseCostTouched(true),
                   })}
                   type="number"
                   step="0.01"
@@ -898,6 +929,7 @@ export default function IngredientForm({
                     if (!priceUnitTouchedRef.current) {
                       setValue('base_unit', getDefaultIngredientPriceUnit(v), { shouldValidate: true })
                     }
+                    setPurchaseCostTouched(true)
                   }}
                   placeholder="Select…"
                   options={UNITS.map((u) => ({ value: u, label: u }))}
@@ -913,6 +945,7 @@ export default function IngredientForm({
                   onChange={(v) => {
                     priceUnitTouchedRef.current = true
                     setValue('base_unit', v, { shouldValidate: true })
+                    setPurchaseCostTouched(true)
                   }}
                   placeholder="Select…"
                   options={UNITS.map((u) => ({ value: u, label: u }))}
@@ -946,6 +979,7 @@ export default function IngredientForm({
                       }
                       return next
                     })
+                    setPurchaseCostTouched(true)
                   }}
                   className={cn(
                     'text-xs font-medium transition-colors',
@@ -966,6 +1000,7 @@ export default function IngredientForm({
                     <input
                       {...register('current_price', {
                         setValueAs: (v: string) => (v === '' ? undefined : parseFloat(v)),
+                        onChange: () => setPurchaseCostTouched(true),
                       })}
                       type="number"
                       step="0.000001"

@@ -294,6 +294,11 @@ export default function IngredientDetailPage() {
   const [mergeModalOpen, setMergeModalOpen] = useState(false)
   const [formCanSave, setFormCanSave] = useState(false)
   const [costPreview, setCostPreview] = useState<IngredientCostPreview | null>(null)
+  // True only while the user is actively mid-edit on a purchase-cost field.
+  // Gates whether the Cost Intelligence panel shows the live in-progress
+  // preview or the actually-resolved/selected price — see
+  // fix-selected-price-display.
+  const [purchaseCostTouched, setPurchaseCostTouched] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [supplierCodes, setSupplierCodes] = useState<SupplierCode[]>([])
   const [showAddCode, setShowAddCode] = useState(false)
@@ -695,8 +700,13 @@ export default function IngredientDetailPage() {
   )
   const currentPriceValue = resolvedPrice.price ?? ingredient?.current_price ?? latestPrice?.price ?? null
   const currentPriceUnit = resolvedPrice.unit ?? ingredient?.base_unit ?? latestPrice?.unit ?? ingredient?.package_unit ?? 'unit'
-  const panelPriceValue = costPreview?.normalizedPrice ?? currentPriceValue
-  const panelPriceUnit = costPreview?.normalizedUnit ?? currentPriceUnit
+  // The live purchase-cost preview only outranks the resolved/selected
+  // price while the user is actively mid-edit — otherwise a fresh
+  // price_history selection (or a settled/saved form) would never show
+  // through, since costPreview is non-null from mount for any ingredient
+  // with purchase-cost fields already filled in.
+  const panelPriceValue = (purchaseCostTouched ? costPreview?.normalizedPrice : null) ?? currentPriceValue
+  const panelPriceUnit = (purchaseCostTouched ? costPreview?.normalizedUnit : null) ?? currentPriceUnit
   const priceSourceLabel =
     resolvedPrice.source === 'selected'
       ? 'Currently using: your selected price'
@@ -773,6 +783,7 @@ export default function IngredientDetailPage() {
             onAutoSaveStatus={setAutoSaveStatus}
             onValidityChange={setFormCanSave}
             onPricingPreviewChange={setCostPreview}
+            onPurchaseCostTouchedChange={setPurchaseCostTouched}
           />
 
           {!isNew && (
