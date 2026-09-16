@@ -14,7 +14,7 @@ import IngredientForm, {
   type IngredientCostPreview,
 } from '@/components/ingredients/IngredientForm'
 import AllergenPicker from '@/components/ingredients/AllergenPicker'
-import PriceHistoryChart, { type PricePoint } from '@/components/ingredients/PriceHistoryChart'
+import PriceHistoryChart, { type PricePoint, resolveInvoiceLabel } from '@/components/ingredients/PriceHistoryChart'
 import ConfirmDelete from '@/components/shared/ConfirmDelete'
 import PriceChangeBanner from '@/components/ingredients/PriceChangeBanner'
 import type { IngredientRow } from '@/hooks/useIngredients'
@@ -26,6 +26,7 @@ import { SubstituteIngredientModal, type SubstituteReplacement } from '@/compone
 import MergeIngredientModal from '@/components/ingredients/MergeIngredientModal'
 import { resolveIngredientPrice } from '@/lib/ingredients/resolveIngredientPrice'
 import { setSelectedPrice } from '@/lib/ingredients/setSelectedPrice'
+import { deletePriceHistoryEntry } from '@/lib/ingredients/deletePriceHistoryEntry'
 import { deleteIngredientById } from '@/lib/ingredients/deleteIngredient'
 import { cn } from '@/lib/utils'
 import {
@@ -280,6 +281,8 @@ export default function IngredientDetailPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [deleteEntryTarget, setDeleteEntryTarget] = useState<PricePoint | null>(null)
+  const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null)
   const [allergenMap, setAllergenMap] = useState<Record<number, AllergenStatus>>({})
   const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>('idle')
   // Manifest image resolved client-side — never saved to DB
@@ -423,6 +426,38 @@ export default function IngredientDetailPage() {
       })
     }
   }, [ingredient, priceHistory])
+
+  const handleDeleteEntryConfirm = useCallback(async () => {
+    if (!ingredient || !deleteEntryTarget) return
+    const target = deleteEntryTarget
+
+    setDeletingEntryId(target.id)
+    // Optimistic removal, mirroring handleSelectionChange's pattern — if the
+    // deleted row was the selected one, resolveIngredientPrice's existing
+    // "no selection -> most recent remaining row" fallback takes over on its
+    // own from the shrunk array, no special-casing needed here.
+    setPriceHistory((prev) => prev.filter((p) => p.id !== target.id))
+
+    const result = await deletePriceHistoryEntry(ingredient.id, target.id)
+    setDeletingEntryId(null)
+    setDeleteEntryTarget(null)
+
+    if (!result.ok) {
+      toast.error('Failed to delete price entry')
+      // Revert to server truth rather than leaving the optimistic removal
+      // stuck wrong.
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('ingredient_price_history')
+        .select(`
+          id, ingredient_id, price, unit, brand, is_selected_price, recorded_at, invoice_id,
+          invoice:invoices ( id, invoice_number, supplier:suppliers ( name ) )
+        `)
+        .eq('ingredient_id', ingredient.id)
+        .order('recorded_at', { ascending: true })
+      setPriceHistory((data ?? []) as PricePoint[])
+    }
+  }, [ingredient, deleteEntryTarget])
 
   const refreshUsedRecipes = useCallback(async () => {
     if (isNew) return
@@ -1238,6 +1273,8 @@ export default function IngredientDetailPage() {
                         unit={panelPriceUnit}
                         ingredientId={ingredient?.id}
                         onSelectionChange={handleSelectionChange}
+                        onDeleteRequest={setDeleteEntryTarget}
+                        deletingEntryId={deletingEntryId}
                       />
                     </div>
                   )}
@@ -1344,6 +1381,25 @@ export default function IngredientDetailPage() {
         itemName={ingredient?.name ?? ''}
         loading={deleting}
       />
+
+      {deleteEntryTarget && (
+        <ConfirmDelete
+          open={Boolean(deleteEntryTarget)}
+          onClose={() => setDeleteEntryTarget(null)}
+          onConfirm={handleDeleteEntryConfirm}
+          loading={deletingEntryId === deleteEntryTarget.id}
+          title="Delete this price entry?"
+          description={
+            deleteEntryTarget.invoice_id
+              ? `This entry is linked to invoice ${resolveInvoiceLabel(deleteEntryTarget) ?? 'on record'}. Deleting it won't affect the invoice, but you won't be able to trace this price back to it anymore.${
+                  priceHistory.length === 1 ? ' This is also the only price on record for this ingredient.' : ''
+                }`
+              : `This manual price entry will be permanently removed from this ingredient's history.${
+                  priceHistory.length === 1 ? ' This is the only price on record for this ingredient.' : ''
+                }`
+          }
+        />
+      )}
 
       {ingredient && (
         <PriceSimulatorModal

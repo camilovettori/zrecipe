@@ -1,5 +1,6 @@
 'use client'
 
+import type { ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { AlertTriangle, X } from 'lucide-react'
 
@@ -7,8 +8,12 @@ interface ConfirmDeleteProps {
   open: boolean
   onClose: () => void
   onConfirm: () => void | Promise<void>
-  itemName: string
+  itemName?: string
   loading?: boolean
+  /** Overrides the default `Delete "{itemName}"?` title. */
+  title?: ReactNode
+  /** Overrides the default "all price history will also be removed" copy. */
+  description?: ReactNode
 }
 
 export default function ConfirmDelete({
@@ -17,6 +22,8 @@ export default function ConfirmDelete({
   onConfirm,
   itemName,
   loading,
+  title,
+  description,
 }: ConfirmDeleteProps) {
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
@@ -36,11 +43,15 @@ export default function ConfirmDelete({
             </div>
             <div>
               <Dialog.Title className="text-base font-semibold text-slate-900 dark:text-white">
-                Delete &ldquo;{itemName}&rdquo;?
+                {title ?? <>Delete &ldquo;{itemName}&rdquo;?</>}
               </Dialog.Title>
               <Dialog.Description className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
-                This action cannot be undone. All price history associated with this ingredient
-                will also be removed.
+                {description ?? (
+                  <>
+                    This action cannot be undone. All price history associated with this ingredient
+                    will also be removed.
+                  </>
+                )}
               </Dialog.Description>
             </div>
           </div>

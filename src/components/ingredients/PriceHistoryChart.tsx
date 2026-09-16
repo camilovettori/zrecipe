@@ -12,7 +12,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { format } from 'date-fns'
-import { ArrowDownRight, ArrowUpRight, Minus, FileText, Pencil } from 'lucide-react'
+import { ArrowDownRight, ArrowUpRight, Minus, FileText, Pencil, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 type JoinedSupplier = { name: string | null }
@@ -72,7 +72,7 @@ function resolveSupplierName(point: PricePoint) {
   return supplier?.name ?? null
 }
 
-function resolveInvoiceLabel(point: PricePoint) {
+export function resolveInvoiceLabel(point: PricePoint) {
   const invoice = resolveInvoice(point)
   return invoice?.invoice_number ?? point.invoice_id?.slice(0, 8) ?? null
 }
@@ -115,9 +115,19 @@ interface PriceHistoryChartProps {
   unit: string
   ingredientId?: string
   onSelectionChange?: (historyId: string | null) => void | Promise<void>
+  onDeleteRequest?: (point: PricePoint) => void
+  /** id of the entry currently being deleted, to disable its row button while in flight. */
+  deletingEntryId?: string | null
 }
 
-export default function PriceHistoryChart({ priceHistory, unit, ingredientId, onSelectionChange }: PriceHistoryChartProps) {
+export default function PriceHistoryChart({
+  priceHistory,
+  unit,
+  ingredientId,
+  onSelectionChange,
+  onDeleteRequest,
+  deletingEntryId,
+}: PriceHistoryChartProps) {
   const router = useRouter()
   const [showAll, setShowAll] = useState(false)
   const ordered = useMemo(
@@ -275,6 +285,20 @@ export default function PriceHistoryChart({ priceHistory, unit, ingredientId, on
                 <span className="shrink-0 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
                   Latest
                 </span>
+              )}
+              {onDeleteRequest && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onDeleteRequest(point)
+                  }}
+                  disabled={deletingEntryId === point.id}
+                  aria-label={`Delete ${date} price entry`}
+                  className="shrink-0 rounded p-1 text-slate-300 transition hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-red-950/20"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
               )}
             </div>
           )
