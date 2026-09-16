@@ -27,6 +27,7 @@ import SupplierPriceImportModal from '@/components/ingredients/SupplierPriceImpo
 import { toast } from '@/lib/toast'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
+import { computePriceChange, type PriceHistoryEntry } from '@/lib/price-alerts'
 
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'name', label: 'Name' },
@@ -159,7 +160,10 @@ export default function IngredientsPage() {
   }, [])
 
   // Fetch price trends for the list view and category detail, both of which
-  // render the shared IngredientListView component.
+  // render the shared IngredientListView component. Delegates to
+  // computePriceChange() — the same function the ingredient detail banner
+  // and dashboard price alerts use — so there is exactly one implementation
+  // of "what changed and by how much" in this codebase.
   useEffect(() => {
     const usesList = viewMode === 'list' || (viewMode === 'categories' && category !== 'all')
     if (!usesList || ingredients.length === 0 || loading) return
@@ -168,35 +172,23 @@ export default function IngredientsPage() {
     const supabase = createClient()
     supabase
       .from('ingredient_price_history')
-      .select('ingredient_id, price, recorded_at')
+      .select('id, ingredient_id, price, unit, recorded_at')
       .in('ingredient_id', ids)
-      .order('recorded_at', { ascending: false })
       .then(({ data }) => {
         if (!data) return
 
-        // Group by ingredient_id, keep the latest 2 per ingredient
-        const grouped = new Map<string, number[]>()
-        for (const row of data) {
-          const arr = grouped.get(row.ingredient_id) ?? []
-          if (arr.length < 2) {
-            arr.push(row.price)
-            grouped.set(row.ingredient_id, arr)
-          }
+        const byIngredient = new Map<string, PriceHistoryEntry[]>()
+        for (const row of data as PriceHistoryEntry[]) {
+          const arr = byIngredient.get(row.ingredient_id) ?? []
+          arr.push(row)
+          byIngredient.set(row.ingredient_id, arr)
         }
 
         const computed: Record<string, TrendData> = {}
-        for (const [id, prices] of Array.from(grouped.entries())) {
-          if (prices.length < 2 || prices[1] === 0) {
-            computed[id] = { direction: 'flat', pct: 0 }
-            continue
-          }
-          const latest = prices[0]
-          const prev = prices[1]
-          const pct = Math.abs(((latest - prev) / prev) * 100)
-          computed[id] = {
-            direction: latest > prev ? 'up' : latest < prev ? 'down' : 'flat',
-            pct,
-          }
+        for (const [id, rows] of Array.from(byIngredient.entries())) {
+          const change = computePriceChange(rows)
+          if (!change) continue
+          computed[id] = { direction: change.direction, pct: Math.abs(change.percentChange) }
         }
         setTrends(computed)
       })
