@@ -7,6 +7,7 @@ import { CustomSelect } from '@/components/ui/CustomSelect'
 import AllergenPicker from '@/components/ingredients/AllergenPicker'
 import { useIngredientCategories } from '@/hooks/useIngredientCategories'
 import { useSuppliers } from '@/hooks/useSuppliers'
+import { useSubscription } from '@/hooks/useSubscription'
 import { createClient } from '@/lib/supabase/client'
 import { resolveTenantId } from '@/hooks/useTenant'
 import type { AllergenStatus, IngredientAllergen } from '@/lib/allergens'
@@ -30,6 +31,8 @@ export type NewIngredientFormData = {
   recipeUnit: string
   supplierId: string | null
   supplierName?: string
+  /** Set only with a resolved supplierId on a plan with canUseSupplierCodes. */
+  productCode?: string
   allergens?: IngredientAllergen[]
 }
 
@@ -96,6 +99,7 @@ export default function NewIngredientModal({
 }: NewIngredientModalProps) {
   const { categories } = useIngredientCategories()
   const { suppliers, createSupplier } = useSuppliers()
+  const { limits } = useSubscription()
   const nameInputRef = useRef<HTMLInputElement | null>(null)
   const priceUnitTouchedRef = useRef(false)
 
@@ -110,6 +114,7 @@ export default function NewIngredientModal({
   const [supplierDropdownOpen, setSupplierDropdownOpen] = useState(false)
   const [supplierError, setSupplierError] = useState<string | null>(null)
   const [resolvingSupplier, setResolvingSupplier] = useState(false)
+  const [productCode, setProductCode] = useState('')
 
   const [packagePriceInput, setPackagePriceInput] = useState('')
   const [packageSize, setPackageSize] = useState('')
@@ -133,6 +138,7 @@ export default function NewIngredientModal({
     setSupplierDropdownOpen(false)
     setSupplierError(null)
     setResolvingSupplier(false)
+    setProductCode('')
     setPackagePriceInput('')
     setPackageSize('')
     setPackageUnit('kg')
@@ -165,6 +171,7 @@ export default function NewIngredientModal({
       Boolean(brand.trim()) ||
       category !== 'Other' ||
       Boolean(supplierQuery.trim()) ||
+      Boolean(productCode.trim()) ||
       Boolean(packagePriceInput) ||
       Boolean(packageSize) ||
       packageUnit !== 'kg' ||
@@ -182,6 +189,7 @@ export default function NewIngredientModal({
       packageSize,
       packageUnit,
       priceUnit,
+      productCode,
       recipeQuantity,
       recipeUnit,
       supplierQuery,
@@ -287,6 +295,7 @@ export default function NewIngredientModal({
       recipeUnit,
       supplierId: resolvedSupplierId,
       supplierName: trimmedSupplierQuery || undefined,
+      productCode: limits.canUseSupplierCodes && resolvedSupplierId ? productCode.trim() || undefined : undefined,
       allergens: allergens.length ? allergens : undefined,
     })
   }
@@ -478,6 +487,30 @@ export default function NewIngredientModal({
                     </p>
                   )}
                 </label>
+
+                {limits.canUseSupplierCodes ? (
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs font-medium text-slate-600">
+                      Product code <span className="font-normal text-slate-400">(optional)</span>
+                    </span>
+                    <input
+                      value={productCode}
+                      onChange={(e) => setProductCode(e.target.value)}
+                      disabled={!supplierQuery.trim()}
+                      placeholder="e.g. BUT-SAL-250"
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                    />
+                    <p className="mt-1.5 text-xs text-slate-400">
+                      {supplierQuery.trim()
+                        ? 'The code this supplier uses for the product. Future invoices from them match it automatically.'
+                        : 'Add a supplier first — product codes are linked per supplier.'}
+                    </p>
+                  </label>
+                ) : (
+                  <p className="text-xs text-slate-400">
+                    Supplier product codes are available on Pro and Business.
+                  </p>
+                )}
 
                 <AllergenSection value={allergenSelection} onChange={setAllergenSelection} />
 
