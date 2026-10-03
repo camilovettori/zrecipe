@@ -94,18 +94,19 @@ test('the refocus handler is gated on hasLoaded and never fires during an active
   assert.match(handlerBlock, /!hasLoaded\.current \|\| aiImportActiveRef\.current/)
 })
 
-test('the refocus refresh suppresses the dirty/autosave trigger — a background refresh is not a user edit', () => {
+test('the refocus refresh does not trigger dirty/autosave — a background refresh is not a user edit', () => {
   const handlerBlock = src.slice(
     src.indexOf('function handleVisibilityChange()'),
     src.indexOf("document.addEventListener('visibilitychange'")
   )
-  const suppressIdx = handlerBlock.indexOf('suppressNextDirtyRef.current = true')
-  const setRecipeIdx = handlerBlock.indexOf('setRecipe((c) => ({')
-  assert.notEqual(suppressIdx, -1, 'refocus refresh does not suppress the dirty flag')
-  assert.ok(suppressIdx < setRecipeIdx, 'must suppress dirty tracking BEFORE calling setRecipe')
+  // setRecipeQuietly is RecipeBuilder's path for non-edit updates: a clean
+  // recipe stays clean (no autosave), pending user edits stay pending. A plain
+  // setRecipe here would count the refresh as an edit.
+  assert.match(handlerBlock, /setRecipeQuietly\(\(c\) => \(\{/, 'refocus refresh must go through setRecipeQuietly')
+  assert.doesNotMatch(handlerBlock, /[^.\w]setRecipe\(/, 'refocus refresh must not call plain setRecipe')
 })
 
-test('the refocus effect only depends on hydrateIngredientAllergens — not on `recipe`, so it never re-registers or fires per keystroke/edit', () => {
+test('the refocus effect never depends on `recipe` — only on stable callbacks, so it never re-registers or fires per keystroke/edit', () => {
   const effectStart = src.indexOf('// ── Refresh allergens on tab refocus')
   const nextSectionStart = src.indexOf('// ── State updaters', effectStart)
   assert.ok(effectStart !== -1 && nextSectionStart !== -1 && nextSectionStart > effectStart,
@@ -113,7 +114,11 @@ test('the refocus effect only depends on hydrateIngredientAllergens — not on `
   const effectSlice = src.slice(effectStart, nextSectionStart)
   const depsMatch = effectSlice.match(/},\s*\[([^\]]*)\]\)/)
   assert.ok(depsMatch, 'could not locate the refocus effect dependency array')
-  assert.equal(depsMatch![1].trim(), 'hydrateIngredientAllergens')
+  assert.equal(depsMatch![1].trim(), 'hydrateIngredientAllergens, setRecipeQuietly')
+  // …and setRecipeQuietly must itself be stable (no deps), or this effect
+  // would re-register whenever it changed.
+  assert.match(src, /const setRecipeQuietly = useCallback\([\s\S]*?\n  \}, \[\]\)/,
+    'setRecipeQuietly must be a useCallback with an empty dependency array')
 })
 
 // ── Merge safety: refocus refresh must not clobber concurrent edits ───────
