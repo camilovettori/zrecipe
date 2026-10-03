@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useDropzone } from 'react-dropzone'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { Reorder, useDragControls } from 'framer-motion'
 import {
   AlertTriangle,
@@ -66,6 +66,7 @@ import { YieldFactorModal } from './YieldFactorModal'
 import { findYieldFactor } from '@/lib/data/yield-factors'
 import { compressImage } from '@/lib/utils/image-compress'
 import { isConvertible, convertUnit, getUnitFamily, getQuantityStep } from '@/lib/utils/unit-converter'
+import { createAutosaveScheduler, type AutosaveScheduler } from '@/lib/recipes/autosaveScheduler'
 import { normalizeBrand } from '@/lib/utils/normalizeBrand'
 import CostBreakdown from './CostBreakdown'
 import LaborConfigModal from './LaborConfigModal'
@@ -618,9 +619,31 @@ type LabelData = {
 // ── Main component ───────────────────────────────────────────────────────────
 
 export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
+  // After a new recipe's first save the editor moves its URL to /recipes/<id>
+  // with history.replaceState (see adoptSavedId) instead of navigating, so it
+  // doesn't remount mid-edit. Next still treats the route segment as 'new',
+  // though, so a later navigation to /recipes/new (Duplicate, command palette)
+  // would NOT remount and the user would keep editing the saved recipe. Key the
+  // editor on each arrival at /recipes/new to get the fresh mount Next would
+  // normally give.
+  const pathname = usePathname()
+  const [generation, setGeneration] = useState(0)
+  const prevPathnameRef = useRef(pathname)
+  useEffect(() => {
+    if (pathname !== prevPathnameRef.current && pathname === '/recipes/new') setGeneration((g) => g + 1)
+    prevPathnameRef.current = pathname
+  }, [pathname])
+
+  return <RecipeEditor key={generation} recipeId={recipeId} />
+}
+
+function RecipeEditor({ recipeId }: { recipeId: string }) {
   const router = useRouter()
   const handleBack = useSafeBack('/recipes')
   const isNew = recipeId === 'new'
+  // Id of the persisted recipe. For a new recipe this is set by its first
+  // save, while `recipeId` (the route param) stays 'new' — see adoptSavedId.
+  const [savedId, setSavedId] = useState<string | null>(isNew ? null : recipeId)
   const { getRecipeWithIngredients, createRecipe, updateRecipe, deleteRecipe } = useRecipes({ autoLoad: false })
   const { limits } = useSubscription()
 
@@ -670,8 +693,47 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const hasLoaded = useRef(false)
-  const suppressNextDirtyRef = useRef(false)
-  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The editor state that needs no saving: the recipe is dirty exactly when it
+  // isn't this baseline or derived from it by quiet updates only (see
+  // setRecipeQuietly / derivesQuietlyFrom). This replaced a "suppress the next
+  // change" boolean, which miscounted whenever React batched two background
+  // updates into one render (set twice, consumed once) — the leftover flag
+  // then swallowed the user's next real edit, so it was never autosaved.
+  const cleanRecipeRef = useRef(recipe)
+  // For changes that aren't user edits (server echo after a save, tenant
+  // defaults, background image/allergen refreshes): a clean recipe stays
+  // clean, and pending user edits stay pending. Each quiet result records the
+  // state it was derived from; the dirty tracker follows that chain back to
+  // the clean baseline (see derivesQuietlyFrom). Recording is the updater's only
+  // side effect and is idempotent, so it stays correct when React re-runs
+  // updaters (StrictMode, rebasing) — unlike moving the baseline from inside
+  // the updater, which pointed it at a discarded copy.
+  const quietParentRef = useRef(new WeakMap<RecipeEditorData, RecipeEditorData>())
+  const setRecipeQuietly = useCallback((update: (current: RecipeEditorData) => RecipeEditorData) => {
+    setRecipe((current) => {
+      const next = update(current)
+      if (next !== current) quietParentRef.current.set(next, current)
+      return next
+    })
+  }, [])
+  // True when `r` is `base` or reached from it by quiet updates only. Any user
+  // edit in between breaks the chain (user edits aren't recorded).
+  const derivesQuietlyFrom = useCallback((r: RecipeEditorData, base: RecipeEditorData) => {
+    for (let x: RecipeEditorData | undefined = r; x; x = quietParentRef.current.get(x)) {
+      if (x === base) return true
+    }
+    return false
+  }, [])
+  // Debounce + max-wait timing for autosave (see autosaveScheduler.ts). Created
+  // once per mount; fires through handleAutoSaveRef so it always runs the
+  // latest handleAutoSave.
+  const autosaveSchedulerRef = useRef<AutosaveScheduler | null>(null)
+  autosaveSchedulerRef.current ??= createAutosaveScheduler(() => void handleAutoSaveRef.current?.())
+  const autosaveScheduler = autosaveSchedulerRef.current
+  // Saves run one at a time. Two overlapping saves of an unsaved recipe would
+  // both see no id and create two recipes; queued, the second sees the id the
+  // first one got and updates it instead.
+  const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve())
   const aiImportActiveRef = useRef(false)
   const aiImportSessionRef = useRef(0)
   const persistedRecipeIdRef = useRef<string | null>(isNew ? null : recipeId)
@@ -686,6 +748,10 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   const subRecipeFetchCacheRef = useRef<Map<string, Promise<RecipeRecord | null>>>(new Map())
 
   const storageKey = `zrecipe:recipe-draft:${recipeId}`
+  // Where the in-progress draft is written. Follows the saved id once a new
+  // recipe has been saved, so a saved recipe's draft isn't left under the
+  // 'new' key, where the next New Recipe would restore it as its own.
+  const draftKey = `zrecipe:recipe-draft:${savedId ?? recipeId}`
 
   useEffect(() => {
     if (!isNew) persistedRecipeIdRef.current = recipeId
@@ -773,9 +839,11 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
             (item) => (item.yield_percent ?? 100) < 100 && !item.yield_override
           ) ?? false)
         } catch {
-          setRecipe(blankRecipe())
+          setRecipeQuietly(() => blankRecipe())
         }
       }
+      // A blank new recipe is its own clean baseline (cleanRecipeRef starts as
+      // it), so opening New Recipe and not touching it never autosaves.
       hasLoaded.current = true
       setLoading(false)
       return
@@ -833,7 +901,9 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       if (!data) return
       // Pre-fill defaults for NEW recipes only
       if (isNew) {
-        setRecipe((prev) => ({
+        // Tenant defaults aren't a user edit — must not, on their own, mark
+        // the recipe dirty and autosave it.
+        setRecipeQuietly((prev) => ({
           ...prev,
           laborMode: (data.labor_hourly_rate ?? 0) > 0 ? 'time' : 'fixed',
           overheadMode: data.overhead_method === 'percent' ? 'percent' : 'fixed',
@@ -850,10 +920,10 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     if (typeof window === 'undefined') return
     const handle = setInterval(() => {
       if (aiImportActiveRef.current) return
-      localStorage.setItem(storageKey, JSON.stringify(recipe))
+      localStorage.setItem(draftKey, JSON.stringify(recipe))
     }, 30_000)
     return () => clearInterval(handle)
-  }, [recipe, storageKey])
+  }, [recipe, draftKey])
 
   // ── Keep refs in sync ─────────────────────────────────────────────────────
 
@@ -863,17 +933,16 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
   useEffect(() => {
     if (!hasLoaded.current) return
-    if (suppressNextDirtyRef.current) {
-      suppressNextDirtyRef.current = false
+    if (derivesQuietlyFrom(recipe, cleanRecipeRef.current)) {
+      cleanRecipeRef.current = recipe
       return
     }
     setSaveStatus('dirty')
-    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
     if (aiImportActiveRef.current) {
-      autoSaveTimerRef.current = null
+      autosaveScheduler.cancel()
       return
     }
-    autoSaveTimerRef.current = setTimeout(() => void handleAutoSaveRef.current?.(), 3000)
+    autosaveScheduler.markDirty()
   }, [recipe]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Warn before leaving with unsaved changes ──────────────────────────────
@@ -1085,12 +1154,11 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       void hydrateIngredientAllergens(currentIngredients).then((hydrated) => {
         // A passive background refresh of cached display data, not a user
         // edit — must not mark the recipe dirty or schedule an autosave.
-        suppressNextDirtyRef.current = true
         // Merge by id and patch only `allergens` — the user may have edited
         // quantities/units/lines while this async refresh was in flight, so
         // this must not clobber `c.ingredients` with the snapshot taken when
         // the refresh started.
-        setRecipe((c) => ({
+        setRecipeQuietly((c) => ({
           ...c,
           ingredients: c.ingredients.map((item) => {
             const match = hydrated.find((h) => h.id === item.id)
@@ -1102,7 +1170,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
 
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-  }, [hydrateIngredientAllergens])
+  }, [hydrateIngredientAllergens, setRecipeQuietly])
 
   // ── State updaters ─────────────────────────────────────────────────────────
 
@@ -1470,7 +1538,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       const compressed = await compressImage(file, 1200, 0.8)
       const fd = new FormData()
       fd.append('file', compressed)
-      fd.append('recipeId', isNew ? 'draft' : recipeId)
+      fd.append('recipeId', savedId ?? 'draft')
       const res = await fetch('/api/recipes/upload-image', { method: 'POST', body: fd })
       if (!res.ok) {
         const d = await res.json().catch(() => ({})) as { error?: string }
@@ -1518,8 +1586,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       if (!res.ok) return
       const { imageUrl } = await res.json() as { imageUrl: string | null }
       if (imageUrl) {
-        suppressNextDirtyRef.current = true
-        setRecipe((c) => ({ ...c, imageUrl, imageUrls: [imageUrl] }))
+        setRecipeQuietly((c) => ({ ...c, imageUrl, imageUrls: [imageUrl] }))
         setLoadedRecipe((prev) => prev ? { ...prev, imageUrl, imageUrls: [imageUrl] } : prev)
       }
     } catch {
@@ -1527,11 +1594,11 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     } finally {
       setFetchingImage(false)
     }
-  }, [])
+  }, [setRecipeQuietly])
 
   // ── Save & Delete ──────────────────────────────────────────────────────────
 
-  const doSave = useCallback(async (currentRecipe: RecipeEditorData, currentIngredients: typeof computedIngredients, silent = false) => {
+  const performSave = useCallback(async (currentRecipe: RecipeEditorData, currentIngredients: typeof computedIngredients, silent: boolean) => {
     const payload: RecipeEditorData = {
       ...currentRecipe,
       // When used as a sub-recipe, pin the unit to the recipe's own yield unit so
@@ -1555,17 +1622,27 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     const hydratedIngredients = await hydrateIngredientAllergens(saved.ingredients)
     const hydratedRecipe = { ...saved, ingredients: hydratedIngredients } as RecipeRecord
 
-    suppressNextDirtyRef.current = true
+    // The save took several round trips (save, re-fetch, allergens). If the
+    // user edited during them, the server copy is older than the editor —
+    // replacing the editor with it would silently discard those edits. They
+    // already re-marked the recipe dirty, so another autosave is scheduled.
+    // (Background quiet updates in the meantime, e.g. a fetched image, don't
+    // count — they aren't edits.)
+    const stale = !derivesQuietlyFrom(recipeRef.current, currentRecipe)
+    if (!stale) cleanRecipeRef.current = currentRecipe
+
     setLoadedRecipe(hydratedRecipe)
     if (!silent) {
-      setRecipe(mapRecipeToState(hydratedRecipe))
+      // Compared inside the updater against React's actual latest state, so
+      // an edit that landed after the check above is still kept.
+      setRecipeQuietly((c) => (c === currentRecipe ? mapRecipeToState(hydratedRecipe) : c))
     }
     setRecipeAllergens(
       computeRecipeAllergens(
         Object.fromEntries(hydratedIngredients.map((ing: RecipeIngredientDraft) => [ing.id, ing.allergens ?? []]))
       )
     )
-    localStorage.removeItem(storageKey)
+    localStorage.removeItem(draftKey)
     if (!silent) toast.success('Recipe saved')
 
     // Auto-fetch Pexels image for new recipe with no image
@@ -1573,17 +1650,39 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       void fetchRecipeImage(saved.id, currentRecipe.name)
     }
 
-    return saved
-  }, [createRecipe, fetchRecipeImage, hydrateIngredientAllergens, storageKey, updateRecipe])
+    return { saved, stale }
+  }, [createRecipe, derivesQuietlyFrom, fetchRecipeImage, hydrateIngredientAllergens, draftKey, setRecipeQuietly, updateRecipe])
+
+  // Saves `currentRecipe` (the editor state as of the call) and reports whether
+  // the editor changed while the save was in flight (`stale`). Saves are
+  // queued — see saveQueueRef.
+  const doSave = useCallback((currentRecipe: RecipeEditorData, currentIngredients: typeof computedIngredients, silent = false) => {
+    const run = saveQueueRef.current.then(() => performSave(currentRecipe, currentIngredients, silent))
+    saveQueueRef.current = run.catch(() => {})
+    return run
+  }, [performSave])
+
+  // Record the id of a saved recipe and, for a new one, point the URL at it.
+  // This used to router.replace(`/recipes/${id}`), which changes the [id]
+  // route segment — Next remounts the page and reloads the recipe from the
+  // server, wiping anything typed while the first save was in flight (and any
+  // open panel). replaceState updates the URL without navigating.
+  const adoptSavedId = useCallback((id: string) => {
+    setSavedId(id)
+    if (isNew && window.location.pathname !== `/recipes/${id}`) {
+      window.history.replaceState(null, '', `/recipes/${id}`)
+    }
+  }, [isNew])
 
   const handleSave = async () => {
-    if (autoSaveTimerRef.current) { clearTimeout(autoSaveTimerRef.current); autoSaveTimerRef.current = null }
+    autosaveScheduler.cancel()
     try {
       setSaving(true)
       setError(null)
-      const saved = await doSave(recipeRef.current, computedIngredientsRef.current, false)
-      setSaveStatus('clean')
-      if (isNew) router.replace(`/recipes/${saved.id}`)
+      const { saved, stale } = await doSave(recipeRef.current, computedIngredientsRef.current, false)
+      autosaveScheduler.markSaved(stale)
+      adoptSavedId(saved.id)
+      setSaveStatus(stale ? 'dirty' : 'clean')
     } catch (saveError) {
       const msg = saveError instanceof Error ? saveError.message : 'Unable to save recipe'
       setError(msg)
@@ -1595,7 +1694,6 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   }
 
   const handleAutoSave = useCallback(async () => {
-    autoSaveTimerRef.current = null
     if (aiImportActiveRef.current) {
       setSaveStatus('dirty')
       return
@@ -1603,8 +1701,13 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     const importSessionAtStart = aiImportSessionRef.current
     setSaveStatus('autosaving')
     try {
-      const saved = await doSave(recipeRef.current, computedIngredientsRef.current, true)
+      const { saved, stale } = await doSave(recipeRef.current, computedIngredientsRef.current, true)
+      autosaveScheduler.markSaved(stale)
+      // No remount any more (see adoptSavedId), so this is safe even if an
+      // AI import opened meanwhile.
+      adoptSavedId(saved.id)
       if (
+        stale ||
         aiImportActiveRef.current ||
         aiImportSessionRef.current !== importSessionAtStart
       ) {
@@ -1613,11 +1716,10 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
       }
       setSaveStatus('saved')
       setTimeout(() => setSaveStatus((s) => s === 'saved' ? 'clean' : s), 2000)
-      if (isNew) router.replace(`/recipes/${saved.id}`)
     } catch {
       setSaveStatus('failed')
     }
-  }, [doSave, isNew, router])
+  }, [adoptSavedId, autosaveScheduler, doSave])
 
   // Keep the ref pointing to the latest handleAutoSave
   handleAutoSaveRef.current = handleAutoSave
@@ -1630,27 +1732,21 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
     setAiImportOpen(nextOpen)
 
     if (nextOpen) {
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current)
-        autoSaveTimerRef.current = null
-      }
+      autosaveScheduler.cancel()
       return
     }
 
     if (saveStatus === 'dirty' || saveStatus === 'failed') {
-      autoSaveTimerRef.current = setTimeout(
-        () => void handleAutoSaveRef.current?.(),
-        3000
-      )
+      autosaveScheduler.markDirty()
     }
-  }, [saveStatus])
+  }, [autosaveScheduler, saveStatus])
 
   const handleDelete = async () => {
-    if (isNew) return
+    if (!savedId) return
     try {
       setDeleteBusy(true)
-      await deleteRecipe(recipeId)
-      localStorage.removeItem(storageKey)
+      await deleteRecipe(savedId)
+      localStorage.removeItem(draftKey)
       toast.success('Recipe deleted')
       router.push('/recipes')
     } catch (deleteError) {
@@ -1661,7 +1757,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
   }
 
   const handleDuplicate = () => {
-    if (isNew || !loadedRecipe) return
+    if (!savedId || !loadedRecipe) return
 
     const ingredients = computedIngredients.map((item) => {
       const copy: Partial<RecipeIngredientDraft> = { ...item }
@@ -2048,7 +2144,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
             <span className="hidden sm:inline">Print</span>
           </button>
 
-          {!isNew && (
+          {savedId && (
             <button
               type="button"
               onClick={handleDuplicate}
@@ -2059,7 +2155,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
             </button>
           )}
 
-          {!isNew && (
+          {savedId && (
             <button
               type="button"
               onClick={handleDelete}
@@ -2150,11 +2246,11 @@ export default function RecipeBuilder({ recipeId }: { recipeId: string }) {
                             {uploadingImage ? 'Uploading…' : 'Add photo'}
                           </button>
                         )}
-                        {imageSource === 'pexels' && !isNew && (
+                        {imageSource === 'pexels' && savedId && (
                           <button
                             type="button"
                             title="Fetch new stock photo"
-                            onClick={() => void fetchRecipeImage(recipeId, recipe.name)}
+                            onClick={() => void fetchRecipeImage(savedId, recipe.name)}
                             disabled={fetchingImage}
                             className="rounded-full bg-white/80 p-1.5 shadow transition hover:bg-white disabled:opacity-50"
                           >
