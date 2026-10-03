@@ -25,6 +25,7 @@ import { compressImage } from '@/lib/utils/image-compress'
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/toast'
 import { findCandidateMatch, nameTokens, rankCandidates, tokenKey } from '@/lib/matching/nameTokenMatch'
+import { getQuantityStep } from '@/lib/utils/unit-converter'
 
 type FileKind = 'pdf' | 'image' | 'csv'
 
@@ -172,6 +173,8 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
   const [yieldQty, setYieldQty] = useState(1)
   const [yieldUnit, setYieldUnit] = useState('portion')
   const [rows, setRows] = useState<ImportRow[]>([])
+  // Raw typed quantity text per row, so "0." / "0.3" survive re-render.
+  const [quantityDrafts, setQuantityDrafts] = useState<Record<string, string>>({})
   const [candidates, setCandidates] = useState<MatchCandidate[]>([])
   const [tenantId, setTenantId] = useState<string | null>(null)
   const [editingMatchId, setEditingMatchId] = useState<string | null>(null)
@@ -876,9 +879,14 @@ export default function AiImportRecipeModal({ open, onOpenChange, onImported }: 
                           <input
                             type="number"
                             min="0"
-                            step="0.001"
-                            value={row.quantity || ''}
-                            onChange={(e) => updateRow(row.id, { quantity: Number(e.target.value) || 0 })}
+                            step={getQuantityStep(row.unit)}
+                            value={quantityDrafts[row.id] ?? (row.quantity || '')}
+                            onChange={(e) => {
+                              const raw = e.target.value
+                              setQuantityDrafts((prev) => ({ ...prev, [row.id]: raw }))
+                              const v = raw === '' ? 0 : parseFloat(raw)
+                              updateRow(row.id, { quantity: isNaN(v) ? 0 : v })
+                            }}
                             className="w-[90px] shrink-0 rounded-lg border border-slate-200 px-2 py-2 text-right text-sm outline-none transition focus:border-emerald-400"
                           />
                           <select

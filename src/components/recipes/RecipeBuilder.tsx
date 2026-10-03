@@ -65,7 +65,7 @@ import { YieldFactorPopover } from './YieldFactorPopover'
 import { YieldFactorModal } from './YieldFactorModal'
 import { findYieldFactor } from '@/lib/data/yield-factors'
 import { compressImage } from '@/lib/utils/image-compress'
-import { isConvertible, convertUnit, getUnitFamily } from '@/lib/utils/unit-converter'
+import { isConvertible, convertUnit, getUnitFamily, getQuantityStep } from '@/lib/utils/unit-converter'
 import { normalizeBrand } from '@/lib/utils/normalizeBrand'
 import CostBreakdown from './CostBreakdown'
 import LaborConfigModal from './LaborConfigModal'
@@ -291,6 +291,7 @@ function IngredientRow({
 }) {
   const controls = useDragControls()
   const [epWeightDraft, setEpWeightDraft] = useState<string | null>(null)
+  const [quantityDraft, setQuantityDraft] = useState<string | null>(null)
   const hasNote = !!item.notes && item.notes !== item.ingredientName
   const notePreview = hasNote
     ? (item.notes!.length > 60 ? item.notes!.substring(0, 60) + '…' : item.notes!)
@@ -318,6 +319,16 @@ function IngredientRow({
   // The weight column shows AP (what to buy) when a correction factor is
   // active, otherwise it shows EP (= gross = net when there's no trim loss).
   const netWtDisplay = apWeightBase ?? epWeightBase
+
+  // EP Qty holds raw typed text while focused (so "0." / "0.3" aren't clobbered
+  // by re-rendering a parsed number) and commits on blur/Enter, like NET WT.
+  // No draft means the field wasn't edited — don't write an unchanged value.
+  const commitQuantityDraft = () => {
+    if (quantityDraft === null) return
+    const v = quantityDraft === '' ? 0 : parseFloat(quantityDraft)
+    onUpdate({ quantity: isNaN(v) ? 0 : v })
+    setQuantityDraft(null)
+  }
 
   const handleWeightColumnChange = (newValue: number) => {
     if (epWeightBase == null || epWeightBase.value <= 0) return
@@ -488,11 +499,14 @@ function IngredientRow({
           <input
             type="number"
             min="0"
-            step="0.001"
-            value={item.quantity || ''}
-            onChange={(e) => {
-              const v = e.target.value === '' ? 0 : parseFloat(e.target.value)
-              if (!isNaN(v)) onUpdate({ quantity: v })
+            step={getQuantityStep(item.unit)}
+            value={quantityDraft ?? (item.quantity || '')}
+            onChange={(e) => setQuantityDraft(e.target.value)}
+            onBlur={() => commitQuantityDraft()}
+            onKeyDown={(e) => {
+              // Blur commits via onBlur — committing here too would fire onUpdate twice.
+              if (e.key === 'Enter') e.currentTarget.blur()
+              if (e.key === 'Escape') setQuantityDraft(null)
             }}
             className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-right text-sm outline-none transition focus:border-emerald-500 focus:bg-white"
           />
