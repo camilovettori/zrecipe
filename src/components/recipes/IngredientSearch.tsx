@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search, Plus, X, Loader2, ChefHat } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { COMMON_UNITS } from '@/lib/utils/unit-converter'
+import { COMMON_UNITS, getQuantityStep } from '@/lib/utils/unit-converter'
 import { cn } from '@/lib/utils'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 import type { IngredientLookup } from '@/hooks/useInvoices'
@@ -47,7 +47,8 @@ export default function IngredientSearch({
   const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
   const [selection, setSelection] = useState<Selection | null>(null)
-  const [quantity, setQuantity] = useState<number | ''>('')
+  const [quantityInput, setQuantityInput] = useState('')
+  const quantity = quantityInput === '' ? '' : parseFloat(quantityInput)
   const [unit, setUnit] = useState('unit')
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
   const addQtyRef = useRef<HTMLInputElement>(null)
@@ -172,7 +173,7 @@ export default function IngredientSearch({
 
   const resetSelection = () => {
     setSelection(null)
-    setQuantity('')
+    setQuantityInput('')
     setUnit('unit')
   }
 
@@ -202,14 +203,14 @@ export default function IngredientSearch({
   const selectIngredient = (ing: IngredientLookup) => {
     setSelection({ kind: 'ingredient', ingredient: ing })
     setUnit(getDefaultRecipeUnit(ing.priceUnit ?? null))
-    setQuantity('')
+    setQuantityInput('')
     setOpen(true)
   }
 
   const selectSubRecipe = (sr: SubRecipeLookup) => {
     setSelection({ kind: 'sub-recipe', subRecipe: sr })
     setUnit(sr.unit)
-    setQuantity('')
+    setQuantityInput('')
     setOpen(true)
   }
 
@@ -437,12 +438,9 @@ export default function IngredientSearch({
                 ref={addQtyRef}
                 type="number"
                 min="0"
-                step="0.001"
-                value={quantity}
-                onChange={(e) => {
-                  const val = e.target.value
-                  setQuantity(val === '' ? '' : parseFloat(val))
-                }}
+                step={getQuantityStep(unit)}
+                value={quantityInput}
+                onChange={(e) => setQuantityInput(e.target.value)}
                 placeholder="Amount"
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-emerald-500"
               />

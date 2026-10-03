@@ -49,6 +49,36 @@ export function getUnitFamily(unit: string): 'weight' | 'volume' | 'count' | nul
   return null
 }
 
+/**
+ * Native stepper increment (the input's up/down arrows, and scroll-to-change)
+ * for a recipe-ingredient quantity field, chosen so each step moves by one
+ * perceptible real-world amount instead of the previous flat 0.001 — which
+ * was imperceptible for the common case (g/ml/unit) and not a sensible
+ * amount either way for the others. Unrecognized units fall back to 1.
+ */
+export function getQuantityStep(unit: string): number {
+  switch (normalizeUnit(unit)) {
+    case 'g':
+    case 'ml':
+    case 'unit':
+    case 'portion':
+    case 'serving':
+    case 'dozen':
+      return 1
+    case 'kg':
+    case 'l':
+    case 'lb':
+      return 0.01
+    case 'oz':
+    case 'tbsp':
+    case 'tsp':
+    case 'cup':
+      return 0.25
+    default:
+      return 1
+  }
+}
+
 export function getConversionFactor(fromUnit: Unit, toUnit: Unit) {
   const from = normalizeUnit(fromUnit)
   const to = normalizeUnit(toUnit)
