@@ -30,6 +30,7 @@ type ClaudeUsage = { inputTokens: number; outputTokens: number }
 
 type ExtractedRecipe = {
   usage: ClaudeUsage
+  // '' when the source has no title — the import modal then falls back to the file name.
   recipe_name: string
   prep_time_minutes: number | null
   cook_time_minutes: number | null
@@ -42,7 +43,11 @@ const SYSTEM_PROMPT =
   'You are a professional recipe transcription assistant. Extract ONLY the following fields from the provided recipe source, and respond as strict JSON matching the schema. Do not invent data. If a field is not present in the source, return null (or an empty array for ingredients). You can read Portuguese, English, and multilingual recipe notes.'
 
 const TEXT_INSTRUCTION = `Extract from this recipe:
-- recipe_name (string)
+- recipe_name (string | null) — the recipe's own title, exactly as written in the source. If the source has no title, return null.
+  A section label is never the recipe name: do not return "Ingredients", "Ingredientes", "Method", "Instructions",
+  "Directions", "Preparation", "Modo de preparo", "Preparo" or any similar heading as recipe_name, even when it is
+  the first or most prominent text. Do not make up a placeholder name either (e.g. "Untitled", "Recipe",
+  "Receita sem nome") — return null instead.
 - prep_time_minutes (number | null)
 - cook_time_minutes (number | null)
 - yield_quantity (number | null) — e.g. 12 for '12 cookies'
@@ -59,9 +64,9 @@ Normalize common unit abbreviations: grams→g, kilogram→kg, millilitre→ml, 
 DO NOT extract prices, costs, or supplier info. This is a RECIPE, not an invoice. Only ingredients and their quantities.
 Handwritten source is welcome — do your best to read messy handwriting. If truly illegible, return name as your best guess with a trailing '?' character so the user knows to review.
 
-Return ONLY valid JSON in this exact shape:
+Return ONLY valid JSON in this exact shape (recipe_name is null when the source has no title):
 {
-  "recipe_name": "string",
+  "recipe_name": "string or null",
   "prep_time_minutes": null,
   "cook_time_minutes": null,
   "yield_quantity": null,
