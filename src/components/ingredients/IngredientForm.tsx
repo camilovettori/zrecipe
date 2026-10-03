@@ -17,6 +17,8 @@ import RenameCategoryModal from '@/components/shared/RenameCategoryModal'
 import { useIngredientCategories } from '@/hooks/useIngredientCategories'
 import { useIngredientBrands } from '@/hooks/useIngredientBrands'
 import { useSuppliers } from '@/hooks/useSuppliers'
+import { useSubscription } from '@/hooks/useSubscription'
+import { linkSupplierCodeToNewIngredient, supplierCodeLinkNotice } from '@/lib/ingredients/linkSupplierCode'
 import {
   calculateNormalizedIngredientPrice,
   calculatePackagePriceFromUnitPrice,
@@ -171,6 +173,7 @@ export default function IngredientForm({
   const { categories, refetch: refetchCategories } = useIngredientCategories()
   const brands = useIngredientBrands()
   const { suppliers, createSupplier } = useSuppliers()
+  const { limits } = useSubscription()
 
   const [categoryMode, setCategoryMode] = useState<'select' | 'custom'>('select')
   const [customCategoryInput, setCustomCategoryInput] = useState('')
@@ -192,6 +195,9 @@ export default function IngredientForm({
   const [supplierQuery, setSupplierQuery] = useState(ingredient?.supplier?.name ?? '')
   const [supplierId, setSupplierId] = useState<string | null>(ingredient?.last_supplier_id ?? null)
   const [supplierDropdownOpen, setSupplierDropdownOpen] = useState(false)
+  // Create-only: an existing ingredient manages its codes in the ingredient
+  // page's "Supplier codes" panel.
+  const [productCode, setProductCode] = useState('')
   const [brandDropdownOpen, setBrandDropdownOpen] = useState(false)
   const [nameDropdownOpen, setNameDropdownOpen] = useState(false)
   const [duplicateMatches, setDuplicateMatches] = useState<Array<{ id: string; name: string }>>([])
@@ -522,6 +528,20 @@ export default function IngredientForm({
             // Best effort.
           }
 
+          if (limits.canUseSupplierCodes && productCode.trim()) {
+            const codeResult = await linkSupplierCodeToNewIngredient(supabase, {
+              tenantId,
+              supplierId: resolvedSupplierId,
+              ingredientId: newId,
+              productCode,
+            })
+            const notice = supplierCodeLinkNotice(codeResult, productCode)
+            if (notice) {
+              if (codeResult === 'failed') toast.error(notice.title, { description: notice.description })
+              else toast.info(notice.title, { description: notice.description })
+            }
+          }
+
           router.push(`/ingredients/${newId}`)
         }
       } catch (err: unknown) {
@@ -542,6 +562,8 @@ export default function IngredientForm({
       supplierId,
       supplierQuery,
       createSupplier,
+      limits.canUseSupplierCodes,
+      productCode,
     ]
   )
 
@@ -786,6 +808,33 @@ export default function IngredientForm({
               </p>
             )}
           </div>
+
+          {/* Product code — create only; existing ingredients use the Supplier codes panel */}
+          {!isExisting && (
+            limits.canUseSupplierCodes ? (
+              <div>
+                <label className={label}>
+                  Product code <span className="font-normal text-slate-400">(optional)</span>
+                </label>
+                <input
+                  value={productCode}
+                  onChange={(e) => setProductCode(e.target.value)}
+                  disabled={!supplierQuery.trim()}
+                  placeholder="e.g. BUT-SAL-250"
+                  className={cn(field, 'disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400')}
+                />
+                <p className="mt-1.5 text-xs text-slate-400">
+                  {supplierQuery.trim()
+                    ? 'The code this supplier uses for the product. Future invoices from them match it automatically.'
+                    : 'Add a supplier first — product codes are linked per supplier.'}
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400">
+                Supplier product codes are available on Pro and Business.
+              </p>
+            )
+          )}
 
           {/* Category */}
           <div>

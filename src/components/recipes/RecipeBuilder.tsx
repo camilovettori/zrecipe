@@ -67,6 +67,7 @@ import { findYieldFactor } from '@/lib/data/yield-factors'
 import { compressImage } from '@/lib/utils/image-compress'
 import { isConvertible, convertUnit, getUnitFamily, getQuantityStep } from '@/lib/utils/unit-converter'
 import { createAutosaveScheduler, type AutosaveScheduler } from '@/lib/recipes/autosaveScheduler'
+import { linkSupplierCodeToNewIngredient, supplierCodeLinkNotice } from '@/lib/ingredients/linkSupplierCode'
 import { normalizeBrand } from '@/lib/utils/normalizeBrand'
 import CostBreakdown from './CostBreakdown'
 import LaborConfigModal from './LaborConfigModal'
@@ -1479,6 +1480,20 @@ function RecipeEditor({ recipeId }: { recipeId: string }) {
           // saves addIngredient()'s fetchAllergensCached() call below a round
           // trip for allergens we already know were persisted successfully.
           allergenCacheRef.current.set(data.id, formData.allergens)
+        }
+      }
+
+      if (limits.canUseSupplierCodes && formData.productCode) {
+        const codeResult = await linkSupplierCodeToNewIngredient(supabase, {
+          tenantId,
+          supplierId: formData.supplierId,
+          ingredientId: data.id,
+          productCode: formData.productCode,
+        })
+        const notice = supplierCodeLinkNotice(codeResult, formData.productCode)
+        if (notice) {
+          if (codeResult === 'failed') toast.error(notice.title, { description: notice.description })
+          else toast.info(notice.title, { description: notice.description })
         }
       }
 
