@@ -6,7 +6,7 @@ const FOUNDERS = [
     photo: '/images/irianavettori.png',
     name: 'Iriana Rosa Vettori',
     role: 'Founder',
-    bio: 'A culinary graduate since 2012, Iriana has worked across Relais & Château kitchens worldwide, managed cafés and bakeries, and developed and standardised recipes and fiches techniques for professional kitchens. She shapes how ZRecipe thinks about real kitchen workflows — not just spreadsheets.',
+    bio: 'A Culinary Arts graduate, Iriana has spent over a decade working across professional kitchens, bakeries, cafés, and food production, including experience in a Relais & Châteaux kitchen. She has developed recipes and created the technical documentation used by professional kitchens. This hands-on experience shapes how she approaches ZRecipe: understanding how kitchens actually work, rather than trying to fit them into spreadsheets.',
   },
   {
     photo: '/images/camilovettori.png',
